@@ -1,0 +1,33 @@
+---
+description: HIRCT 계획 문서 작성 규약 — 마이크로 스텝 템플릿, RESOLVED 정책
+globs: "docs/plans/**/*.md"
+alwaysApply: false
+---
+
+# Plan Document Convention (HIRCT)
+
+## 태스크 문서 형식 (마이크로 스텝 템플릿)
+모든 태스크 문서는 `docs/plans/hirct-convention.md` 섹션 5의 형식을 따른다:
+```markdown
+### Step N: [1줄 설명] (예상: N분)
+**Goal**: 달성 목표 (1줄)
+**Run**: 단일 명령
+**Expect**: 기대 결과
+```
+
+## RESOLVED 정책 (증거 기반)
+open-decisions.md의 RESOLVED 표기 조건 (전부 충족):
+1. 결정 내용/날짜/근거가 기록됨
+2. "반영 대상" 파일에 결정 내용이 실제 존재 (앵커 + grep 패턴으로 검증)
+3. 해당 결정을 검증하는 게이트 체크리스트 존재
+4. 기능 결정은 `test/` 또는 `unittests/`의 테스트가 PASS로 증명, 문서/네이밍 결정은 PR 리뷰 + lint
+
+반영 대상 참조 형식 (라인 번호 하드코딩 금지):
+```markdown
+**반영 대상**: `hirct-convention.md` §3.1 "타입 매핑" 65+ 행
+**검증 grep**: `grep -n "65.*Error\|uint32_t\[\]" docs/plans/hirct-convention.md`
+```
+
+## 문서 내 bash 스크립트 참조 금지
+- `scripts/*.sh`, `verify-all.sh`, `traverse-all.sh` 등 .sh 파일 참조는 lit 또는 Make 타겟으로 대체
+- 허용: Makefile recipe 내 inline shell, CLI 도구 호출 예시, `utils/setup-env.sh` 참조

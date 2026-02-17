@@ -1,0 +1,3 @@
+# GitHub 언어 통계에서 IDE 설정 파일 제외
+# .cursor/ 디렉토리의 JS/TS/Shell 파일이 프로젝트 기술 스택으로 오인되는 것을 방지
+.cursor/** linguist-vendored=true

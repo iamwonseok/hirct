@@ -1,0 +1,32 @@
+---
+description: HIRCT C++ 코딩 컨벤션 — C++17, LLVM/CIRCT 코드베이스 스타일
+globs: "**/*.cpp,**/*.h,**/*.hpp"
+alwaysApply: false
+---
+
+# C++ Convention (HIRCT)
+
+**전체 규칙**: `.cursor/convention/cpp.md` (C 기본: `.cursor/convention/c.md`)
+
+## HIRCT 특화 규칙
+- **C++17 필수** (`-std=c++17`)
+- 클래스명 PascalCase, 함수/변수 snake_case, 멤버변수 trailing underscore (`member_`)
+- LLVM 스타일 포맷 (`.clang-format` 참조)
+- `GenModel`, `GenTB`, `GenDPIC` 등 emitter 클래스명은 파일명과 일치
+- IR 분석은 `ModuleAnalyzer` 클래스 활용 (공통 기반, `lib/Analysis/`)
+- 소스 구조: `include/hirct/{Analysis,Target}/` (헤더), `lib/{Analysis,Target}/` (구현), `tools/{hirct-gen,hirct-verify}/` (CLI main.cpp만)
+
+## 비트폭 타입 매핑
+| IR 비트폭 | C++ 타입 |
+|----------|----------|
+| 1 | `bool` |
+| 2-8 | `uint8_t` |
+| 9-16 | `uint16_t` |
+| 17-32 | `uint32_t` |
+| 33-64 | `uint64_t` |
+| 65+ | Phase 1: Error, Phase 2: `uint32_t[]` (Verilator 호환) |
+
+## 도구
+- 포맷: `clang-format` (`.clang-format`)
+- 린트: `clang-tidy` (`.clang-tidy`)
+- 빌드: `cmake -B build -G Ninja && ninja -C build`

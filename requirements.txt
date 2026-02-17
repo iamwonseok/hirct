@@ -1,0 +1,15 @@
+# HIRCT Python Dependencies
+# Install: pip install -r requirements.txt
+# Note: Python 3.10+ 필수
+
+# ─── Lint / Format (Phase 0~2) ───
+black>=24.0
+flake8>=7.0
+mypy>=1.8
+
+# ─── Test Infrastructure (Phase 0+) ───
+lit>=18.0
+
+# ─── Test Runner Dependencies (Phase 2) ───
+# generate-report.py는 stdlib만 사용하므로 추가 패키지 없음
+# (json, pathlib, subprocess, concurrent.futures, argparse, dataclasses)

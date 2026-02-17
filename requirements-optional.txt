@@ -1,0 +1,10 @@
+# HIRCT Optional Python Dependencies
+# Install: pip install -r requirements-optional.txt
+# Note: 실패해도 필수 기능에는 영향 없음
+
+# ─── Cocotb (Phase 2+, 선택적) ───
+cocotb>=1.9
+
+# ─── Documentation (Phase 3) ───
+mkdocs>=1.6
+mkdocs-material>=9.5

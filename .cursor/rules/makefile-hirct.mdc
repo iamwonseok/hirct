@@ -1,0 +1,39 @@
+---
+description: HIRCT Makefile 컨벤션 — GNU Make 4.x, 테스트 오케스트레이션 패턴
+globs: "**/Makefile,**/*.mk"
+alwaysApply: false
+---
+
+# Makefile Convention (HIRCT)
+
+**전체 규칙**: `.cursor/convention/make.md`
+
+## HIRCT 테스트 오케스트레이션 패턴
+루트 Makefile은 진입점/정책, lit이 실행 엔진:
+```makefile
+LIT_TIMEOUT ?= 300
+LIT_JOBS    ?= $(shell nproc)
+
+test-all: check-hirct check-hirct-unit check-hirct-integration report
+check-hirct:
+	lit test/ --xunit-xml-output output/lit-check.xml
+check-hirct-integration:
+	lit integration_test/smoke/ -j ${LIT_JOBS} --timeout ${LIT_TIMEOUT} --xunit-xml-output output/lit-integration.xml
+report:
+	python3 utils/generate-report.py
+```
+
+per-module Makefile은 `GenMakefile.cpp`이 자동 생성 (순수 Make):
+```makefile
+test: test-compile test-verify test-artifacts
+test-verify:
+	./verify_${MODULE} 1000 ${SEED}
+```
+
+## 핵심 규칙
+- 변수 참조: `${VAR}` (괄호 아닌 중괄호)
+- 변수명: UPPER_SNAKE_CASE
+- 타겟명: kebab-case (`test-all`, `test-verify`)
+- Phony 타겟: `.PHONY` 필수 선언
+- Recipe: 반드시 탭 들여쓰기
+- bash 스크립트 파일(.sh) 호출 금지 — inline shell 또는 lit/Python 사용
