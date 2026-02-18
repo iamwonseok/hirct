@@ -1,8 +1,9 @@
 # HIRCT 레퍼런스: 디렉터리 구조 · 명령어 · Make 타겟
 
 > **주의: 이 문서는 Phase 0~3 완료 후의 최종 목표 구조입니다.**
-> 현재 리포지토리에는 이 문서에 기술된 경로(include/, lib/, tools/, CMakeLists.txt, Makefile 등)가
-> 아직 존재하지 않습니다. 현재 실제 파일 구성은 [STATUS.md](../../STATUS.md)를 참조하십시오.
+> Phase 0 산출물(Makefile, utils/, test/, integration_test/, .clang-format 등)은 존재하나,
+> Phase 1+ 산출물(include/, lib/, tools/, CMakeLists.txt)은 아직 없습니다.
+> 현재 실제 파일 구성은 [STATUS.md](../../STATUS.md)를 참조하십시오.
 
 > **목적**: Phase 0~3 완료 후 프로젝트의 최종 형태를 한 문서로 조망
 > **버전**: 2.1 (2026-02-17)

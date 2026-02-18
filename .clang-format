@@ -1,0 +1,9 @@
+# HIRCT C/C++ Format Configuration
+# Based on LLVM/CIRCT standard style
+---
+BasedOnStyle: LLVM
+ColumnLimit: 80
+IndentWidth: 2
+UseTab: Never
+BreakBeforeBraces: Attach
+AllowShortFunctionsOnASingleLine: All

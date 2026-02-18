@@ -90,15 +90,22 @@ python3 -c "import json, pathlib, subprocess, concurrent.futures, argparse, data
 vcs -ID 2>/dev/null || echo "WARN: VCS not available (Phase 3 co-sim will be skipped)"
 ```
 
-## 게이트 (완료 기준)
+## 게이트 (완료 기준) — 7/7 PASS [V]
 
-- [ ] `circt-verilog` → LevelGateway.v MLIR 변환 성공
-- [ ] `circt-verilog` → RVCExpander.v MLIR 변환 성공
-- [ ] `verilator --cc` → LevelGateway RTL 모델 빌드 성공
-- [ ] `verilator --cc` → RVCExpander RTL 모델 빌드 성공
-- [ ] `g++ -std=c++17` → 테스트 C++ 파일 컴파일 성공
-- [ ] `python3` → 필수 stdlib 모듈 import 성공
-- [ ] (선택) `vcs -ID` → 버전 출력
+> 근거: [Task 002 리포트](../../report/phase-0-setup/002-tools-validation.md)
+> **검증 일시**: 2026-02-18
+
+- [x] `circt-verilog` → LevelGateway.v MLIR 변환 성공 — 784 bytes
+- [x] `circt-verilog` → RVCExpander.v MLIR 변환 성공 — 12,672 bytes
+- [x] `verilator --cc` → LevelGateway RTL 모델 빌드 성공 — 22,698 bytes
+- [x] `verilator --cc` → RVCExpander RTL 모델 빌드 성공 — libVFadu_K2_S5_RVCExpander.a
+- [x] `g++ -std=c++17` → 테스트 C++ 파일 컴파일 성공 — exit 0
+- [x] `python3` → 필수 stdlib 모듈 import 성공 — OK
+- [x] (선택) `vcs -ID` → 버전 출력 — V-2023.12-SP2-7_Full64
+
+추가 검증 (문서 1단계):
+- [x] `circt-opt --hw-flatten-modules` → flatten 성공 — 785 bytes
+- [x] multi-file + `--top=Fadu_K2_S5_AXI4Buffer` → MLIR 성공 — 15,591 bytes
 
 ---
 

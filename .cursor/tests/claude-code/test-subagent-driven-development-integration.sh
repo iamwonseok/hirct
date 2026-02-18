@@ -296,12 +296,12 @@ if [ $FAILED -eq 0 ]; then
     echo "All verification tests passed!"
     echo ""
     echo "The subagent-driven-development skill correctly:"
-    echo "  ✓ Reads plan once at start"
-    echo "  ✓ Provides full task text to subagents"
-    echo "  ✓ Enforces self-review"
-    echo "  ✓ Runs spec compliance before code quality"
-    echo "  ✓ Spec reviewer verifies independently"
-    echo "  ✓ Produces working implementation"
+    echo "  [V] Reads plan once at start"
+    echo "  [V] Provides full task text to subagents"
+    echo "  [V] Enforces self-review"
+    echo "  [V] Runs spec compliance before code quality"
+    echo "  [V] Spec reviewer verifies independently"
+    echo "  [V] Produces working implementation"
     exit 0
 else
     echo "STATUS: FAILED"

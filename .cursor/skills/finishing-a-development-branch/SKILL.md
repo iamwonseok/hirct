@@ -153,10 +153,10 @@ git worktree remove <worktree-path>
 
 | Option | Merge | Push | Keep Worktree | Cleanup Branch |
 |--------|-------|------|---------------|----------------|
-| 1. Merge locally | ✓ | - | - | ✓ |
-| 2. Create PR | - | ✓ | ✓ | - |
-| 3. Keep as-is | - | - | ✓ | - |
-| 4. Discard | - | - | - | ✓ (force) |
+| 1. Merge locally | [V] | - | - | [V] |
+| 2. Create PR | - | [V] | [V] | - |
+| 3. Keep as-is | - | - | [V] | - |
+| 4. Discard | - | - | - | [V] (force) |
 
 ## Common Mistakes
 

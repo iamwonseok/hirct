@@ -1,4 +1,22 @@
-.worktrees/
+# Build artifacts
 build/
 output/
+site/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# C/C++ objects
+*.o
+*.a
+
+# Verilator
+obj_dir/
+
+# RTL sources (local development copy, not committed)
 rtl/
+
+# Worktrees
+.worktrees/

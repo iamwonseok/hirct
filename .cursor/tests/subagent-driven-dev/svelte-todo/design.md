@@ -23,11 +23,11 @@ A simple todo list application built with Svelte. Supports creating, completing,
 │  [________________________] [Add]       │
 ├─────────────────────────────────────────┤
 │  [ ] Buy groceries                  [x] │
-│  [✓] Walk the dog                   [x] │
+│  [[V]] Walk the dog                   [x] │
 │  [ ] Write code                     [x] │
 ├─────────────────────────────────────────┤
 │  2 items left                           │
-│  [All] [Active] [Completed]  [Clear ✓]  │
+│  [All] [Active] [Completed]  [Clear [V]]  │
 └─────────────────────────────────────────┘
 ```
 

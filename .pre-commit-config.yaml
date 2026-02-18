@@ -1,0 +1,73 @@
+# ============================================================================
+# HIRCT pre-commit configuration (local hooks -- no network required)
+#
+# Install : pre-commit install
+# Run all : pre-commit run --all-files
+# ============================================================================
+
+repos:
+  - repo: local
+    hooks:
+      # ── Emoji guard (auto-fix, whole repo) ──────────────────────────
+      #
+      # Mapping: U+2705/U+2713 -> [V], U+274C/U+2717 -> [X], U+26A0 -> [!]
+      # Exit 1 when files are modified (pre-commit auto-fix convention).
+      #
+      - id: fix-emoji
+        name: fix-emoji
+        description: Replace emoji with text markers ([V]/[X]/[!])
+        language: system
+        types: [text]
+        exclude: '(\.git/|\.venv/|build/|rtl/|node_modules/)'
+        entry: |-
+          python3 -c '
+          import sys, pathlib
+          R = [("\u26a0\ufe0f","[!]"),("\u26a0","[!]"),("\u2705","[V]"),("\u2713","[V]"),("\u274c","[X]"),("\u2717","[X]")]
+          m = 0
+          for a in sys.argv[1:]:
+              p = pathlib.Path(a)
+              if not p.is_file(): continue
+              try: t = p.read_text("utf-8")
+              except: continue
+              n = t
+              for e, r in R: n = n.replace(e, r)
+              if n != t:
+                  p.write_text(n, "utf-8")
+                  m = 1
+          sys.exit(m)'
+
+      # ── C/C++ formatting ────────────────────────────────────────────
+      - id: clang-format
+        name: clang-format
+        description: Check C/C++ formatting (LLVM style)
+        entry: clang-format --dry-run --Werror
+        language: system
+        types_or: [c, c++]
+        files: '^(include|lib|tools|unittests)/'
+
+      # ── Shell lint (project scripts only) ───────────────────────────
+      - id: shellcheck
+        name: shellcheck
+        description: Lint shell scripts
+        entry: shellcheck
+        language: system
+        types: [shell]
+        files: '^utils/'
+
+      # ── Verilog/SV lint ─────────────────────────────────────────────
+      - id: verible-lint
+        name: verible-verilog-lint
+        description: Lint SystemVerilog files
+        entry: verible-verilog-lint
+        language: system
+        files: '\.(sv|v)$'
+        exclude: '^rtl/'
+
+      # ── Python formatting (project scripts only) ────────────────────
+      - id: black
+        name: black
+        description: Check Python formatting
+        entry: black --check --quiet
+        language: system
+        types: [python]
+        files: '^(utils|test|integration_test)/'

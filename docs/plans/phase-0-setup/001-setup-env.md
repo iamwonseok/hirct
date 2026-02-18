@@ -59,7 +59,7 @@ mkdocs                 → Phase 3 (302-documentation)
 
 > **CIRCT/LLVM 버전 고정**: 재현 가능한 빌드를 위해 검증된 CIRCT 커밋을 사용한다.
 > 현재 검증 기준: **CIRCT `main` @ 2026-02-01 이후** (Slang 통합, `circt-verilog` 포함 빌드).
-> 구체적 커밋 해시는 첫 빌드 성공 시 `CIRCT_COMMIT` 변수로 고정하고 이 문서에 기록한다.
+> 구체적 커밋 해시는 첫 빌드 성공 시 `tool-versions.env`의 `CIRCT_COMMIT` 변수로 고정한다.
 
 | 도구 | 최소 버전 | 용도 | 설치 방법 | 검증 명령 |
 |------|----------|------|----------|----------|
@@ -245,54 +245,58 @@ Pre-test 5 (선택): VCS 접근
 
 ## 게이트 (완료 기준)
 
-### 필수 게이트: 외부 도구 버전 확인 (전부 PASS 필수)
-- [ ] `circt-verilog --version` → 버전 출력
-- [ ] `g++ --version` → 11 이상
-- [ ] `verilator --version` → 5.020 이상
-- [ ] `cmake --version` → 3.20 이상
-- [ ] `ninja --version` → 1.10 이상
-- [ ] `python3 --version` → 3.10 이상
-- [ ] `make --version` → GNU Make 4.0 이상
-- [ ] `clang-format --version` → 버전 출력
-- [ ] `clang-tidy --version` → 버전 출력
-- [ ] `verible-verilog-lint --version` → 버전 출력
+### 필수 게이트: 외부 도구 버전 확인 (10/10 PASS)
 
-### Pre-test 게이트: 외부 도구 동작 확인 (전부 PASS 필수)
-- [ ] Pre-test 1: circt-verilog MLIR 생성 성공
-- [ ] Pre-test 2: Verilator RTL 모델 빌드 성공
-- [ ] Pre-test 3: g++ C++17 컴파일 성공
-- [ ] Pre-test 4: Python 모듈 import 성공
+> 근거: [게이트 검증 리포트](../../report/phase-0-setup/001-setup-env.md)
 
-### 빌드 인프라 게이트 (전부 PASS 필수)
-- [ ] `utils/setup-env.sh` 생성 + 실행 시 exit 0
-- [ ] 루트 `Makefile` 생성 (make setup, make build, make lint, make clean 타겟)
-- [ ] `.clang-format` 생성
-- [ ] `test/lit.cfg.py` 생성
-- [ ] `integration_test/lit.cfg.py` 생성
-- [ ] `CIRCT_BUILD` 환경변수 설정 확인
-- [ ] `CIRCT_VERSION` 파일 생성 (커밋 해시 + 날짜 기록, 아래 참조)
+- [x] `circt-verilog --version` → 버전 출력 — G01: LLVM 23.0.0git
+- [x] `g++ --version` → 11 이상 — G02: 13.3.0
+- [x] `verilator --version` → 5.020 이상 — G03: 5.020
+- [x] `cmake --version` → 3.20 이상 — G04: 3.28.3
+- [x] `ninja --version` → 1.10 이상 — G05: 1.11.1
+- [x] `python3 --version` → 3.10 이상 — G06: 3.12.3
+- [x] `make --version` → GNU Make 4.0 이상 — G07: 4.3
+- [x] `clang-format --version` → 버전 출력 — G08: 18.1.3
+- [x] `clang-tidy --version` → 버전 출력 — G09: 18.1.3
+- [x] `verible-verilog-lint --version` → 버전 출력 — G10: 0.0-3824
 
-### CIRCT 버전 고정 (CIRCT_VERSION 파일)
+### Pre-test 게이트: 외부 도구 동작 확인 (4/4 PASS)
+- [x] Pre-test 1: circt-verilog MLIR 생성 성공 — G11: 784 bytes
+- [x] Pre-test 2: Verilator RTL 모델 빌드 성공 — G12: 22,698 bytes
+- [x] Pre-test 3: g++ C++17 컴파일 성공 — G13
+- [x] Pre-test 4: Python 모듈 import 성공 — G14
 
-첫 빌드 성공 시 사용한 CIRCT 커밋을 `CIRCT_VERSION` 파일에 기록한다:
+### 빌드 인프라 게이트 (7/7 PASS)
+- [x] `utils/setup-env.sh` 생성 + 실행 시 exit 0 — G15
+- [x] 루트 `Makefile` 생성 (make setup, make build, make lint, make clean 타겟) — G16
+- [x] `.clang-format` 생성 — G17
+- [x] `test/lit.cfg.py` 생성 — G18
+- [x] `integration_test/lit.cfg.py` 생성 — G19
+- [x] `CIRCT_BUILD` 환경변수 설정 확인 — G20
+- [x] `tool-versions.env`에 CIRCT 커밋 해시·날짜 기록 (`CIRCT_COMMIT`, `CIRCT_DATE`) — G21
+
+### CIRCT 버전 고정 (tool-versions.env SSOT)
+
+검증 완료된 CIRCT 커밋을 `tool-versions.env`의 `CIRCT_COMMIT` / `CIRCT_DATE` 변수에 기록한다:
 
 ```bash
-# setup-env.sh 또는 make setup에서 자동 생성
-echo "$(cd $CIRCT_BUILD/.. && git rev-parse HEAD) $(date -I)" > CIRCT_VERSION
+# tool-versions.env (수동 편집 — SSOT)
+CIRCT_COMMIT="5e760efa95e0e2b6a98339d656345818b70d416f"
+CIRCT_DATE="2026-02-17"
 ```
 
-`make setup` 게이트에서 현재 CIRCT 빌드의 커밋과 `CIRCT_VERSION` 파일을 비교:
+`setup-env.sh`가 `tool-versions.env`를 source하여 현재 CIRCT 빌드 커밋과 비교:
 - 일치 → PASS
 - 불일치 → `WARN: CIRCT version mismatch: expected <expected>, found <actual>` 경고 출력 (중단하지 않음)
-- `CIRCT_VERSION` 파일 미존재 → 자동 생성
+- `tool-versions.env` 미존재 → FAIL (SSOT 파일 필수)
 
-### 선택 게이트 (실패 시 경고만)
-- [ ] `vcs -ID` → 버전 출력 (Phase 3 VCS co-sim)
-- [ ] `jq --version` → 버전 출력 (Phase 2 리포트 검증)
-- [ ] `black --version` → 버전 출력 (Python 포맷)
-- [ ] `mkdocs --version` → 버전 출력 (Phase 3 문서)
-- [ ] `shellcheck --version` → 버전 출력 (Shell lint)
+### 선택 게이트 (5/5 PASS)
+- [x] `vcs -ID` → 버전 출력 (Phase 3 VCS co-sim) — G22: V-2023.12-SP2-7
+- [x] `jq --version` → 버전 출력 (Phase 2 리포트 검증) — G23: 1.7
+- [x] `black --version` → 버전 출력 (Python 포맷) — G24: 26.1.0
+- [x] `mkdocs --version` → 버전 출력 (Phase 3 문서) — G25: 1.6.1
+- [x] `shellcheck --version` → 버전 출력 (Shell lint) — G26: 0.9.0
 
-### 종합
-- [ ] `make setup` → exit 0 (전체 설치·검증·pre-test 완료)
-- [ ] 환경 요약표 출력 (도구별 버전 + Phase별 가용성)
+### 종합 (2/2 PASS)
+- [x] `make setup` → exit 0 (전체 설치·검증·pre-test 완료) — G27
+- [x] 환경 요약표 출력 (도구별 버전 + Phase별 가용성) — G28

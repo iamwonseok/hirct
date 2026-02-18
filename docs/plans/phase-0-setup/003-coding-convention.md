@@ -8,14 +8,15 @@
 
 ## 목표
 
-린터 설정을 추가하고 `make lint` 타겟으로 C/C++, Verilog, Shell, Makefile 컨벤션 준수를 확인한다. 컨벤션 참조: `.cursor/convention/` (c.md, cpp.md, verilog.md, make.md, bash.md). **원칙**: 새 코드는 반드시 준수, 기존 코드는 수정 시 함께 정리.
+린터 설정을 추가하고 `make lint` 타겟으로 C/C++, Verilog, Shell 컨벤션 준수를 확인한다. Makefile lint(checkmake)는 Phase 1+에서 도입한다. 컨벤션 참조: `.cursor/convention/` (c.md, cpp.md, verilog.md, make.md, bash.md). **원칙**: 새 코드는 반드시 준수, 기존 코드는 수정 시 함께 정리.
 
 ## 주요 작업
 
 - .clang-format 설정 (C/C++ 포맷)
 - Verilog 린트: verible 또는 verilator --lint-only 설정
-- Shell 린트: shellcheck 설정
-- make lint 타겟: C++, Verilog, Shell, Makefile 통합 검사
+- Shell 린트: shellcheck 설정 + `make lint-sh` 연동
+- make lint 타겟: C++, Verilog, Python, Shell 통합 검사 (`lint-cpp`, `lint-sv`, `lint-py`, `lint-sh`)
+- Makefile 린트(checkmake): Phase 1+ 이관 (Phase 0에서는 도구 미도입)
 - 생성 코드(output/) 정책:
   - **Phase 1에서는 Policy B로 시작**: `output/**`를 `make lint`에서 제외. emitter 개발 생산성 우선.
   - **Phase 2 후반에서 Policy A로 전환**: `output/**`를 lint에 포함. 실패 시 생성기(hirct-gen) 쪽을 수정해서 통과시킨다.
@@ -37,11 +38,14 @@ AllowShortFunctionsOnASingleLine: All
 
 > 참고: CIRCT 프로젝트의 .clang-format을 기반으로 HIRCT 특화 설정 추가
 
-## 게이트 (완료 기준)
+## 게이트 (완료 기준) — 5/7 PASS
 
-- [ ] .clang-format 생성 (cpp.md 컨벤션 반영)
-- [ ] verible/verilator Verilog 린트 설정
-- [ ] shellcheck Shell 린트 설정
-- [ ] `make lint` 타겟 동작 (exit 0 on pass)
-- [ ] Phase 1: `output/**`를 lint에서 제외 (Policy B)
-- [ ] Phase 2 후반: `output/**`를 lint에 포함하여 통과 확인 (Policy A 전환)
+> 근거: [Task 003 리포트](../../report/phase-0-setup/003-coding-convention.md)
+
+- [x] .clang-format 생성 (cpp.md 컨벤션 반영) — G17: LLVM BasedOnStyle
+- [x] verible/verilator Verilog 린트 설정 — G10: verible 설치 완료, `make lint-sv` 타겟 존재
+- [x] shellcheck Shell 린트 설정 + `make lint-sh` 연동 — G26: shellcheck 0.9.0, `make lint-sh` exit 0
+- [x] `make lint` 타겟 동작 (exit 0 on pass, 4개 서브타겟) — G16, G27: exit 0
+- [x] Makefile lint(checkmake) Phase 1+ 이관 결정 — Phase 0 범위 외 (도구 미도입)
+- [ ] Phase 1: `output/**`를 lint에서 제외 (Policy B) — **N/A**: Phase 1 범위 (미착수)
+- [ ] Phase 2 후반: `output/**`를 lint에 포함하여 통과 확인 (Policy A 전환) — **N/A**: Phase 2 범위 (미착수)

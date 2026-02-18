@@ -1,11 +1,19 @@
 # HIRCT Python Dependencies
-# Install: pip install -r requirements.txt
-# Note: Python 3.10+ 필수
+# Python 3.10+ 필수
+#
+# 설치 방법 (PEP 668: externally-managed-environment 대응):
+#   bash)    source utils/setup-env.sh   ← .venv 자동 생성/활성화 후 설치까지 처리
+#   zsh)     bash utils/setup-env.sh && source .venv/bin/activate
+#   tcsh)    bash utils/setup-env.sh && source .venv/bin/activate.csh
+#   수동)    python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
 
 # ─── Lint / Format (Phase 0~2) ───
 black>=24.0
 flake8>=7.0
 mypy>=1.8
+
+# ─── Pre-commit (Phase 0+) ───
+pre-commit>=3.0
 
 # ─── Test Infrastructure (Phase 0+) ───
 lit>=18.0

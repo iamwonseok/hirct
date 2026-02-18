@@ -1,6 +1,13 @@
 # HIRCT Optional Python Dependencies
-# Install: pip install -r requirements-optional.txt
-# Note: 실패해도 필수 기능에는 영향 없음
+# 실패해도 필수 기능에는 영향 없음
+#
+# 설치 방법 (PEP 668: externally-managed-environment 대응):
+#   먼저 venv 활성화 (아래 중 택 1):
+#     bash)    source utils/setup-env.sh
+#     zsh)     bash utils/setup-env.sh && source .venv/bin/activate
+#     tcsh)    bash utils/setup-env.sh && source .venv/bin/activate.csh
+#     수동)    python3 -m venv .venv && source .venv/bin/activate
+#   이후:  pip install -r requirements-optional.txt
 
 # ─── Cocotb (Phase 2+, 선택적) ───
 cocotb>=1.9

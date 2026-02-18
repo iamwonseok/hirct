@@ -1,8 +1,8 @@
 # HIRCT — HDL Intermediate Representation Compiler & Tools
 
-> **현재 상태: Planning Phase (문서/기획 단계)**
-> 이 리포지토리에는 C++ 소스, CMakeLists.txt, Makefile이 아직 존재하지 않습니다.
-> 모든 구현은 Phase 0부터 순차적으로 신규 작성됩니다.
+> **현재 상태: Phase 0 완료 — Phase 1 대기**
+> 빌드 인프라(Makefile, setup-env.sh, lit 설정, 린터)가 구성되었습니다.
+> C++ 소스와 CMakeLists.txt는 Phase 1 Bootstrap(Task 100)에서 작성됩니다.
 
 SystemVerilog/Verilog RTL을 입력받아, 컴파일러 인프라(Slang, CIRCT)를 통해 생성된 IR을 기반으로 8종 자동화 산출물을 생성하는 LLVM 기반 통합 파이프라인.
 
@@ -76,7 +76,7 @@ pip install -r requirements-optional.txt       # 선택: cocotb, mkdocs (Phase 3
 |------|------|
 | **프로젝트명** | HIRCT (HDL Intermediate Representation Compiler & Tools) |
 | **성격** | CIRCT 기반 SoC 설계/검증 자동화 프레임워크 |
-| **현재 단계** | Planning Phase — 문서/기획만 존재, 구현 코드 없음 |
+| **현재 단계** | Phase 0 완료 — 빌드 인프라 구성됨, C++ 코드는 Phase 1에서 작성 |
 | **목표** | RTL → CIRCT IR → 8종 산출물 자동 생성 + 자동 등가성 검증 |
 | **라이선스** | Apache License v2.0 with LLVM Exceptions |
 | **계획된 기술 스택** | C++17, Python 3.10+, CMake, Ninja, lit, Verilator |
@@ -94,10 +94,22 @@ pip install -r requirements-optional.txt       # 선택: cocotb, mkdocs (Phase 3
 llvm-cpp-model/          ← 리포지토리명 (프로젝트명: HIRCT)
 ├── docs/
 │   ├── proposal/           # 프로젝트 제안서
-│   └── plans/              # 실행 계획 (Phase 0~3 태스크별 문서)
-├── rtl/                    # Verilog 소스 (1,597 .v 파일, git 미추적)
+│   ├── plans/              # 실행 계획 (Phase 0~3 태스크별 문서)
+│   └── report/             # 게이트 검증 리포트 (실측 근거)
+├── rtl/                    # Verilog 소스 (1,597 .v 파일, .gitignore)
 │   ├── lib/                #   IP 라이브러리 (async_bridge, fifo, ecc, ...)
 │   └── plat/               #   플랫폼 RTL (src/ 하위)
+├── utils/
+│   └── setup-env.sh        # 환경 부트스트랩 (유일 허용 .sh, 멱등성)
+├── test/
+│   └── lit.cfg.py          # lit 단위 테스트 설정 (Phase 1에서 테스트 추가)
+├── integration_test/
+│   └── lit.cfg.py          # lit 통합 테스트 설정 (Phase 2에서 테스트 추가)
+├── Makefile                # 오케스트레이션 (setup, build, lint, clean)
+├── .clang-format           # C/C++ 포맷 (LLVM 기반)
+├── .clang-tidy             # C/C++ 정적 분석
+├── .pre-commit-config.yaml # pre-commit 훅 설정
+├── tool-versions.env       # 도구 버전 SSOT (pinned + min)
 ├── known-limitations.md    # XFAIL SSOT (현재 비어 있음 — Phase 2에서 등록)
 ├── requirements.txt        # Python 필수 의존성
 ├── requirements-optional.txt  # Python 선택 의존성
@@ -106,6 +118,6 @@ llvm-cpp-model/          ← 리포지토리명 (프로젝트명: HIRCT)
 └── README.md               # 이 파일
 ```
 
-> `rtl/` 디렉토리는 `.gitignore`에 등록되어 git에서 추적하지 않습니다. 이 파일들은 Phase 2 전체 순회 테스트의 입력 데이터입니다.
+> `rtl/` 디렉토리는 `.gitignore`에 등록되어 git에서 추적하지 않습니다. 개발/테스트용 예제이며 실제 환경에서는 별도 경로에 위치합니다.
 
 > Phase 0~3 완료 후의 최종 디렉토리 구조는 [reference-commands-and-structure.md](docs/plans/reference-commands-and-structure.md)를 참조하십시오.
