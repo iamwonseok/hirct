@@ -15,6 +15,66 @@ hirct-gen의 각 기능을 TDD로 구현/강화한다. 각 태스크 = hirct-gen
 
 ---
 
+## Phase 1A Getting Started (CIRCT 스타일)
+
+> CIRCT 문서의 "Getting Started" 흐름처럼 `준비 → 빌드 → 스모크 테스트 → lit/gtest` 순서로 실행한다.
+
+### 1) 준비
+
+```bash
+export CIRCT_BUILD="$HOME/circt/build"
+export PATH="$CIRCT_BUILD/bin:$PATH"
+```
+
+필수 도구:
+- `circt-verilog`, `circt-opt`, `FileCheck`, `lit`, `ninja`, `cmake`
+
+### 2) 빌드
+
+```bash
+cmake -B build -G Ninja
+cmake --build build
+```
+
+성공 기준:
+- `build/bin/hirct-gen` 생성
+- `build/bin/hirct-verify` 생성
+
+### 3) CLI 스모크 테스트
+
+```bash
+build/bin/hirct-gen --help
+build/bin/hirct-verify --help
+```
+
+성공 기준:
+- 두 명령 모두 exit 0
+
+### 4) Phase 1A 테스트 실행
+
+```bash
+# lit(FileCheck) 단위 테스트
+ninja -C build check-hirct
+
+# gtest 단위 테스트
+ninja -C build check-hirct-unit
+```
+
+성공 기준:
+- `check-hirct`: PASS
+- `check-hirct-unit`: PASS
+- `build/lit-check.xml` 생성 (`check-hirct` 실행 시)
+
+### 5) 루트 진입점으로 재실행 (회귀 확인)
+
+```bash
+make build
+make check-hirct
+make check-hirct-unit
+```
+
+---
+
 ## 파이프라인 흐름 (RTL → 산출물)
 
 ```

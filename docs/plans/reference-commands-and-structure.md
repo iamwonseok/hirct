@@ -1,8 +1,8 @@
 # HIRCT 레퍼런스: 디렉터리 구조 · 명령어 · Make 타겟
 
 > **주의: 이 문서는 Phase 0~3 완료 후의 최종 목표 구조입니다.**
-> Phase 0 산출물(Makefile, utils/, test/, integration_test/, .clang-format 등)은 존재하나,
-> Phase 1+ 산출물(include/, lib/, tools/, CMakeLists.txt)은 아직 없습니다.
+> Phase 0~1A(Task 100) 산출물(Makefile, utils/, test/, include/, lib/, tools/, CMakeLists.txt)은 존재하나,
+> Phase 1A 나머지(Task 101+) 및 Phase 1B~3 산출물은 아직 없습니다.
 > 현재 실제 파일 구성은 [STATUS.md](../../STATUS.md)를 참조하십시오.
 
 > **목적**: Phase 0~3 완료 후 프로젝트의 최종 형태를 한 문서로 조망
@@ -268,8 +268,8 @@ LIT_JOBS    ?= $(shell nproc)
 | `make setup` | `./utils/setup-env.sh` | 없음 | 도구 설치 + 버전 테이블 | non-zero | 0 |
 | `make build` | `cmake -B build -G Ninja && ninja -C build` | CIRCT/LLVM 경로 | `build/` 바이너리. Phase 0에서는 CMakeLists.txt/C++ 소스 미존재 → 안내 메시지 출력 (exit 0) | non-zero | 0 (스켈레톤) → 1+ (실제) |
 | `make lint` | clang-format / verible / black | 소스, 설정 파일 | lint 결과 | non-zero | 0+ |
-| `make check-hirct` | `lit test/ --xunit-xml-output output/lit-check.xml` | `make build` | `output/lit-check.xml` | non-zero | 1+ |
-| `make check-hirct-unit` | gtest 바이너리 실행 | `make build` | 테스트 결과 | non-zero | 1+ |
+| `make check-hirct` | `ninja -C build check-hirct` (CMake가 lit 호출 + xunit XML 생성) | `make build` | `build/lit-check.xml` | non-zero | 1+ |
+| `make check-hirct-unit` | `ninja -C build check-hirct-unit` | `make build` | 테스트 결과 | non-zero | 1+ |
 | `make generate` | filelist 기반 hirct-gen | `make build`, `config/generate.f` | `output/` 산출물 | non-zero | 1+ |
 | `make check-hirct-integration` | `lit integration_test/smoke/ -j $(LIT_JOBS) --timeout $(LIT_TIMEOUT) --xunit-xml-output output/lit-integration.xml` | `make build` | `output/lit-integration.xml` | non-zero | 2+ |
 | `make test-all` | check-hirct + unit + integration + report | 위 전체 | 종합 결과 | 첫 실패 시 중단 | 2+ |
@@ -283,9 +283,9 @@ LIT_JOBS    ?= $(shell nproc)
 
 ```
 make test-all
-  ├── make check-hirct            → lit test/ (FileCheck)
-  ├── make check-hirct-unit       → gtest 바이너리
-  ├── make check-hirct-integration → lit integration_test/smoke/
+  ├── make check-hirct            → ninja check-hirct → lit build/test/ (FileCheck)
+  ├── make check-hirct-unit       → ninja check-hirct-unit → gtest 바이너리
+  ├── make check-hirct-integration → ninja check-hirct-integration → lit build/integration_test/
   └── make report                 → report.json + verify-report.json
 
 make test-traversal
@@ -297,6 +297,10 @@ make generate
 make docs
   └── (depends on) make report    → report.json 기반 인덱스 생성
 ```
+
+> **Note**: `make check-hirct` 등 lit 관련 타겟은 내부적으로 CMake `add_custom_target`으로 등록된
+> ninja 타겟을 호출한다. CMake `DEPENDS`로 바이너리 빌드 순서가 자동 보장되며,
+> `configure_file()`로 생성된 `build/test/lit.site.cfg.py`가 도구 경로를 lit에 주입한다.
 
 ### 3.2 per-module Makefile 타겟 (GenMakefile.cpp 자동 생성)
 
@@ -621,9 +625,42 @@ python3 utils/generate-report.py \
 
 ---
 
-## 13. lit.cfg.py 템플릿
+## 13. lit 테스트 구성 (CMake 통합)
 
-### test/lit.cfg.py (단위 테스트용)
+CIRCT 스타일의 3-파일 패턴을 사용한다. LLVM CMake 매크로(`configure_lit_site_cfg`) 없이
+CMake 내장 `configure_file()`로 동일한 결과를 얻는다.
+
+```
+CMake configure 시:
+  test/lit.site.cfg.py.in  →  build/test/lit.site.cfg.py  (경로 주입)
+  test/lit.cfg.py                                          (도구 등록, 변경 없음)
+
+Ninja 타겟:
+  ninja check-hirct        →  lit build/test/              (DEPENDS: hirct-gen, hirct-verify)
+```
+
+### 13.1 test/lit.site.cfg.py.in (CMake 변수 치환 템플릿)
+
+CMake `configure_file(@ONLY)`로 `build/test/lit.site.cfg.py`를 생성한다.
+`@변수@`는 CMake configure 시점에 실제 빌드 경로로 치환된다.
+
+\`\`\`python
+import os
+import sys
+
+config.hirct_src_root = "@CMAKE_SOURCE_DIR@"
+config.hirct_obj_root = "@CMAKE_BINARY_DIR@"
+config.hirct_tools_dir = "@CMAKE_BINARY_DIR@/bin"
+config.hirct_gen_path = "@CMAKE_BINARY_DIR@/bin/hirct-gen"
+config.hirct_verify_path = "@CMAKE_BINARY_DIR@/bin/hirct-verify"
+config.filecheck_path = "@FILECHECK_COMMAND@"
+
+lit_config.load_config(config, "@CMAKE_CURRENT_SOURCE_DIR@/lit.cfg.py")
+\`\`\`
+
+### 13.2 test/lit.cfg.py (단위 테스트용)
+
+`lit.site.cfg.py`가 주입한 `config.hirct_*` 변수를 사용하여 도구를 등록한다.
 
 \`\`\`python
 import os
@@ -635,13 +672,33 @@ config.suffixes = ['.mlir', '.test']
 config.test_source_root = os.path.dirname(__file__)
 config.test_exec_root = os.path.join(config.hirct_obj_root, 'test')
 
-# 도구 경로 substitution
+# 도구 경로 substitution (lit.site.cfg.py.in → configure_file → 주입)
 config.substitutions.append(('%hirct-gen', config.hirct_gen_path))
 config.substitutions.append(('%hirct-verify', config.hirct_verify_path))
 config.substitutions.append(('%FileCheck', config.filecheck_path))
 \`\`\`
 
-### integration_test/lit.cfg.py (통합 테스트용, XFAIL 연동 포함)
+### 13.3 test/CMakeLists.txt
+
+\`\`\`cmake
+configure_file(
+  ${CMAKE_CURRENT_SOURCE_DIR}/lit.site.cfg.py.in
+  ${CMAKE_CURRENT_BINARY_DIR}/lit.site.cfg.py
+  @ONLY)
+
+add_custom_target(check-hirct
+  COMMAND ${LIT_COMMAND} ${CMAKE_CURRENT_BINARY_DIR}
+    -v --xunit-xml-output ${CMAKE_BINARY_DIR}/lit-check.xml
+  DEPENDS hirct-gen hirct-verify
+  COMMENT "Running hirct lit tests")
+\`\`\`
+
+> `LIT_COMMAND`와 `FILECHECK_COMMAND`는 루트 `CMakeLists.txt`에서 `find_program()`으로 탐색한다.
+> `DEPENDS hirct-gen hirct-verify`로 바이너리 빌드→테스트 순서가 자동 보장된다.
+
+### 13.4 integration_test/lit.cfg.py (통합 테스트용, XFAIL 연동 포함)
+
+Phase 2 Task 205에서 동일 패턴으로 `integration_test/lit.site.cfg.py.in` + `CMakeLists.txt`를 추가한다.
 
 \`\`\`python
 import os
@@ -659,9 +716,6 @@ config.test_source_root = os.path.dirname(__file__)
 config.xfail_paths = load_xfail_paths(
     os.path.join(config.hirct_src_root, 'known-limitations.md'))
 \`\`\`
-
-> **Note**: \`config.hirct_gen_path\` 등은 CMake가 \`lit.site.cfg.py\`를 생성할 때 주입한다.
-> Phase 0에서 스켈레톤만 생성하고, Phase 1 Bootstrap(Task 100)에서 CMake 연동을 완성한다.
 
 ---
 

@@ -1,8 +1,9 @@
 # ============================================================================
-# HIRCT Root Makefile — Phase 0 (setup/build/lint/clean)
+# HIRCT Root Makefile — Phase 0 + Phase 1 (setup/build/test/lint/clean)
 #
-# Phase 0 targets only. Phase 1+ targets (check-hirct, generate, test-all,
-# etc.) will be added as their respective tasks are implemented.
+# Phase 0: setup, build, lint, clean
+# Phase 1: check-hirct (lit), check-hirct-unit (gtest)
+# Phase 2+ targets (test-all, test-traversal, etc.) will be added later.
 #
 # Requirements: GNU Make >= 4.0
 # ============================================================================
@@ -18,7 +19,7 @@ HAVE_PRECOMMIT    ?= $(shell which pre-commit >/dev/null 2>&1 && echo 1 || echo 
 
 # ── Phony declarations ────────────────────────────────────────────────────
 
-.PHONY: setup build lint lint-precommit clean help
+.PHONY: setup build check-hirct check-hirct-unit lint lint-precommit clean help
 
 # ── Default target ─────────────────────────────────────────────────────────
 
@@ -29,11 +30,13 @@ HAVE_PRECOMMIT    ?= $(shell which pre-commit >/dev/null 2>&1 && echo 1 || echo 
 help:
 	@echo "HIRCT Makefile — available targets:"
 	@echo ""
-	@echo "  make setup   — Run environment setup (install/verify tools)"
-	@echo "  make build   — Build hirct-gen/hirct-verify (requires CMakeLists.txt)"
-	@echo "  make lint    — Run linters (clang-format, verible, black, shellcheck)"
-	@echo "  make lint-precommit — Run all pre-commit hooks on all files"
-	@echo "  make clean   — Remove build/, output/, site/"
+	@echo "  make setup            — Run environment setup (install/verify tools)"
+	@echo "  make build            — Build hirct-gen/hirct-verify via cmake+ninja"
+	@echo "  make check-hirct      — Run lit tests (requires build)"
+	@echo "  make check-hirct-unit — Run gtest unit tests (requires -DHIRCT_ENABLE_UNITTESTS=ON)"
+	@echo "  make lint             — Run linters (clang-format, verible, black, shellcheck)"
+	@echo "  make lint-precommit   — Run all pre-commit hooks on all files"
+	@echo "  make clean            — Remove build/, output/, site/"
 	@echo ""
 
 # ── setup ──────────────────────────────────────────────────────────────────
@@ -50,18 +53,30 @@ ifeq ($(HAVE_PRECOMMIT),1)
 endif
 
 # ── build ──────────────────────────────────────────────────────────────────
-# Phase 0: CMakeLists.txt and C++ sources do not exist yet.
-# Phase 1+: cmake -B build -G Ninja … && ninja -C build
+# cmake -B build -G Ninja … && ninja -C build
 
 build:
 	@if [ ! -f CMakeLists.txt ]; then \
 		echo "CMakeLists.txt not found. C++ sources will be created in Phase 1 Bootstrap (Task 100)."; \
 	else \
-		cmake -B build -G Ninja \
-			-DCMAKE_BUILD_TYPE=Release \
-			-DMLIR_DIR=$${MLIR_DIR} \
-			-DLLVM_DIR=$${LLVM_DIR} && \
+		cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && \
 		ninja -C build; \
+	fi
+
+# ── check-hirct ────────────────────────────────────────────────────────────
+# Runs lit-based functional tests via the CMake custom target.
+
+check-hirct: build
+	@ninja -C build check-hirct
+
+# ── check-hirct-unit ──────────────────────────────────────────────────────
+# Runs gtest unit tests. Requires cmake configure with -DHIRCT_ENABLE_UNITTESTS=ON.
+
+check-hirct-unit:
+	@if ninja -C build -t targets all 2>/dev/null | grep -q check-hirct-unit; then \
+		ninja -C build check-hirct-unit; \
+	else \
+		echo "[check-hirct-unit] Unit tests not configured. Re-run: cmake -B build -G Ninja -DHIRCT_ENABLE_UNITTESTS=ON"; \
 	fi
 
 # ── lint ───────────────────────────────────────────────────────────────────

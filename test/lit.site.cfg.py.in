@@ -1,0 +1,11 @@
+import os
+import sys
+
+config.hirct_src_root = "@CMAKE_SOURCE_DIR@"
+config.hirct_obj_root = "@CMAKE_BINARY_DIR@"
+config.hirct_tools_dir = "@CMAKE_BINARY_DIR@/bin"
+config.hirct_gen_path = "@CMAKE_BINARY_DIR@/bin/hirct-gen"
+config.hirct_verify_path = "@CMAKE_BINARY_DIR@/bin/hirct-verify"
+config.filecheck_path = "@FILECHECK_COMMAND@"
+
+lit_config.load_config(config, "@CMAKE_CURRENT_SOURCE_DIR@/lit.cfg.py")

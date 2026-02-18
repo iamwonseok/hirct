@@ -19,22 +19,67 @@
 
 ```
 make test-all
-  ├── make check-hirct          → lit test/
-  ├── make check-hirct-unit     → gtest
-  ├── make check-hirct-integration → lit integration_test/smoke/
-  └── make report               → utils/generate-report.py
+  ├── make check-hirct            → ninja check-hirct → lit build/test/ (FileCheck)
+  ├── make check-hirct-unit       → ninja check-hirct-unit → gtest 바이너리
+  ├── make check-hirct-integration → ninja check-hirct-integration → lit build/integration_test/
+  └── make report                 → utils/generate-report.py
 
-make test-traversal             → lit integration_test/traversal/ (CI 제외)
+make test-traversal               → lit integration_test/traversal/ (CI 제외)
 ```
 
-- make check-hirct: `lit test/` — FileCheck 기반 단위 테스트
-- make check-hirct-unit: gtest — C++ 유닛 테스트
-- make check-hirct-integration: `lit integration_test/smoke/` — 통합 스모크 테스트
+- make check-hirct: `ninja -C build check-hirct` — CMake `add_custom_target`으로 등록된 lit FileCheck 단위 테스트. CMake `DEPENDS hirct-gen hirct-verify`로 바이너리 빌드 순서 자동 보장.
+- make check-hirct-unit: `ninja -C build check-hirct-unit` — gtest C++ 유닛 테스트
+- make check-hirct-integration: `ninja -C build check-hirct-integration` — lit 통합 스모크 테스트. Phase 2에서 `integration_test/CMakeLists.txt` + `lit.site.cfg.py.in` 추가.
 - make report: `utils/generate-report.py` — 리포트 변환
 - make test-traversal: `lit integration_test/traversal/` — 전체 순회 테스트 (CI 제외, 별도 실행)
 - recursive make: 디렉터리별 make test가 해당 서브트리 테스트 (per-module Makefile, GenMakefile.cpp 자동 생성)
 - make test-all: check-hirct + check-hirct-unit + check-hirct-integration + report 통합
 - 중간 실패 시 즉시 exit 1 전파
+
+> **CMake lit 통합**: Phase 1 Task 100에서 `test/CMakeLists.txt` + `test/lit.site.cfg.py.in`을 작성하여
+> `ninja check-hirct` 타겟을 등록한다. Phase 2에서는 동일 패턴으로 `integration_test/CMakeLists.txt` +
+> `integration_test/lit.site.cfg.py.in`을 추가하여 `ninja check-hirct-integration` 타겟을 등록한다.
+> 상세: `reference-commands-and-structure.md` §13 참조.
+
+## 로컬 테스트 실행 매뉴얼 (CIRCT 스타일)
+
+CIRCT의 `check-*` 타겟 운용 방식과 동일하게, 빌드 완료 후 테스트 타겟을 순차 실행한다.
+
+### 1) 사전 준비
+
+```bash
+export CIRCT_BUILD="$HOME/circt/build"
+export PATH="$CIRCT_BUILD/bin:$PATH"
+```
+
+### 2) 빌드
+
+```bash
+cmake -B build -G Ninja
+cmake --build build
+```
+
+### 3) Phase 1A 핵심 테스트
+
+```bash
+ninja -C build check-hirct
+ninja -C build check-hirct-unit
+```
+
+확인 항목:
+- lit 결과: `2/2 PASS` (현재 스모크 기준)
+- gtest 결과: `1/1 PASS`
+- xUnit 파일: `build/lit-check.xml` 존재
+
+### 4) 통합 진입점 테스트 (Phase 2+)
+
+```bash
+make test-all
+```
+
+권장:
+- 로컬 개발 중에는 `check-hirct`/`check-hirct-unit`를 빠르게 반복
+- CI 직전에는 `make test-all`로 최종 회귀 확인
 
 ## CI 워크플로 (최소 경로)
 
@@ -72,7 +117,7 @@ jobs:
 
 **원칙**: CI 시스템(GitHub Actions, GitLab CI, Jenkins 등)에 독립적으로 `make test-all` 단일 명령으로 동작한다.
 
-**아키텍처 원칙**: Makefile은 진입점/정책, lit은 테스트 실행 엔진, Python(utils/generate-report.py)은 리포트 변환만. bash 스크립트 파일(.sh) 사용 금지.
+**아키텍처 원칙**: Makefile은 사용자 진입점(얇은 래퍼), CMake는 lit 구성(`configure_file` + `add_custom_target`) 및 빌드 의존성 관리, lit은 테스트 실행 엔진, Python(`utils/generate-report.py`)은 리포트 변환만. bash 스크립트 파일(.sh) 사용 금지.
 
 ## 게이트 (완료 기준)
 

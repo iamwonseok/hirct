@@ -1,0 +1,6 @@
+// RUN: %hirct-gen --help | %FileCheck %s
+// CHECK: Usage:
+// CHECK: Options:
+// CHECK-DAG: --only
+// CHECK-DAG: --top
+// CHECK-DAG: --help

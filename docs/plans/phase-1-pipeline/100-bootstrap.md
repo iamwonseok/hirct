@@ -47,6 +47,8 @@ tools/
     └── CMakeLists.txt
 
 test/
+├── CMakeLists.txt            (lit 테스트 CMake 통합: configure_file + check-hirct 타겟)
+├── lit.site.cfg.py.in        (CMake 변수 치환 템플릿 → build/test/lit.site.cfg.py)
 └── fixtures/
     ├── LevelGateway.mlir     (정규화된 MLIR 출력 — gtest 픽스처)
     └── RVCExpander.mlir
@@ -165,6 +167,11 @@ include_directories(${PROJECT_SOURCE_DIR}/include)
 add_subdirectory(lib)
 add_subdirectory(tools)
 
+# lit 테스트 통합 (CIRCT 스타일: configure_file + add_custom_target)
+find_program(LIT_COMMAND lit REQUIRED)
+find_program(FILECHECK_COMMAND FileCheck REQUIRED)
+add_subdirectory(test)
+
 # gtest 통합
 include(FetchContent)
 FetchContent_Declare(googletest
@@ -173,6 +180,69 @@ FetchContent_Declare(googletest
 FetchContent_MakeAvailable(googletest)
 enable_testing()
 add_subdirectory(unittests)
+```
+
+---
+
+## Step 3.1: GREEN — lit 테스트 CMake 통합 (30분)
+
+**Goal**: CIRCT 스타일 lit 테스트 인프라 — CMake `configure_file`로 `lit.site.cfg.py` 생성, `ninja check-hirct` 타겟 등록
+
+> **설계 결정: CMake lit 통합 (방법 A)**
+>
+> LLVM/CIRCT 프로젝트는 `configure_lit_site_cfg()` (AddLLVM.cmake 매크로)를 사용하지만,
+> HIRCT는 LLVM CMake 모듈에 의존하지 않으므로 CMake 내장 `configure_file()`로 동일한 패턴을 구현한다.
+>
+> 장점:
+> - `ninja check-hirct`로 테스트 가능 (CIRCT와 동일한 UX)
+> - `DEPENDS hirct-gen hirct-verify`로 빌드→테스트 순서 자동 보장
+> - 빌드 경로가 `lit.site.cfg.py`에 자동 주입되어 빌드 디렉토리 위치에 독립적
+> - 루트 Makefile의 `make check-hirct`는 내부적으로 `ninja -C build check-hirct` 호출
+
+**`test/CMakeLists.txt` 핵심 구조**:
+
+```cmake
+configure_file(
+  ${CMAKE_CURRENT_SOURCE_DIR}/lit.site.cfg.py.in
+  ${CMAKE_CURRENT_BINARY_DIR}/lit.site.cfg.py
+  @ONLY)
+
+add_custom_target(check-hirct
+  COMMAND ${LIT_COMMAND} ${CMAKE_CURRENT_BINARY_DIR}
+    -v --xunit-xml-output ${CMAKE_BINARY_DIR}/lit-check.xml
+  DEPENDS hirct-gen hirct-verify
+  COMMENT "Running hirct lit tests")
+```
+
+**`test/lit.site.cfg.py.in` 핵심 구조**:
+
+```python
+import os
+import sys
+
+config.hirct_src_root = "@CMAKE_SOURCE_DIR@"
+config.hirct_obj_root = "@CMAKE_BINARY_DIR@"
+config.hirct_tools_dir = "@CMAKE_BINARY_DIR@/bin"
+config.hirct_gen_path = "@CMAKE_BINARY_DIR@/bin/hirct-gen"
+config.hirct_verify_path = "@CMAKE_BINARY_DIR@/bin/hirct-verify"
+config.filecheck_path = "@FILECHECK_COMMAND@"
+
+lit_config.load_config(config, "@CMAKE_CURRENT_SOURCE_DIR@/lit.cfg.py")
+```
+
+> **흐름**: CMake configure 시 `@변수@`가 실제 경로로 치환되어 `build/test/lit.site.cfg.py`가 생성된다.
+> `lit.site.cfg.py`는 `test/lit.cfg.py`를 로드하고, `lit.cfg.py`는 주입된 `config.hirct_*` 변수로 도구를 등록한다.
+
+**Run**:
+```bash
+cmake -B build -G Ninja
+ninja -C build check-hirct 2>&1 | tail -5
+```
+
+**Expect**:
+```
+-- Configuring done (lit.site.cfg.py 생성)
+check-hirct 타겟 등록 (테스트 파일 없으면 0 tests)
 ```
 
 ---
@@ -513,7 +583,7 @@ lib/Target/GenModel.cpp 컴파일 성공
 **Run**:
 ```bash
 ninja -C build
-build/tools/hirct-gen/hirct-gen --help
+build/bin/hirct-gen --help
 ```
 
 **Expect**:
@@ -531,7 +601,7 @@ exit 0
 
 **Run**:
 ```bash
-build/tools/hirct-gen/hirct-gen rtl/plat/src/s5/design/Fadu_K2_S5_LevelGateway.v
+build/bin/hirct-gen rtl/plat/src/s5/design/Fadu_K2_S5_LevelGateway.v
 ls output/plat/src/s5/design/Fadu_K2_S5_LevelGateway/cmodel/
 g++ -std=c++17 -c output/plat/src/s5/design/Fadu_K2_S5_LevelGateway/cmodel/*.cpp
 ```
@@ -573,7 +643,7 @@ ModuleAnalyzerTest: 포트 파싱, 모듈명 추출, 레지스터 감지 PASS
 **Run**:
 ```bash
 ninja -C build
-build/tools/hirct-verify/hirct-verify --help
+build/bin/hirct-verify --help
 ```
 
 **Expect**:
@@ -592,7 +662,7 @@ exit 0
 **Run**:
 ```bash
 make build
-hirct-gen --help  # PATH에 build/tools/hirct-gen/ 추가 후
+hirct-gen --help  # PATH에 build/bin/ 추가 후
 ```
 
 **Expect**:

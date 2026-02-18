@@ -258,12 +258,14 @@ Phase 2 (전체 순회)
 ## 6. 빌드 시스템
 
 ```
-CMake + Ninja ─── hirct-gen/hirct-verify 바이너리 빌드 (순수 C++17, LLVM/MLIR API 미링크)
-                  소스: include/hirct/ (헤더), lib/ (구현), tools/ (CLI)
-Makefile ────── 나머지 전부
-                  ├── 프로젝트 루트: build, generate, test-all, check-hirct
+CMake + Ninja ─── 바이너리 빌드 + lit 테스트 구성 (순수 C++17, LLVM/MLIR API 미링크)
+                  ├── 소스: include/hirct/ (헤더), lib/ (구현), tools/ (CLI)
+                  ├── lit 통합: configure_file(lit.site.cfg.py.in) → 도구 경로 주입
+                  └── 테스트 타겟: ninja check-hirct, check-hirct-unit, check-hirct-integration
+Makefile ────── 사용자 진입점 (얇은 래퍼)
+                  ├── 프로젝트 루트: build, generate, test-all → 내부적으로 ninja 호출
                   └── output 각 디렉토리: test, test-verify (자동 생성)
-lit ──────── 테스트 오케스트레이션
+lit ──────── 테스트 실행 엔진
                   ├── test/: emitter 단위 (FileCheck)
                   ├── unittests/: C++ API (gtest)
                   └── integration_test/: E2E 파이프라인
@@ -323,6 +325,10 @@ make test-traversal           # ~1,600 .v 전체 순회
 # Phase 3
 make docs                     # mkdocs 문서 사이트
 ```
+
+**운영 매뉴얼 링크**:
+- Phase 1A quickstart: `docs/plans/phase-1-pipeline/README.md`의 "Phase 1A Getting Started"
+- 테스트 자동화/로컬 실행: `docs/plans/phase-2-testing/205-test-automation.md`
 
 **Phase별 진입/완료 조건 요약**:
 
