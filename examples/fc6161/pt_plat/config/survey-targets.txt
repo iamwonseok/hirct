@@ -1,0 +1,107 @@
+# HIRCT Survey Target Configuration
+# Extracted from board.chip.vcs/Makefile and board.pt_plat_only.vcs/Makefile
+#
+# Format: TYPE  FILELIST_PATH  [TOP_MODULE]
+#   TYPE: rtl (survey target), lib (dependency), skip (ignore)
+#   FILELIST_PATH: relative to $PROJECT/
+#   TOP_MODULE: optional, auto-detected if omitted
+#
+# Edit this file to adjust targets. Lines starting with # are comments.
+
+# =====================================================================
+# RTL IP blocks — hirct-gen survey targets
+# =====================================================================
+
+# -- pt_plat peripherals --
+rtl  rtl/pt_plat/bin/lst/uart_file_list.f              uart_top
+rtl  rtl/pt_plat/bin/lst/gpio_file_list.f
+rtl  rtl/pt_plat/bin/lst/i2cm_file_list.f
+rtl  rtl/pt_plat/bin/lst/smbus_file_list.f
+rtl  rtl/pt_plat/bin/lst/i3c_file_list.f
+rtl  rtl/pt_plat/bin/lst/wdt_file_list.f
+rtl  rtl/pt_plat/bin/lst/ptimer_file_list.f
+rtl  rtl/pt_plat/bin/lst/edma_file_list.f
+rtl  rtl/pt_plat/bin/lst/trng_file_list.f
+rtl  rtl/pt_plat/bin/lst/pka_file_list.f
+rtl  rtl/pt_plat/bin/lst/secreg_file_list.f
+rtl  rtl/pt_plat/bin/lst/sys_ctrl_file_list.f
+rtl  rtl/pt_plat/bin/lst/clk_rst_gen_file_list.f
+rtl  rtl/pt_plat/bin/lst/func_test_io_mux_file_list.f
+rtl  rtl/pt_plat/bin/lst/caliptra_file_list.f
+rtl  rtl/pt_plat/bin/lst/msgd_router_file_list.f
+
+# -- pt_plat bus/interconnect --
+rtl  rtl/pt_plat/bin/lst/ahb_file_list.f
+rtl  rtl/pt_plat/bin/lst/axi_2x3_file_list.f
+rtl  rtl/pt_plat/bin/lst/axi_x2p1_file_list.f
+rtl  rtl/pt_plat/bin/lst/axi_x2p2_file_list.f
+rtl  rtl/pt_plat/bin/lst/axi_x2h_file_list.f
+rtl  rtl/pt_plat/bin/lst/fsl_wflow_file_list.f
+rtl  rtl/pt_plat/bin/lst/fadu_cse_file_list.f
+
+# -- pt_plat misc --
+rtl  rtl/pt_plat/bin/lst/s5_file_list.f
+rtl  rtl/pt_plat/bin/lst/s5mc_file_list.f
+rtl  rtl/pt_plat/bin/lst/ssd_ctrl_top_wrapper.f
+rtl  rtl/pt_plat/bin/lst/top_file_list.f
+
+# -- SSD data path --
+rtl  rtl/pt_ssd_data/bin/lst/pt_ssd_data.encrypt.f
+rtl  rtl/pt_ssd_data/bin/lst/pt_ssd_data.plain.f
+
+# -- MPM (DDR/Memory) --
+rtl  rtl/pt_mpm/bin/lst/ddr_ctrl.f
+rtl  rtl/pt_mpm/bin/lst/ddr_top.f
+rtl  rtl/pt_mpm/bin/lst/mpm_top.f
+rtl  rtl/pt_mpm/bin/lst/mpm_bram.f
+rtl  rtl/pt_mpm/bin/lst/mpm_bus.f
+rtl  rtl/pt_mpm/bin/lst/mpm_clkrst.f
+rtl  rtl/pt_mpm/bin/lst/mpm_util.f
+rtl  rtl/pt_mpm/bin/lst/ets_file_list.f
+rtl  rtl/pt_mpm/bin/lst/ets_con_file_list.f
+rtl  rtl/pt_mpm/bin/lst/ddr_phy_pre_map.f
+rtl  rtl/pt_mpm/bin/lst/ddr_phy.syn.f
+rtl  rtl/pt_mpm/bin/lst/ddr_phy.dep.f
+
+# -- HCS (PCIe) --
+rtl  rtl/pt_hcs/bin/lst/p0_pcie_ctl.f
+rtl  rtl/pt_hcs/bin/lst/p0_pcie_ide.f
+rtl  rtl/pt_hcs/bin/lst/pcie_dma.f
+rtl  rtl/pt_hcs/bin/lst/pcie_phy.f
+rtl  rtl/pt_hcs/bin/lst/pt_hcs.f
+rtl  rtl/pt_hcs/bin/lst/subsystem.f
+
+# -- NCS (NAND) --
+rtl  rtl/pt_ncs/bin/lst/pt_ncs_ctrl_path.f
+rtl  rtl/pt_ncs/bin/lst/pt_ncs_cmd_path.f
+rtl  rtl/pt_ncs/bin/lst/pt_ncs_data_path.f
+rtl  rtl/pt_ncs/bin/lst/pt_ncs_parity_top.f
+rtl  rtl/pt_ncs/bin/lst/pt_ncs_nphy.f
+rtl  rtl/pt_ncs/bin/lst/pt_ncs_top.f
+rtl  rtl/pt_ncs/bin/lst/inpsytech_onfi_phy_io_vcs.f
+
+# -- LDPC --
+rtl  rtl/pt_ldpc_dec/bin/lst/pt_ldpc_dec.f
+
+# -- Chip integration --
+rtl  rtl/chip/bin/lst/chip_file_list.f
+
+# =====================================================================
+# Library / Primitives — dependency only, not direct targets
+# =====================================================================
+lib  rtl/chip/bin/lst/lib_file_list.f
+lib  rtl/chip/bin/lst/prim_file_list.chip.f
+lib  rtl/chip/bin/lst/prim_file_list.f
+
+# =====================================================================
+# Simulation / Models — skip
+# =====================================================================
+skip  rtl/chip/bin/lst/sim_file_list.f
+skip  rtl/pt_plat/bin/lst/model_file_list.f
+skip  rtl/pt_plat/bin/lst/ext_model_file_list.f
+skip  rtl/pt_plat/bin/lst/vcpu_file_list.f
+skip  rtl/pt_ncs/model/Micron/B68S/micron_model_file_list.f
+skip  rtl/pt_mpm/bin/lst/model/dram.vcs.for.top.sim.f
+skip  rtl/pt_ncs/sim/fake_ncs/mpm_lst/mpm_bus.f
+skip  rtl/pt_ncs/bin/lst/fake_ncs_filelist.f
+skip  rtl/pt_ncs/bin/lst/fake_ncs_lib.f

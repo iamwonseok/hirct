@@ -1,0 +1,17 @@
+# Generated artifacts
+output/
+
+# EDA build artifacts
+INCA_libs/
+xcelium.d/
+*.shm/
+*.log
+*.key
+*.history
+
+# Compiled objects
+obj/
+
+# Generated filelists
+filelist.ncsim.f
+*_ncsim.f

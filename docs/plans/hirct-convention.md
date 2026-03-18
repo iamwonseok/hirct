@@ -1,7 +1,7 @@
 # HIRCT 공통 규약 (Conventions)
 
-> **버전**: 8.0
-> **작성일**: 2026-02-15
+> **버전**: 9.0
+> **작성일**: 2026-03-05
 > **원칙**: "있는 것을 최대한 활용, 없는 것만 만든다"
 
 ---
@@ -818,6 +818,33 @@ Phase 2 순회
 
 ---
 
+## 9. gen-func-model 산출물 규약 (func_model/)
+
+func_model/ 산출물은 FSM이 있는 HW 모듈에서만 생성된다.
+
+### 생성 조건
+- `hirct-gen` 실행 시 FSM이 탐지된 경우에만 `func_model/` 디렉토리 생성
+- FSM 없음: gen-func-model 결과 skipped (func_model/ 미생성)
+
+### API: reset, tick, state
+- `void reset()`: 초기 상태(reset_value)로 상태 레지스터 및 data 레지스터 초기화
+- `void tick(Ports &io)`: 입력 포트 기반 상태 전이 + data register 갱신
+- `State state() const`: 현재 FSM 상태 반환
+
+### 파일 명명 규약
+- 헤더: `<module_name>.h` (예: `uart_top.h`)
+- 구현: `<module_name>.cpp` (예: `uart_top.cpp`)
+- 헤더 가드: `<MODULE_NAME>_FUNC_H` (예: `UART_TOP_FUNC_H`)
+- 클래스명: `<module_name>_func` (예: `uart_top_func`)
+
+### 제약 (현재 버전)
+- 다중 FSM: 첫 번째 FSM만 사용 ("multiple FSMs found" warning 출력)
+- 복합 조건 중 미지원 패턴: `/* unresolved condition */` 주석으로 대체
+- 출력 포트 갱신: 미지원 (`/* TODO: output assignment */` 주석)
+- 65+ 비트 상수: `/* constant too wide */` fallback
+
+---
+
 ## 변경 이력
 
 | 버전 | 날짜 | 변경 내용 |
@@ -830,3 +857,4 @@ Phase 2 순회
 | 6.0 | 2026-02-16 | dry-run 반영: 도구 목록을 "전부 신규 작성"으로 수정, rename/merge 표현 제거 |
 | 7.0 | 2026-02-16 | 리뷰 반영: §5 실패 분류 체계(Failure Classification SSOT) 추가, 기존 §5→§6, §6→§7로 재번호 |
 | 8.0 | 2026-02-18 | 문서 표기 규약 추가 (§8): 이모지 금지, 텍스트 마커 사용, pre-commit fix-emoji hook |
+| 9.0 | 2026-03-05 | gen-func-model 산출물 규약 추가 (§9) |

@@ -1,0 +1,19 @@
+// Test: Async reset SSA scoping -- register update and reset inversion
+// The MLIR native emitter uses temp names for computed SSA values.
+//
+// RUN: %hirct-gen %S/../../fixtures/AsyncResetSSA.mlir -o %t --only model
+// RUN: cat %t/cmodel/AsyncResetSSA.h | %FileCheck %s --check-prefix=CHECK-H
+// RUN: cat %t/cmodel/AsyncResetSSA.cpp | %FileCheck %s --check-prefix=CHECK-CPP
+//
+// Header: register is private member
+// CHECK-H: private:
+// CHECK-H: reg_ssa_reg
+//
+// eval_comb(): reset inversion and next-state assignment
+// CHECK-CPP: eval_comb()
+// CHECK-CPP: reset
+// CHECK-CPP: next_ssa_reg =
+//
+// step(): register update
+// CHECK-CPP: step()
+// CHECK-CPP: reg_ssa_reg = next_ssa_reg

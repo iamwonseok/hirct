@@ -226,6 +226,15 @@ Done!
 **If subagent fails task:**
 - Dispatch fix subagent with specific instructions
 - Don't try to fix manually (context pollution)
+- **재시도 한도**: 동일 태스크에 대해 최대 2회 재시도. 2회 실패 시 BLOCKED 마킹 후 사용자에게 에스컬레이션
+- **이슈 기록**: 실패 시 아래 형식으로 기록하고 다음 태스크로 진행:
+  ```
+  ## Issue: [Task N] [1줄 요약]
+  - **증상**: 에러 메시지 또는 실패 내용
+  - **시도한 수정**: 각 재시도에서 시도한 내용
+  - **현재 상태**: BLOCKED / PARTIAL
+  ```
+- 모든 태스크 완료 후 이슈 목록을 사용자에게 한번에 보고
 
 ## Integration
 

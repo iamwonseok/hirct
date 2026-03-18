@@ -1,0 +1,8 @@
+// Test: Negative constant normalization for both narrow and 64-bit widths.
+// -3 in i4 -> 13,  -3 in i64 -> 18446744073709551613ULL.
+//
+// RUN: %hirct-gen %S/../../fixtures/NegConst64.mlir -o %t --only model
+// RUN: cat %t/cmodel/NegConst64.cpp | %FileCheck %s
+//
+// CHECK: 18446744073709551613ULL
+// CHECK: (13)

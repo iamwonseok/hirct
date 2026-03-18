@@ -61,7 +61,7 @@ repos:
         entry: verible-verilog-lint
         language: system
         files: '\.(sv|v)$'
-        exclude: '^rtl/'
+        exclude: '^(rtl/|examples/.*/survey-results/gen/)'
 
       # ── Python formatting (project scripts only) ────────────────────
       - id: black

@@ -1,0 +1,15 @@
+// Test: hw.array_get on module input array → bounds-checked access
+//
+// RUN: echo 'module {' > %t.mlir
+// RUN: echo '  hw.module @ArrayGetUnknown(in %%arr : !hw.array<4xi8>, in %%idx : i2, out y : i8) {' >> %t.mlir
+// RUN: echo '    %%0 = hw.array_get %%arr[%%idx] : !hw.array<4xi8>, i2' >> %t.mlir
+// RUN: echo '    hw.output %%0 : i8' >> %t.mlir
+// RUN: echo '  }' >> %t.mlir
+// RUN: echo '}' >> %t.mlir
+// RUN: %hirct-gen %t.mlir -o %t --only model
+// RUN: cat %t/cmodel/ArrayGetUnknown.cpp | %FileCheck %s
+// RUN: cat %t/meta.json | %FileCheck %s --check-prefix=CHECK-META
+//
+// CHECK: static_cast<size_t>(idx) < 4
+// CHECK-SAME: ? arr[static_cast<size_t>(idx)] : 0
+// CHECK-META: "gen-model": {"result": "pass"

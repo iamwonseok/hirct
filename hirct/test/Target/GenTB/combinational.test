@@ -1,0 +1,38 @@
+// Test GenTB: SV testbench skeleton for combinational-only module (RVCExpander)
+//
+// RUN: %hirct-gen %S/../../fixtures/RVCExpander.mlir -o %t --only tb
+// RUN: ls %t/tb/Fadu_K2_S5_RVCExpander_tb.sv
+// RUN: cat %t/tb/Fadu_K2_S5_RVCExpander_tb.sv | %FileCheck %s
+//
+// --- Header: no timescale for combinational ---
+// CHECK: AUTO-GENERATED
+// CHECK-NOT: `timescale
+//
+// --- Module declaration ---
+// CHECK: module Fadu_K2_S5_RVCExpander_tb;
+//
+// --- Port signals: multi-bit vectors ---
+// CHECK: reg [31:0] io_in
+// CHECK-DAG: wire [31:0] io_out_bits
+// CHECK-DAG: wire [4:0] io_out_rd
+// CHECK-DAG: wire [4:0] io_out_rs1
+// CHECK-DAG: wire [4:0] io_out_rs2
+// CHECK-DAG: wire io_rvc
+//
+// --- DUT instantiation ---
+// CHECK: Fadu_K2_S5_RVCExpander dut
+// CHECK: .io_in
+// CHECK: .io_out_bits
+// CHECK: .io_rvc
+//
+// --- No clock/reset in combinational TB ---
+// CHECK-NOT: forever
+// CHECK-NOT: clock
+// CHECK-NOT: reset
+//
+// --- Stimulus block ---
+// CHECK: initial begin
+// CHECK: io_in = 0
+// CHECK: $finish
+//
+// CHECK: endmodule

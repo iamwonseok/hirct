@@ -1,0 +1,17 @@
+// Test GenVerify: combinational-only verify driver (eval_comb, no model.step)
+//
+// RUN: %hirct-gen %S/../../fixtures/CombOnly.mlir -o %t --only model,verify
+// RUN: cat %t/verify/verify_CombOnly.cpp | %FileCheck %s
+//
+// CHECK: AUTO-GENERATED
+// CHECK: #include <random>
+// CHECK: #include "VCombOnly.h"
+// CHECK: #include "../cmodel/CombOnly.h"
+// CHECK: std::mt19937_64 rng(seed);
+// CHECK-NOT: std::srand
+// CHECK-NOT: std::rand()
+// CHECK: rng()
+// CHECK: rtl.eval();
+// CHECK: model.eval_comb();
+// CHECK-NOT: model.step();
+// CHECK: FAIL cycle=

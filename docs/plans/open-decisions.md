@@ -1,8 +1,8 @@
 # HIRCT 미합의 사항 목록 (Open Decisions)
 
 > **작성일**: 2026-02-15
-> **상태**: 전체 합의 완료
-> **총 항목**: 26건 (RESOLVED 26)
+> **상태**: OPEN 5건
+> **총 항목**: 32건 (RESOLVED 27, OPEN 5)
 
 ---
 
@@ -47,7 +47,7 @@
 - 최신 트렌드는 소스 코드에 `(* ... *)` Attribute를 남기는 것을 선호
 - 어노테이션이 있으면 나머지 무시, 패턴이 매치되면 이름 검사 불필요
 
-**반영 대상**: `docs/plans/phase-1-pipeline/107-gen-ral.md` L112–L123
+**반영 대상**: `hirct/lib/Target/GenRAL.cpp` (구현 완료, 계획 파일 삭제됨)
 
 ---
 
@@ -72,7 +72,7 @@
 - 계층 구조 지원은 복잡도가 기하급수적으로 증가
 - Phase 1 목표는 "파이프라인 관통(Walking Skeleton)"
 
-**반영 대상**: `docs/plans/phase-1-pipeline/101-gen-model.md` L14, L116
+**반영 대상**: `hirct/lib/Target/GenModel.cpp` (구현 완료, 계획 파일 삭제됨)
 
 ---
 
@@ -96,8 +96,8 @@
 
 **구현 위치**: `lib/Target/GenVerify.cpp` (드라이버 소스 생성), `tools/hirct-verify/main.cpp` (CLI 바이너리), per-module `Makefile` (빌드+실행), lit (`integration_test/`) (전체 오케스트레이션)
 
-**반영 대상**: `docs/plans/phase-1-pipeline/109-verify.md` 헤더 "파일" 행
-**검증 grep**: `grep -n "per-module\|GenVerify\|lit" docs/plans/phase-1-pipeline/109-verify.md`
+**반영 대상**: `hirct/lib/Target/GenVerify.cpp`, `hirct/tools/hirct-verify/main.cpp` (구현 완료, 계획 파일 삭제됨)
+**검증 grep**: `grep -rn "per-module\|GenVerify\|lit" hirct/lib/Target/GenVerify.cpp`
 
 ---
 
@@ -118,7 +118,7 @@
 
 **CLI 예시**: `hirct-gen -f filelist.f --top CoreIPSubsystem`
 
-**반영 대상**: `docs/plans/phase-1-pipeline/110-output-structure.md` L79–L97, `docs/plans/phase-1-pipeline/111-cli.md`
+**반영 대상**: `hirct/tools/hirct-gen/main.cpp` (구현 완료, 계획 파일 삭제됨)
 
 ---
 
@@ -136,7 +136,7 @@
 - EDA 생태계 표준을 따라야 기존 워크플로우와 호환
 - 가벼운 정규식 기반 파서로 충분
 
-**반영 대상**: `docs/plans/phase-1-pipeline/110-output-structure.md` L85, `docs/plans/phase-2-testing/202-top-traversal.md` L17
+**반영 대상**: `hirct/tools/hirct-gen/main.cpp`, `docs/plans/hirct-convention.md` (구현 완료, 계획 파일 삭제됨)
 
 ---
 
@@ -152,9 +152,7 @@
 - 계층 정보는 “사람이 읽는 문서” 용도로만 필요하며, 기계 판정은 `report.json`/`verify-report.json`으로 충분하다.
 
 **반영 대상**:
-- `docs/plans/phase-1-pipeline/110-output-structure.md` (Top 단계에서 계층 JSON 파일 생성 언급 제거)
-- `docs/plans/phase-2-testing/202-top-traversal.md` (게이트에서 계층 JSON 파일 검사 제거)
-- `docs/plans/reference-commands-and-structure.md` (전역 산출물에서 계층 JSON 파일 제거)
+- `docs/plans/reference-commands-and-structure.md` (전역 산출물에서 계층 JSON 파일 제거, 계획 파일 삭제됨)
 
 ---
 
@@ -168,8 +166,8 @@
 
 **근거**: WARN + 계속 진행은 미정렬 op이 잘못된 순서로 emit되어 "컴파일은 되지만 시뮬레이션 불일치"를 허용한다. 이는 verify 단계에서야 실패가 발견되어 원인 추적이 어렵다. ERROR로 즉시 표면화하여 `hirct-convention.md` §5 실패 분류 체계의 `fail` 정의와 일관성을 유지한다.
 
-**반영 대상**: `hirct-convention.md` §2.10.1, `100-bootstrap.md` Step 4 Kahn's Algorithm
-**검증 grep**: `grep -n "combinational.*loop.*ERROR\|combinational_loop.*true" docs/plans/hirct-convention.md docs/plans/phase-1-pipeline/100-bootstrap.md`
+**반영 대상**: `docs/plans/hirct-convention.md` §2.10.1, `hirct/lib/Analysis/IRAnalysis.cpp` (구현 완료, 계획 파일 삭제됨)
+**검증 grep**: `grep -n "combinational.*loop.*ERROR\|combinational_loop.*true" docs/plans/hirct-convention.md`
 
 ---
 
@@ -182,8 +180,8 @@
 - EmitCHeader의 출력은 GenModel `.h`의 **부분집합** — 기능이 완전히 중복
 - GenRAL에 통합하면 비-레지스터 모듈에서 C 헤더가 사라지는 문제 발생 → 통합도 부적절
 
-**반영 대상**: `docs/plans/summary.md` §7 "C++ 소스 매핑" 삭제 예정 행, `docs/plans/phase-1-pipeline/README.md` §C++ 소스 매핑 테이블
-**검증 grep**: `grep -n "EmitCHeader\|삭제" docs/plans/summary.md docs/plans/phase-1-pipeline/README.md`
+**반영 대상**: `docs/plans/summary.md` §7 (구현 완료, EmitCHeader 삭제됨, 계획 파일 삭제됨)
+**검증 grep**: `grep -n "EmitCHeader" docs/plans/summary.md hirct/lib/Target/`
 
 ---
 
@@ -193,7 +191,7 @@
 - 출력 파일: `doc/<module>.md` 하나에 `## Hardware Spec` + `## Programmer's Guide` 섹션
 - 사용자는 하나의 잘 정리된 문서를 선호
 
-**반영 대상**: `docs/plans/phase-1-pipeline/README.md` L42, `docs/plans/phase-1-pipeline/106-gen-doc.md`
+**반영 대상**: `hirct/lib/Target/GenDoc.cpp` (구현 완료, 계획 파일 삭제됨)
 
 ---
 
@@ -207,7 +205,7 @@
 - 중복 문서는 불일치의 원천
 - GitHub 표준은 `CONTRIBUTING.md` 또는 단일 `coding_standard.md`
 
-**반영 대상**: `docs/plans/hirct-convention.md`, `docs/plans/rules.md` (전체)
+**반영 대상**: `docs/plans/hirct-convention.md` (`rules.md`는 삭제 완료)
 
 ---
 
@@ -222,7 +220,7 @@
 - 파일명과 클래스명이 다르면 IDE 탐색이 어려움
 - 기술 부채 방지를 위해 일치시키는 것이 정석
 
-**반영 대상**: `docs/plans/phase-1-pipeline/README.md` L35–L47
+**반영 대상**: `hirct/lib/Target/*.cpp` 전체 (구현 완료, 계획 파일 삭제됨)
 
 ---
 
@@ -236,7 +234,7 @@
 
 **`tb_` 접두사를 쓰지 않는 이유**: `tb/` 디렉토리의 SV 테스트벤치(GenTB 산출물)와 역할 혼동
 
-**반영 대상**: `docs/plans/phase-1-pipeline/109-verify.md` L41, L46
+**반영 대상**: `hirct/lib/Target/GenVerify.cpp` (구현 완료, 계획 파일 삭제됨)
 
 ---
 
@@ -248,7 +246,7 @@
 - 바이너리 하나에 모든 것이 포함되어 배포 시 템플릿 파일 경로 문제 없음
 - 110-output-structure.md에 상세 추가로 충분
 
-**반영 대상**: `docs/plans/summary.md` L151, `docs/plans/phase-1-pipeline/110-output-structure.md`
+**반영 대상**: `hirct/lib/Target/GenMakefile.cpp`, `docs/plans/summary.md` (구현 완료, 계획 파일 삭제됨)
 
 ---
 
@@ -262,7 +260,7 @@
 - **Phase 2 후반**: Policy A로 전환 — `output/**`를 lint에 포함. 실패 시 생성기(hirct-gen) 쪽을 수정해서 통과시킨다.
 - **전환 후 반복 저해 시**: `output/**`에 한해 완화 규칙 도입(허용 예외 목록 고정).
 
-> **경정 사유 (2026-02-17)**: 원래 "A 먼저, 필요 시 B 폴백"이었으나, Phase 1이 전체 C++을 신규 작성하는 greenfield 단계여서 생성 코드 lint 패턴이 확립되지 않은 상태에서 Policy A는 전환 조건을 거의 확실히 충족한다. `docs/plans/phase-0-setup/003-coding-convention.md`의 실행 계획과 일치시켰다.
+> **경정 사유 (2026-02-17)**: 원래 "A 먼저, 필요 시 B 폴백"이었으나, Phase 1이 전체 C++을 신규 작성하는 greenfield 단계여서 생성 코드 lint 패턴이 확립되지 않은 상태에서 Policy A는 전환 조건을 거의 확실히 충족한다.
 
 모든 생성 파일 첫 줄에 표준 헤더 삽입:
 ```
@@ -280,7 +278,7 @@
 - Phase 2 후반: Policy A — `make lint`에서 `output/**`까지 포함해 lint가 통과해야 함
 - 생성 파일은 `AUTO-GENERATED` 헤더로 수동 편집을 방지하고, 스타일/포맷 문제는 기본적으로 생성기에서 해결
 
-**반영 대상**: `docs/plans/phase-0-setup/003-coding-convention.md` L19
+**반영 대상**: `docs/plans/hirct-convention.md` §린트 정책 (구현 완료, 계획 파일 삭제됨)
 
 ---
 
@@ -302,7 +300,7 @@ VCS/ncsim 라이선스가 확보되어 있으므로:
 - VCS/ncsim 라이선스가 있으므로 적극 활용
 - Verilator/Verible은 CI 환경이나 라이선스 서버 접근 불가 시 fallback
 
-**반영 대상**: `docs/plans/phase-0-setup/003-coding-convention.md` L17, `docs/plans/phase-1-pipeline/107-gen-ral.md` L80–L93
+**반영 대상**: `docs/plans/hirct-convention.md` §VCS/Verilator 게이트 (구현 완료, 계획 파일 삭제됨)
 
 ---
 
@@ -317,7 +315,7 @@ VCS/ncsim 라이선스가 확보되어 있으므로:
 - Python 환경 설정이 꼬이기 쉬우므로 필수 강제는 진입 장벽
 - cocotb 실제 실행은 Phase 2 이후에서 선택적으로
 
-**반영 대상**: `docs/plans/phase-1-pipeline/108-gen-cocotb.md` L32
+**반영 대상**: `hirct/lib/Target/GenCocotb.cpp`, `utils/setup-env.sh` (구현 완료, 계획 파일 삭제됨)
 
 ---
 
@@ -336,7 +334,7 @@ VCS/ncsim 라이선스가 확보되어 있으므로:
 - 대형 프로젝트 디버깅 시 전체 생성을 기다리는 것은 비생산적
 - 개발 생산성을 위해 반드시 필요
 
-**반영 대상**: `docs/plans/phase-1-pipeline/111-cli.md` L26
+**반영 대상**: `hirct/tools/hirct-gen/main.cpp` (구현 완료, 계획 파일 삭제됨)
 
 ---
 
@@ -346,7 +344,7 @@ VCS/ncsim 라이선스가 확보되어 있으므로:
 - `make generate` → 설정 파일(예: `config/generate.f` 또는 Makefile 변수)에서 대상 읽기
 - `rtl/**/*.v` 와일드카드는 사용하지 않음 (백업/임시 파일 포함 위험)
 
-**반영 대상**: `docs/plans/phase-1-pipeline/111-cli.md` L59
+**반영 대상**: `hirct/tools/hirct-gen/main.cpp` §generate 경로 (구현 완료, 계획 파일 삭제됨)
 
 ---
 
@@ -366,7 +364,7 @@ VCS/ncsim 라이선스가 확보되어 있으므로:
 - 멱등성: 여러 번 실행해도 안전 (`if not exist then install`)
 - 실패 처리: 필수 도구 실패 → Error 중단, 선택 도구 실패 → 경고 후 계속
 
-**반영 대상**: `docs/plans/phase-0-setup/001-setup-env.md` L11
+**반영 대상**: `utils/setup-env.sh` (구현 완료, 계획 파일 삭제됨)
 
 ---
 
@@ -391,7 +389,7 @@ make test-traversal            → lit integration_test/traversal/ (CI 제외, n
 - VCS/ncsim 게이트: 라이선스 서버 접근 가능 환경(self-hosted runner 등)에서 실행
 - Push 및 PR 이벤트에 트리거
 
-**반영 대상**: `docs/plans/phase-2-testing/205-test-automation.md` L12
+**반영 대상**: `Makefile` (test-all 타겟 구현 완료, 계획 파일 삭제됨)
 
 ---
 
@@ -403,7 +401,7 @@ make test-traversal            → lit integration_test/traversal/ (CI 제외, n
 - 기존 100cyc은 오기로 판단
 - VCS도 10시드 × 1000cyc 기준 적용
 
-**반영 대상**: `docs/plans/phase-3-release/301-vcs-cosimulation.md` L6
+**반영 대상**: VCS co-sim 구현 완료 (계획 파일 삭제됨, `docs/plans/summary.md` §4.4 완료 선언 참조)
 
 ---
 
@@ -432,12 +430,16 @@ make test-traversal            → lit integration_test/traversal/ (CI 제외, n
 - CI는 항상 Green(Pass) 상태 유지
 - XFAIL 모듈은 `known-limitations.md`에 사유와 함께 문서화
 - Phase 3 진입 조건: XFAIL 제외 전체 PASS
+- Hybrid cross-validation acceptance contract는 동일 정책을 확장 적용:
+  - Module Gate: 동일 seed/cycle mismatch 0
+  - Subsystem Gate: PASS율 + 실패 패턴 안정성
+  - Top Gate: SoC smoke mismatch 0 또는 허용 리스트만 존재
 
 **근거**:
 - "80% 합격"은 위험 — 20%의 실패가 중요한 회귀(Regression)일 수 있음
 - 실패 테스트를 XFAIL로 명시 관리하면 새로운 회귀를 즉시 감지 가능
 
-**반영 대상**: `docs/plans/phase-2-testing/203-auto-verification.md` L35
+**반영 대상**: `docs/plans/known-limitations.md` (XFAIL 관리 정책 적용 중, 계획 파일 삭제됨)
 
 ---
 
@@ -448,7 +450,7 @@ make test-traversal            → lit integration_test/traversal/ (CI 제외, n
 - `report.json`은 “무엇을 처리했고(pass/fail/skip) 어디에 있는지(path)”의 SSOT이다.
 - 계층 트리(JSON)는 생성하지 않는다. 계층 정보가 필요하면 `doc/*.md` 내부 텍스트 트리로만 제공한다.
 
-**반영 대상**: `docs/plans/phase-3-release/302-documentation.md` (계층 JSON 파일 기반 문구 제거)
+**반영 대상**: mkdocs 문서 구현 완료 (계획 파일 삭제됨, `docs/plans/summary.md` §4.4 완료 선언 참조)
 
 ---
 
@@ -470,7 +472,9 @@ make test-traversal            → lit integration_test/traversal/ (CI 제외, n
 | D. CLI / 빌드 시스템 | 4 | 전체 RESOLVED |
 | E. 검증 기준 | 4 | 전체 RESOLVED |
 | F. 기타 | 1 | 전체 RESOLVED |
-| **합계** | **26** | **전체 RESOLVED** |
+| G. 런타임 / 성능 | 2 | RESOLVED 1, OPEN 1 |
+| H. 제품 전략 | 4 | 전체 OPEN |
+| **합계** | **32** | **RESOLVED 27, OPEN 5** |
 
 ---
 
@@ -520,10 +524,105 @@ make test-traversal            → lit integration_test/traversal/ (CI 제외, n
 
 ---
 
+## G. 런타임 / 성능 (2건)
+
+### G-1. DPI Wrapper 출력 갱신 타이밍 개선 — OPEN (2026-02-26)
+
+**배경**: 현재 DPI wrapper(`uart_top_dpi.sv`)는 `always @(posedge CLK)` 블록 안에서만 출력을 갱신한다. RTL은 event-driven으로 조합논리 출력이 즉시 변하므로, PSEL 해제 직후 RTL PRDATA=0이지만 CModel PRDATA는 다음 posedge까지 이전 값을 유지한다.
+
+**선택안**:
+
+| 안 | 방식 | 장점 | 단점 |
+|----|------|------|------|
+| A | 현행 유지 + 테스트벤치 비교 시점 문서화 | 구현 없음, 최소 변경 | 모든 테스트벤치 작성자가 제약을 인지해야 함 |
+| B | `always @(*)` 블록 추가: 입력 변화 시 `eval_comb()` 호출 + 출력 갱신 | RTL과 동일한 조합논리 반응성 | DPI-C 호출 빈도 급증, 시뮬레이션 성능 저하 |
+| C | `do_reset()` 후에도 출력 갱신 코드 추가 | 리셋 해제 직후 TXD=1(idle) 정상 출력 | 비교 시점 문제는 해결 안 됨 |
+
+**현재 적용**: A안 (KL-1로 문서화)
+**결정 필요 시점**: Phase 2 (전체 순회 테스트에서 false mismatch 빈도 확인 후)
+
+---
+
+### G-2. 멀티 클럭 도메인 CModel step() 분리 — RESOLVED (2026-02-26)
+
+**결정**: **B안 — IR 분석 기반 클럭 도메인별 step 분리** 구현 완료.
+
+**구현 내용**:
+1. `ModuleAnalyzer::build_clock_domain_map()`: `seq.firreg`/`seq.compreg`의 operands[1]에서 클럭 SSA 추출, `seq.to_clock` 역추적으로 입력 포트 이름 결정, `ClockDomainMap` 구성
+2. `GenModel`: 멀티클럭 모듈에서 `step_<domain>()` 함수 생성 (해당 도메인 레지스터/인스턴스만 처리), 통합 `step()` 디스패처
+3. `GenDPIC`: 멀티클럭 모듈에서 도메인별 `always @(posedge)` 블록 + DPI-C `step_<domain>()` 래퍼 함수
+4. `is_clock_port`/`is_reset_port` → `ModuleAnalyzer` 정적 메서드로 통합 (5개 emitter 중복 제거)
+
+**검증**: uart_top equiv 19/19 PASS 유지. CDC 모듈(bcm23, bcm25*)은 `step_clk_d()`/`step_clk_s()` 생성 확인. 단일클럭 모듈은 기존 코드와 동일 출력.
+
+**근거**: B안이 GenModel 아키텍처 변경을 수반하지만, `ClockDomainMap` 분석 계층을 `ModuleAnalyzer`에 추가하여 깔끔하게 분리. 단일클럭 경로는 `is_multi_clock() == false` 분기로 100% 기존 동작 보존.
+
+**반영 대상**: `hirct/lib/Analysis/IRAnalysis.cpp` (ClockDomainMap), `hirct/lib/Target/GenModel.cpp` (emit_domain_step_method), `hirct/lib/Target/GenDPIC.cpp` (per-clock always blocks)
+**검증 grep**: `grep -rn "step_clk_d\|step_clk_s\|build_clock_domain_map\|is_multi_clock" hirct/lib/`
+
+---
+
+## H. 제품 전략 (4건)
+
+### H-1. 사내 시뮬레이터 인터페이스 확정 — OPEN (2026-03-08)
+
+**배경**: HIRCT가 생성하는 C/C++ 모델을 사내 제품 시뮬레이터에 연결해야 한다. 시뮬레이터가 요구하는 인터페이스 형태에 따라 모델 출력 형식이 달라진다.
+
+**선택안**:
+- A: pure C/C++ (step/eval API) — 사내 시뮬레이터가 C API만 수용하는 경우
+- B: SystemC (SC_MODULE + TLM-2.0) — SystemC 가상 플랫폼에 통합하는 경우
+- C: 커스텀 인터페이스 — 사내 시뮬레이터 전용 API에 맞춤
+
+**참조**: `2026-03-08-hirct-product-strategy.md` Section 8
+
+---
+
+### H-2. CXXRTL PoC 범위 및 일정 — OPEN (2026-03-08)
+
+**배경**: Yosys CXXRTL이 GenModel과 유사한 접근(모듈 계층 보존, standalone C++). 단기적으로 CXXRTL을 중간 단계로 활용하여 사내 시뮬레이터 연동 PoC를 확보하는 전략이 채택됨.
+
+**선택안**:
+- A: 소규모 모듈(v2p_tbl_stage1) 1개로 PoC → 사내 시뮬레이터 연동 확인
+- B: UART 전체로 PoC → 기존 GenModel 결과와 비교
+- C: 칩 전체 RTL로 대규모 PoC → 커버리지 확인
+
+**참조**: `2026-03-08-hirct-product-strategy.md` Section 4
+
+---
+
+### H-3. GenFuncModel의 SystemC TLM 전환 여부 — OPEN (2026-03-08)
+
+**배경**: GenFuncModel을 pure C 본체 + SystemC TLM 래퍼 아키텍처로 재설계하는 방향이 논의됨. 본체는 read()/write()/tick() API, 래퍼는 대상 환경별(SystemC, DPI-C, QEMU) 생성.
+
+**선택안**:
+- A: pure C 본체만 구현 (래퍼는 필요 시 추가)
+- B: pure C 본체 + SystemC 래퍼 동시 구현
+- C: SystemC를 본체로 구현 (pure C 포기)
+
+**참조**: `2026-03-08-hirct-product-strategy.md` Section 5
+
+---
+
+### H-4. GenModel IR 스펙 작업 재개 시점 — OPEN (2026-03-08)
+
+**배경**: GenModel IR 스펙(pass별 IR 변환 추적, 패턴 카탈로그) 작성이 전략 수준 논의로 연기됨. 전략 확정 후 IR 스펙 작업을 재개할 시점을 결정해야 함.
+
+**선택안**:
+- A: H-1(시뮬레이터 인터페이스) 확정 직후
+- B: H-2(CXXRTL PoC) 완료 후 (PoC 결과를 IR 스펙에 반영)
+- C: 4축 전략 전체 확정 후
+
+**참조**: `2026-03-08-hirct-product-strategy.md` Section 8
+
+---
+
 ## 변경 이력
 
 | 날짜 | 내용 |
 |------|------|
+| 2026-03-08 | H-1~H-4 추가: 제품 전략 brainstorming에서 도출된 4건 미결 결정 (사내 시뮬레이터, CXXRTL PoC, GenFuncModel 전환, IR 스펙 재개) |
+| 2026-02-26 | G-2 RESOLVED: 멀티 클럭 도메인 step 분리 구현 완료 (B안 채택, equiv 19/19 PASS) |
+| 2026-02-26 | G-1, G-2 추가: DPI Wrapper 타이밍 + 멀티 클럭 step 분리 (OPEN) |
 | 2026-02-15 | 초안 작성 (25건 OPEN) |
 | 2026-02-15 | 전체 합의 완료 (25건 RESOLVED), VCS/ncsim 이중 게이트 반영 |
 | 2026-02-15 | 피드백 반영: A-1(Verilator 호환), A-3(Flatten 폴백), A-4(혼합 방식), A-5(조건부 --top), B-1(삭제), B-5(verify_ 유지), B-6(C++ 내장), C-1(AUTO-GENERATED 헤더), D-4(Makefile 추상화) |

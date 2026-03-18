@@ -1,0 +1,18 @@
+{
+  "path": "survey-results/gen/ddr_ctrl/meta.json",
+  "top": "",
+  "mlir": "fail",
+  "reason": "importVerilog failed",
+  "emitters": {
+    "gen-model": {"result": "fail", "reason": ""},
+    "gen-tb": {"result": "fail", "reason": ""},
+    "gen-makefile": {"result": "fail", "reason": ""},
+    "gen-verify": {"result": "fail", "reason": ""},
+    "gen-dpic": {"result": "fail", "reason": ""},
+    "gen-wrapper": {"result": "fail", "reason": ""},
+    "gen-format": {"result": "fail", "reason": ""},
+    "gen-ral": {"result": "fail", "detection": "none", "reason": ""},
+    "gen-doc": {"result": "fail", "reason": ""},
+    "gen-cocotb": {"result": "fail", "reason": ""}
+  }
+}

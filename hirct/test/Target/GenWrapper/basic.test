@@ -1,0 +1,24 @@
+// Test GenWrapper: SV interface wrapper generation for LevelGateway
+//
+// RUN: %hirct-gen %S/../../fixtures/LevelGateway.mlir -o %t --only wrapper
+// RUN: cat %t/wrapper/Fadu_K2_S5_LevelGateway_wrapper.sv | %FileCheck %s
+//
+// CHECK: AUTO-GENERATED
+// CHECK: interface Fadu_K2_S5_LevelGateway_wrapper
+//
+// --- Grouped ports: io_plic ---
+// CHECK: io_plic_valid
+// CHECK: io_plic_ready
+// CHECK: io_plic_complete
+//
+// --- Ungrouped ports ---
+// CHECK: preset_flops
+// CHECK: io_interrupt
+//
+// --- Modport declarations ---
+// CHECK: modport dut
+// CHECK: modport tb
+//
+// CHECK: endinterface
+// CHECK: module Fadu_K2_S5_LevelGateway_wrapper_bind
+// CHECK: endmodule

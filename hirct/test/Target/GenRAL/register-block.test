@@ -1,0 +1,21 @@
+// Test GenRAL: register block with 4 CSR registers
+//
+// RUN: %hirct-gen %S/../../fixtures/RegisterBlock.mlir -o %t --only model,ral
+// RUN: cat %t/ral/RegisterBlock_ral.sv | %FileCheck %s --check-prefix=CHECK-RAL
+// RUN: cat %t/ral/RegisterBlock_hal.h | %FileCheck %s --check-prefix=CHECK-HAL
+// RUN: cat %t/ral/RegisterBlock_driver.c | %FileCheck %s --check-prefix=CHECK-DRV
+// RUN: gcc -c %t/ral/RegisterBlock_driver.c -I %t/ral -o %t/test_driver.o
+// RUN: g++ -std=c++17 -c %t/cmodel/RegisterBlock.cpp -I %t/cmodel -o %t/test_rb.o
+//
+// CHECK-RAL: AUTO-GENERATED
+// CHECK-RAL: import uvm_pkg::*
+// CHECK-RAL: extends uvm_reg
+// CHECK-RAL: RegisterBlock_reg_block
+// CHECK-RAL: extends uvm_reg_block
+//
+// CHECK-HAL: AUTO-GENERATED
+// CHECK-HAL: #ifndef REGISTERBLOCK_HAL_H
+// CHECK-HAL: #include <stdint.h>
+//
+// CHECK-DRV: AUTO-GENERATED
+// CHECK-DRV: #include "RegisterBlock_hal.h"

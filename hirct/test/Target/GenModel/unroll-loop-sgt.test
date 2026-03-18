@@ -1,0 +1,13 @@
+// Test GenModel: try_unroll_loop handles sgt (reverse loop) condition
+//
+// Verifies that a reverse loop `for (i = 3; i > -1; i--)` with trip_count=4
+// is unrolled correctly by GenModel's try_unroll_loop (sgt predicate).
+// The loop body adds %data to the accumulator 4 times (i=3,2,1,0).
+//
+// RUN: %hirct-gen %S/../../fixtures/UnrollLoopSgt.mlir -o %t --only model
+// RUN: cat %t/cmodel/UnrollLoopSgt.cpp | %FileCheck %s
+//
+// CHECK: AUTO-GENERATED
+// CHECK: void UnrollLoopSgt::eval_comb()
+// Loop is unrolled 4 times, each iteration adds data to accumulator.
+// CHECK-COUNT-4: + (data)

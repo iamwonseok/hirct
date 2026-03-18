@@ -67,22 +67,40 @@ Which option?
 
 #### Option 1: Merge Locally
 
+**Checklist (순서대로 실행):**
+
+1. base branch로 이동:
 ```bash
-# Switch to base branch
 git checkout <base-branch>
-
-# Pull latest
 git pull
+```
 
-# Merge feature branch
+2. feature branch 병합:
+```bash
 git merge <feature-branch>
+```
 
-# Verify tests on merged result
+3. 병합 결과 테스트 검증:
+```bash
 <test command>
+```
 
-# If tests pass
+4. 테스트 통과 확인 후 feature branch 삭제:
+```bash
 git branch -d <feature-branch>
 ```
+
+5. worktree 정리 (Step 5로 이동)
+
+6. 최종 상태 확인:
+```bash
+git status
+git worktree list
+git branch -a
+```
+- `git status`: clean working tree
+- `git worktree list`: 불필요한 worktree 없음
+- `git branch -a`: 삭제 대상 branch 없음
 
 Then: Cleanup worktree (Step 5)
 

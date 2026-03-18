@@ -1,0 +1,18 @@
+// XFAIL: *
+// Test GenModel: instance output used as operand for subsequent comb logic
+// (exercises the deferred worklist resolving instance outputs before downstream ops)
+//
+// RUN: %hirct-gen %S/../../fixtures/InstanceCrossRef.mlir -o %t --only model
+// RUN: cat %t/cmodel/InstanceCrossRef.h | %FileCheck %s --check-prefix=CHECK-H
+// RUN: cat %t/cmodel/InstanceCrossRef.cpp | %FileCheck %s --check-prefix=CHECK-CPP
+// RUN: g++ -std=c++17 -c %t/Adder8/cmodel/Adder8.cpp -I %t/Adder8/cmodel -o %t/test_adder.o
+// RUN: g++ -std=c++17 -c %t/cmodel/InstanceCrossRef.cpp -I %t/cmodel -I %t -o %t/test_crossref.o
+//
+// CHECK-H: AUTO-GENERATED
+// CHECK-H: class InstanceCrossRef
+// CHECK-H: Adder8 inst_add
+//
+// CHECK-CPP: AUTO-GENERATED
+// CHECK-CPP: void InstanceCrossRef::eval_comb()
+// CHECK-CPP: inst_add.eval_comb()
+// CHECK-CPP: result =

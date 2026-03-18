@@ -1,0 +1,25 @@
+// XFAIL: *
+// Test GenModel: multi-module MLIR with hw.instance support
+//
+// RUN: %hirct-gen %S/../../fixtures/MultiModule.mlir -o %t --only model
+// RUN: cat %t/cmodel/MultiModule.h | %FileCheck %s --check-prefix=CHECK-TOP
+// RUN: cat %t/cmodel/MultiModule.cpp | %FileCheck %s --check-prefix=CHECK-CPP
+// RUN: cat %t/Adder8/cmodel/Adder8.h | %FileCheck %s --check-prefix=CHECK-SUB
+// RUN: g++ -std=c++17 -c %t/Adder8/cmodel/Adder8.cpp -I %t/Adder8/cmodel -o %t/test_adder.o
+// RUN: g++ -std=c++17 -c %t/cmodel/MultiModule.cpp -I %t/cmodel -I %t -o %t/test_multi.o
+//
+// CHECK-TOP: AUTO-GENERATED
+// CHECK-TOP: class MultiModule
+// CHECK-TOP: uint8_t x
+// CHECK-TOP: uint8_t result
+// CHECK-TOP: Adder8 inst_add1
+// CHECK-TOP: Adder8 inst_add2
+//
+// CHECK-CPP: inst_add1.eval_comb()
+// CHECK-CPP: inst_add2.eval_comb()
+//
+// CHECK-SUB: AUTO-GENERATED
+// CHECK-SUB: class Adder8
+// CHECK-SUB: uint8_t a
+// CHECK-SUB: uint8_t b
+// CHECK-SUB: uint8_t sum

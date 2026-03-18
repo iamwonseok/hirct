@@ -1,0 +1,19 @@
+// Test GenModel: comb.icmp ceq/cne/weq/wne predicates
+//
+// RUN: %hirct-gen %S/../../fixtures/IcmpCeq.mlir -o %t --only model
+// RUN: cat %t/cmodel/IcmpCeq.h | %FileCheck %s --check-prefix=CHECK-H
+// RUN: cat %t/cmodel/IcmpCeq.cpp | %FileCheck %s --check-prefix=CHECK-CPP
+//
+// CHECK-H: AUTO-GENERATED
+// CHECK-H: class IcmpCeq
+// CHECK-H: bool y_ceq
+// CHECK-H: bool y_cne
+// CHECK-H: bool y_weq
+// CHECK-H: bool y_wne
+//
+// CHECK-CPP: AUTO-GENERATED
+// CHECK-CPP: void IcmpCeq::eval_comb()
+// CHECK-CPP: ==
+// CHECK-CPP: !=
+// CHECK-CPP: ==
+// CHECK-CPP: !=

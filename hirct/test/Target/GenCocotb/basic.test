@@ -1,0 +1,15 @@
+// Test GenCocotb: Python testbench generation for LevelGateway
+//
+// RUN: %hirct-gen %S/../../fixtures/LevelGateway.mlir -o %t --only cocotb
+// RUN: python3 -m py_compile %t/cocotb/test_Fadu_K2_S5_LevelGateway.py
+// RUN: cat %t/cocotb/test_Fadu_K2_S5_LevelGateway.py | %FileCheck %s
+//
+// CHECK: AUTO-GENERATED
+// CHECK: import cocotb
+// CHECK: from cocotb.clock import Clock
+// CHECK: @cocotb.test()
+// CHECK: async def test_reset
+// CHECK: Clock(dut.clock
+// CHECK: dut.reset.value = 1
+// CHECK: async def test_random_stimulus
+// CHECK: random.getrandbits

@@ -1,0 +1,33 @@
+// Test GenDPIC: DPI-C wrapper generation for combinational-only module (RVCExpander)
+//
+// RUN: %hirct-gen %S/../../fixtures/RVCExpander.mlir --only model,dpic -o %t
+// RUN: ls %t/dpi/Fadu_K2_S5_RVCExpander_dpi.h
+// RUN: ls %t/dpi/Fadu_K2_S5_RVCExpander_dpi.cpp
+// RUN: ls %t/dpi/Fadu_K2_S5_RVCExpander_dpi.sv
+// RUN: cat %t/dpi/Fadu_K2_S5_RVCExpander_dpi.h | %FileCheck %s --check-prefix=CHECK-HEADER
+// RUN: cat %t/dpi/Fadu_K2_S5_RVCExpander_dpi.cpp | %FileCheck %s --check-prefix=CHECK-IMPL
+// RUN: cat %t/dpi/Fadu_K2_S5_RVCExpander_dpi.sv | %FileCheck %s --check-prefix=CHECK-SV
+// RUN: g++ -std=c++17 -c %t/dpi/Fadu_K2_S5_RVCExpander_dpi.cpp -I %t/dpi -o %t/test_dpi_comb.o
+//
+// --- DPI-C Header: multi-bit type mapping ---
+// CHECK-HEADER: AUTO-GENERATED
+// CHECK-HEADER: fadu_k2_s5_rvcexpander_create
+// CHECK-HEADER: fadu_k2_s5_rvcexpander_do_reset
+// CHECK-HEADER: fadu_k2_s5_rvcexpander_eval_comb
+// CHECK-HEADER-DAG: set_io_in
+// CHECK-HEADER-DAG: get_io_out_bits
+// CHECK-HEADER-DAG: get_io_out_rd
+// CHECK-HEADER-DAG: get_io_rvc
+//
+// --- DPI-C Implementation: correct cmodel include ---
+// CHECK-IMPL: AUTO-GENERATED
+// CHECK-IMPL: #include "../cmodel/Fadu_K2_S5_RVCExpander.h"
+// CHECK-IMPL: eval_comb()
+//
+// --- SystemVerilog: combinational always @(*) block ---
+// CHECK-SV: AUTO-GENERATED
+// CHECK-SV: module Fadu_K2_S5_RVCExpander_dpi_wrapper
+// CHECK-SV: always @(*)
+// CHECK-SV: fadu_k2_s5_rvcexpander_eval_comb
+// CHECK-SV-NOT: posedge
+// CHECK-SV: endmodule

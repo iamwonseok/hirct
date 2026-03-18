@@ -1,3 +1,0 @@
-add_executable(ModuleAnalyzerTest ModuleAnalyzerTest.cpp)
-target_link_libraries(ModuleAnalyzerTest PRIVATE hirctAnalysis GTest::gtest_main)
-add_test(NAME ModuleAnalyzerTest COMMAND ModuleAnalyzerTest)

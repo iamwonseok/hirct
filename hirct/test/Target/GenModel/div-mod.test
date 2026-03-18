@@ -1,0 +1,14 @@
+// Test: comb.divu, comb.divs, comb.modu, comb.mods generate valid C++ with
+// divide-by-zero protection.
+//
+// RUN: %hirct-gen %S/../../fixtures/DivMod.mlir -o %t --only model
+// RUN: cat %t/cmodel/DivMod.cpp | %FileCheck %s
+//
+// CHECK: != 0 ?
+// CHECK-SAME: /
+// CHECK: != 0 ?
+// CHECK-SAME: /
+// CHECK: != 0 ?
+// CHECK-SAME: %
+// CHECK: != 0 ?
+// CHECK-SAME: %

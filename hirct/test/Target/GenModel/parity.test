@@ -1,0 +1,14 @@
+// Test GenModel: comb.parity support
+//
+// RUN: %hirct-gen %S/../../fixtures/Parity.mlir -o %t --only model
+// RUN: cat %t/cmodel/Parity.h | %FileCheck %s --check-prefix=CHECK-H
+// RUN: cat %t/cmodel/Parity.cpp | %FileCheck %s --check-prefix=CHECK-CPP
+//
+// CHECK-H: AUTO-GENERATED
+// CHECK-H: class Parity
+// CHECK-H: uint8_t a
+// CHECK-H: bool y
+//
+// CHECK-CPP: AUTO-GENERATED
+// CHECK-CPP: void Parity::eval_comb()
+// CHECK-CPP: __builtin_parityll

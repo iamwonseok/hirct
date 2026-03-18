@@ -1,0 +1,27 @@
+// Test GenTB: SV testbench skeleton generation for LevelGateway (sequential)
+//
+// RUN: %hirct-gen %S/../../fixtures/LevelGateway.mlir -o %t --only tb
+// RUN: ls %t/tb/Fadu_K2_S5_LevelGateway_tb.sv
+// RUN: cat %t/tb/Fadu_K2_S5_LevelGateway_tb.sv | %FileCheck %s
+//
+// CHECK: AUTO-GENERATED
+// CHECK: timescale 1ns / 1ps
+// CHECK: module Fadu_K2_S5_LevelGateway_tb;
+// CHECK-DAG: reg preset_flops
+// CHECK-DAG: reg clock
+// CHECK-DAG: reg reset
+// CHECK-DAG: reg io_interrupt
+// CHECK-DAG: wire io_plic_valid
+// CHECK-DAG: reg io_plic_ready
+// CHECK-DAG: reg io_plic_complete
+// CHECK: Fadu_K2_S5_LevelGateway dut(
+// CHECK: .preset_flops
+// CHECK: .clock
+// CHECK: .reset
+// CHECK: .io_plic_valid
+// CHECK: clock = 0
+// CHECK: #5 clock = ~clock
+// CHECK: reset = 1
+// CHECK: reset = 0
+// CHECK: $finish
+// CHECK: endmodule

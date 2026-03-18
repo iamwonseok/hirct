@@ -1,0 +1,11 @@
+// Test: Generated C++ model compiles with g++ without errors or warnings
+// Verilator-style compile gate: generation success != compilation success
+//
+// LevelGateway (register + clock/reset)
+// RUN: %hirct-gen %S/../../fixtures/LevelGateway.mlir -o %t --only model
+// RUN: g++ -c -std=c++17 -Wall -Wextra -Werror \
+// RUN:   -I%t/cmodel \
+// RUN:   %t/cmodel/Fadu_K2_S5_LevelGateway.cpp \
+// RUN:   -o /dev/null 2>&1 | %FileCheck %s --allow-empty
+//
+// CHECK-NOT: error:

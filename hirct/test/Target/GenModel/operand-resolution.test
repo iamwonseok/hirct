@@ -1,0 +1,12 @@
+// Test: Port operands in comb ops resolve to port names, not temp idents
+// Prevents regression where %reset could be incorrectly mapped to a temp name.
+//
+// RUN: %hirct-gen %S/../../fixtures/LevelGateway.mlir -o %t --only model
+// RUN: cat %t/cmodel/Fadu_K2_S5_LevelGateway.cpp \
+// RUN:   | %FileCheck %s
+//
+// Computed !reset uses a temp; AND expression uses that temp, not the port
+// CHECK-DAG: ((((t{{[0-9]+}}) &
+//
+// OR expression uses the port name "reset" directly
+// CHECK-DAG: ((((reset) |

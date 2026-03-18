@@ -1,0 +1,7 @@
+// Test: comb.parity must handle inputs wider than 64 bits.
+//
+// RUN: %hirct-gen %S/../../fixtures/ParityWide.mlir -o %t --only model
+// RUN: cat %t/cmodel/ParityWide.cpp | %FileCheck %s
+//
+// CHECK: __builtin_parityll
+// CHECK-SAME: __builtin_parityll

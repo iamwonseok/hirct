@@ -1,0 +1,111 @@
+==============================================================================
+HIRCT GenModel Error Taxonomy — Filelist-Based Survey
+==============================================================================
+Generated: 2026-03-01T15:42:05.974854+00:00
+Total IP targets: 56
+Pass: 3  |  Pass+Warn: 0  |  Fail: 53
+Total modules generated: 0
+Time: 357.8s total, 6.4s avg, 301.6s max
+
+------------------------------------------------------------------------------
+Category                        Count       %  Targets
+------------------------------------------------------------------------------
+unknown_module                     24   42.9%  i3c, edma, pka, secreg, sys_ctrl
+other                              10   17.9%  ddr_ctrl, mpm_bram, mpm_bus, ddr...
+timescale_error                     9   16.1%  trng, caliptra, s5, s5mc, ssd_ct...
+lowering_fail                       5    8.9%  i2cm, smbus, axi_x2p1, axi_x2p2,...
+pass                                3    5.4%  fsl_wflow, mpm_util, ets_con
+unresolved_process                  2    3.6%  uart, gpio
+unresolved_drive                    2    3.6%  wdt, ptimer
+timeout                             1    1.8%  axi_2x3
+------------------------------------------------------------------------------
+
+GenModel-specific failures: 4
+CIRCT lowering failures:    5
+Verilog import failures:    24
+Other failures:             10
+
+==============================================================================
+Per-Target Detail
+==============================================================================
+Name                      Category                   Exit   Time  Mods
+------------------------------------------------------------------------------
+ahb                       unknown_module                1   5.1s     0
+axi_2x3                   timeout                     137 301.6s     0
+axi_x2h                   lowering_fail                 1   5.6s     0
+axi_x2p1                  lowering_fail                 1   5.2s     0
+axi_x2p2                  lowering_fail                 1   5.6s     0
+caliptra                  timescale_error               1   0.5s     0
+chip                      unknown_module                1   0.0s     0
+clk_rst_gen               unknown_module                1   0.0s     0
+ddr_ctrl                  other                         1   2.1s     0
+ddr_phy.dep               other                         1   0.0s     0
+ddr_phy.syn               other                         1   0.0s     0
+ddr_phy_pre_map           unknown_module                1   0.0s     0
+ddr_top                   unknown_module                1   0.0s     0
+edma                      unknown_module                1   0.0s     0
+ets                       timescale_error               1   0.0s     0
+ets_con                   pass                          0   0.2s     0
+fadu_cse                  unknown_module                1   0.1s     0
+fsl_wflow                 pass                          0   0.6s     0
+func_test_io_mux          unknown_module                1   0.1s     0
+gpio                      unresolved_process            0   5.5s     0
+i2cm                      lowering_fail                 1   0.2s     0
+i3c                       unknown_module                1   5.4s     0
+inpsytech_onfi_phy_io_vcs other                         1   0.0s     0
+mpm_bram                  other                         1   0.0s     0
+mpm_bus                   other                         1   0.0s     0
+mpm_clkrst                unknown_module                1   0.0s     0
+mpm_top                   unknown_module                1   0.1s     0
+mpm_util                  pass                          0   0.5s     0
+msgd_router               unknown_module                1   0.0s     0
+p0_pcie_ctl               other                         1   0.0s     0
+p0_pcie_ide               timescale_error               1   0.5s     0
+pcie_dma                  unknown_module                1   0.1s     0
+pcie_phy                  timescale_error               1   0.4s     0
+pka                       unknown_module                1   0.3s     0
+pt_hcs                    timescale_error               1   0.4s     0
+pt_ldpc_dec               unknown_module                1   0.7s     0
+pt_ncs_cmd_path           unknown_module                1   0.0s     0
+pt_ncs_ctrl_path          other                         1   0.1s     0
+pt_ncs_data_path          other                         1   0.0s     0
+pt_ncs_nphy               unknown_module                1   0.1s     0
+pt_ncs_parity_top         unknown_module                1   0.0s     0
+pt_ncs_top                unknown_module                1   0.1s     0
+pt_ssd_data.encrypt       unknown_module                1   0.1s     0
+pt_ssd_data.plain         unknown_module                1   0.0s     0
+ptimer                    unresolved_drive              0   0.2s     0
+s5                        timescale_error               1   0.4s     0
+s5mc                      timescale_error               1   0.5s     0
+secreg                    unknown_module                1   0.0s     0
+smbus                     lowering_fail                 1   5.5s     0
+ssd_ctrl_top_wrapper      timescale_error               1   3.5s     0
+subsystem                 other                         1   0.0s     0
+sys_ctrl                  unknown_module                1   0.0s     0
+top                       unknown_module                1   0.1s     0
+trng                      timescale_error               1   0.1s     0
+uart                      unresolved_process            0   0.6s     0
+wdt                       unresolved_drive              0   5.7s     0
+------------------------------------------------------------------------------
+
+Targets with multiple issue categories:
+  uart: unresolved_process, unresolved_drive
+  gpio: unresolved_process, unresolved_drive, flatten_cycle
+  pka: unknown_module, timescale_error
+  secreg: unknown_module, timescale_error
+  sys_ctrl: unknown_module, timescale_error
+  func_test_io_mux: unknown_module, timescale_error
+  msgd_router: unknown_module, timescale_error
+  fadu_cse: unknown_module, timescale_error
+  top: unknown_module, timescale_error
+  mpm_top: unknown_module, timescale_error
+  ddr_phy_pre_map: unknown_module, timescale_error
+  pcie_dma: unknown_module, timescale_error
+  pt_ncs_nphy: unknown_module, timescale_error
+  pt_ncs_top: unknown_module, port_mismatch, timescale_error
+  pt_ldpc_dec: unknown_module, timescale_error
+
+==============================================================================
+Next step: share this summary with the agent to decide
+MLIR analysis scope and script architecture.
+==============================================================================

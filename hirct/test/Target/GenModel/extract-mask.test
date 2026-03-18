@@ -1,0 +1,7 @@
+// Test: comb.extract must mask result to result_width bits.
+// A 4-bit extract from an 8-bit value must not leak upper bits.
+//
+// RUN: %hirct-gen %S/../../fixtures/ExtractMask.mlir -o %t --only model
+// RUN: cat %t/cmodel/ExtractMask.cpp | %FileCheck %s
+//
+// CHECK: >> 4) & ((1ULL << 4) - 1ULL)

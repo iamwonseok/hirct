@@ -1,0 +1,25 @@
+// Test GenVerify: verify driver generation
+//
+// RUN: %hirct-gen %S/../../fixtures/LevelGateway.mlir -o %t --only model,verify,makefile
+// RUN: cat %t/verify/verify_Fadu_K2_S5_LevelGateway.cpp | %FileCheck %s
+// RUN: cat %t/Makefile | %FileCheck %s --check-prefix=CHECK-MAKE
+//
+// CHECK: AUTO-GENERATED
+// CHECK: #include <random>
+// CHECK: #include <verilated_vcd_c.h>
+// CHECK: #include "VFadu_K2_S5_LevelGateway.h"
+// CHECK: #include "../cmodel/Fadu_K2_S5_LevelGateway.h"
+// CHECK: std::mt19937_64 rng(seed);
+// CHECK-NOT: std::srand
+// CHECK-NOT: std::rand()
+// CHECK: VerilatedVcdC* vcd = nullptr
+// CHECK: --dump-vcd
+// CHECK: rng()
+// CHECK: vcd->dump
+// CHECK: model.step();
+// CHECK: FAIL cycle=
+// CHECK: vcd->close()
+//
+// CHECK-MAKE: $(VERILATOR) --cc --trace --exe --build
+// CHECK-MAKE: test-verify:
+// CHECK-MAKE: ./$(VERIFY_BIN) $(CYCLES) $(SEED)

@@ -1,0 +1,10 @@
+// XFAIL: *
+// Test GenModel: instance topological sort in eval_comb
+// Producer must be evaluated before Consumer because Consumer.result is SEQUENTIAL
+// (edge cut), but Consumer.data depends combinationally on Producer.comb_out
+//
+// RUN: %hirct-gen %S/../../fixtures/CyclicInstances.mlir -o %t --only model
+// RUN: cat %t/CyclicTop/cmodel/CyclicTop.cpp | %FileCheck %s
+//
+// CHECK: inst_prod.eval_comb()
+// CHECK: inst_cons.eval_comb()

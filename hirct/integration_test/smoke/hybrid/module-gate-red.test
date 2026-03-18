@@ -1,0 +1,4 @@
+// RED smoke for Queue/FIFO semantic mismatch at module gate.
+// This test is intentionally expected to fail until queue model mismatch is fixed.
+// XFAIL: *
+// RUN: %hirct-verify rtl/plat/src/s5/design/Fadu_K2_S5_Queue_11.v --lib-dir rtl/lib/stubs --seeds 1 --cycles 30

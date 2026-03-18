@@ -149,12 +149,14 @@ llvm-cpp-model/
 │       ├── summary.md                   # 총괄 계획
 │       ├── open-decisions.md            # 결정 사항 (RESOLVED = 증거 기반)
 │       ├── hirct-convention.md          # 공통 규약 (canonical)
-│       ├── conventions.md               # 규약 보조
+│       ├── known-limitations.md         # XFAIL SSOT
 │       ├── reference-commands-and-structure.md  # 이 문서
-│       ├── phase-0-setup/
-│       ├── phase-1-pipeline/
-│       ├── phase-2-testing/
+│       ├── 2026-02-28-circt-embedding-design.md # Phase 4 아키텍처 결정 근거
+│       ├── 2026-03-04-arc-poc-results.md        # Arc Go/No-Go 판정 근거
+│       ├── 2026-03-06-hirct-output-spec-survey.md  # emitter 스펙
+│       ├── 2026-03-06-genmodel-ir-spec-brainstorm.md  # IR 설계 브레인스토밍
 │       └── phase-3-release/
+│           └── 305-gentb-cosim-tb-auto-generation.md
 │
 ├── known-limitations.md                 # XFAIL SSOT (Markdown 테이블, key=파일 경로)
 ├── Makefile                             # 루트 오케스트레이션
@@ -203,6 +205,7 @@ export LLVM_DIR="$CIRCT_BUILD/lib/cmake/llvm"    # CMake 참조
 | `hirct-gen input.v --only model,tb` | 선택적 산출물 생성 (쉼표 구분) | 1 |
 | `hirct-gen -f filelist.f --top Top` | 다중 파일 + Top 모듈 지정 | 1 |
 | `hirct-gen -f filelist.f --top Top --timescale 1ps/1ps` | multi-file timescale 오버라이드 | 1 |
+| `hirct-gen --dump-ir --run-pass <name> input.mlir` | 개별 pass 단독 실행 + IR 출력 (sim-cleanup, unroll-process-loops, process-flatten, signal-lowering) | 4 |
 | `hirct-gen --help` | 사용법 출력 | 1 |
 
 **--only 필터 값**: `model`, `tb`, `dpic`, `wrapper`, `format`, `doc`, `ral`, `cocotb`
@@ -242,6 +245,43 @@ export LLVM_DIR="$CIRCT_BUILD/lib/cmake/llvm"    # CMake 참조
 
 ### 2.4 외부 도구 (직접 호출)
 
+**VCS 환경 설정** (`make setup` 실행 시 자동 설정됨, 수동 설정 시):
+
+```bash
+export VCS_HOME=/tools/synopsys/vcs/V-2023.12-SP2-7
+export PATH=$VCS_HOME/bin:$PATH
+export SNPSLMD_LICENSE_FILE=27020@fdn21:27000@fdn99:27020@fdn03:27030@fdn02:27020@fdn05
+export LM_LICENSE_FILE=$SNPSLMD_LICENSE_FILE
+export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH:-}
+```
+
+> **Note**: Ubuntu 24.04(kernel 6.x)에서 VCS는 `-full64` 플래그 필수. `LD_LIBRARY_PATH`에 시스템 lib 경로를 포함해야 `libelf.so.1` 로딩 성공.
+
+**cocotb 실행** (Verilator 또는 VCS sim):
+
+```bash
+cd output/<module>/
+cat > Makefile.cocotb <<'EOF'
+SIM ?= verilator
+TOPLEVEL_LANG ?= verilog
+VERILOG_SOURCES = $(shell pwd)/rtl/<module>.v
+TOPLEVEL = <module>
+MODULE = test_<module>
+COCOTB_HDL_TIMEUNIT = 1ns
+COCOTB_HDL_TIMEPRECISION = 1ps
+EXTRA_ARGS += --timing
+include $(shell cocotb-config --makefiles)/Makefile.sim
+EOF
+
+# Verilator 5.044 사용 (cocotb 2.x는 5.036+ 필요)
+PATH=/user/wonseok/verilator/bin:$PATH \
+PYTHONPATH=$(pwd)/cocotb:$PYTHONPATH make -f Makefile.cocotb
+
+# 또는 VCS sim 사용
+# SIM=vcs COMPILE_ARGS="-full64 -sverilog +v2k" \
+# PYTHONPATH=$(pwd)/cocotb:$PYTHONPATH make -f Makefile.cocotb
+```
+
 | 명령어 | 용도 | Phase |
 |--------|------|-------|
 | `circt-verilog input.v` | Verilog → MLIR | 1 |
@@ -249,7 +289,9 @@ export LLVM_DIR="$CIRCT_BUILD/lib/cmake/llvm"    # CMake 참조
 | `verilator --cc input.v` | RTL → C++ 시뮬레이션 모델 | 1 |
 | `verilator --lint-only input.sv` | SV lint (기본 게이트) | 0~2 |
 | `verible-verilog-lint input.sv` | SV lint (추가) | 0~2 |
-| `vcs -sverilog +incdir+$UVM_HOME/src` | VCS 컴파일 (1차 게이트) | 3 |
+| `vcs -full64 -sverilog dpi/*.sv dpi/*.cpp cmodel/*.cpp rtl/*.v -CFLAGS "-I./cmodel -I./dpi -std=c++17"` | VCS DPI-C 컴파일 (cmodel 링크 포함) | 1+ |
+| `vcs -full64 -sverilog +incdir+$UVM_HOME/src ral/*.sv` | VCS UVM RAL 컴파일 | 3 |
+| `make -f Makefile.cocotb` | cocotb 테스트 실행 (SIM=verilator 기본, Verilator 5.044 PATH 우선 필요. SIM=vcs도 가능) | 1+ |
 | `g++ -std=c++17 -c model.cpp` | C++ 컴파일 확인 | 1~2 |
 
 ---

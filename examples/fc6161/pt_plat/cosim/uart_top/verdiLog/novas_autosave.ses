@@ -1,0 +1,96 @@
+@verdi rc file Version 1.0
+[General]
+saveDB = TRUE
+relativePath = FALSE
+saveSingleView = FALSE
+saveNWaveWinId = 
+VerdiVersion = Verdi_V-2023.12-SP2-7
+[KeyNote]
+Line1 = Automatic Backup 0
+Line2 = Save Open Database Information: Yes
+Line3 = Path Option: Absolute Paths
+Line4 = Windows Option: All Windows
+[OneSearch]
+isExisted = TRUE
+[TestBench]
+ConstrViewShow = 0
+InherViewShow = 0
+FSDBMsgShow = 0
+AnnotationShow = 0
+Console = FALSE
+powerDumped = 0
+[fusa]
+fdb_server = 
+fdb_proj = 
+fdb_campaign = 
+fdb_tool = 
+[hb]
+postSimFile = /user/wonseok/project-iamwonseok/llvm-cpp-model/examples/fc6161/pt_plat/cosim/uart_top/equiv_uart_top.fsdb
+syncTime = 69500
+viewport = 2052 0 2159 1039 0 0 341 1914
+activeNode = "equiv_tb"
+activeScope = "equiv_tb"
+activeFile = "equiv_tb.sv"
+interactiveMode = False
+viewType = Source
+simulatorMode = False
+sourceBeginLine = 3
+baMode = False
+srcLineNum = True
+AutoWrap = True
+IdentifyFalseLogic = False
+syncSignal = False
+traceMode = Hierarchical
+showTraceInSchema = True
+paMode = False
+funcMode = False
+powerAwareAnnot = True
+safetyAwareAnnot = True
+amsAnnot = True
+DnDtraceCrossHierOnly = True
+leadingZero = False
+signalPane = False
+SourceVerticalScrollLines = 5
+Scope1 = "equiv_tb"
+multipleSelection = 1 3 2 0 0
+sdfCheckUndef = FALSE
+simFlow = FALSE
+[hb.design]
+importCmd = "-dbdir" "/user/wonseok/project-iamwonseok/llvm-cpp-model/examples/fc6161/pt_plat/cosim/uart_top/simv.daidir" 
+invokeDir = /user/wonseok/project-iamwonseok/llvm-cpp-model/examples/fc6161/pt_plat/cosim/uart_top
+[hb.sourceTab.1]
+scope = equiv_tb
+File = /user/wonseok/project-iamwonseok/llvm-cpp-model/examples/fc6161/pt_plat/cosim/uart_top/equiv_tb.sv
+Line = 4
+[nMemoryManager]
+WaveformFile = /user/wonseok/project-iamwonseok/llvm-cpp-model/examples/fc6161/pt_plat/cosim/uart_top/equiv_uart_top.fsdb
+UserActionNum = 0
+nMemWindowNum = 0
+[wave.0]
+viewPort = 0 25 2159 659 313 65
+primaryWindow = TRUE
+SessionFile = /user/wonseok/project-iamwonseok/llvm-cpp-model/examples/fc6161/pt_plat/cosim/uart_top/verdiLog/novas_autosave.ses.wave.0
+displayGrid = FALSE
+hierarchicalName = FALSE
+waveformToolTip = FALSE
+snap = TRUE
+displayLeadingZeros = FALSE
+displayGridLine = FALSE
+fixDelta = FALSE
+displayCursorMarker = FALSE
+autoUpdate = FALSE
+highlightGlitchs = FALSE
+waveformSyncCursorMarker = FALSE
+waveformSyncHorizontalRange = FALSE
+waveformSyncVerticalscroll = FALSE
+displayErrors = TRUE
+displayMsgSymbols = TRUE
+showMsgDescriptions = TRUE
+autoFit = FALSE
+displayDeltaY = FALSE
+centerCursor = FALSE
+fsaRegMask = TRUE
+fsaCoreMask = TRUE
+fsaSfsmMask = TRUE
+fsaEcrMask = TRUE
+tPropMask = TRUE

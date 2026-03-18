@@ -1,0 +1,26 @@
+// Test GenModel: forward-reference combinational ops are resolved correctly.
+//
+// In the MLIR IR, %0 uses %2 which is defined *after* %0 in linear IR order.
+// emit_eval_comb() must handle this via deferred/multi-pass so that no
+// val map miss occurs and the generated code compiles correctly.
+//
+// RUN: %hirct-gen %S/../../fixtures/ForwardRefComb.mlir -o %t --only model 2>&1 | %FileCheck %s --check-prefix=CHECK-WARN
+// RUN: cat %t/cmodel/ForwardRefComb.cpp | %FileCheck %s --check-prefix=CHECK-CPP
+// RUN: g++ -std=c++17 -c %t/cmodel/ForwardRefComb.cpp -I %t/cmodel -o %t/ForwardRefComb.o
+//
+// ForwardRefChain: two-level forward reference chain (%0->%3, %1->%0, %3 defined later).
+// Requires multiple deferred-processing iterations; no val map miss should appear.
+// RUN: %hirct-gen %S/../../fixtures/ForwardRefChain.mlir -o %t2 --only model 2>&1 | %FileCheck %s --check-prefix=CHECK-CHAIN-WARN
+// RUN: g++ -std=c++17 -c %t2/cmodel/ForwardRefChain.cpp -I %t2/cmodel -o %t2/ForwardRefChain.o
+//
+// No val map miss warning should appear
+// CHECK-WARN-NOT: val map miss
+//
+// CHECK-CHAIN-WARN-NOT: val map miss
+//
+// The generated code must properly emit the xor temp before the and that uses it
+// CHECK-CPP: AUTO-GENERATED
+// CHECK-CPP: void ForwardRefComb::eval_comb()
+// CHECK-CPP-DAG: bool t{{[0-9]+}} = {{.*}}b{{.*}}reg_ssa_reg
+// CHECK-CPP-DAG: bool t{{[0-9]+}} = {{.*}}a{{.*}}t
+// CHECK-CPP-NOT: static_cast<bool>()

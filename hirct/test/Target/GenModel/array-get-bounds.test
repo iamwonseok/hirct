@@ -1,0 +1,14 @@
+// Test GenModel: hw.array_get with inferred bounds check from array_create
+//
+// RUN: echo 'module {' > %t.mlir
+// RUN: echo '  hw.module @ArrayBounds(in %%a : i8, in %%b : i8, in %%idx : i1, out y : i8) {' >> %t.mlir
+// RUN: echo '    %%0 = hw.array_create %%a, %%b : i8' >> %t.mlir
+// RUN: echo '    %%1 = hw.array_get %%0[%%idx] : !hw.array<2xi8>, i1' >> %t.mlir
+// RUN: echo '    hw.output %%1 : i8' >> %t.mlir
+// RUN: echo '  }' >> %t.mlir
+// RUN: echo '}' >> %t.mlir
+// RUN: %hirct-gen %t.mlir -o %t --only model
+// RUN: cat %t/cmodel/ArrayBounds.cpp | %FileCheck %s
+//
+// CHECK: static_cast<size_t>(idx) < 2
+// CHECK-SAME: ? t0[static_cast<size_t>(idx)] : 0

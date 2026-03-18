@@ -1,0 +1,9 @@
+// Test: MLIR native emitter uses distinct temp names (t0, t1, ...) for each SSA
+// result, so dot-vs-underscore collisions cannot occur.
+//
+// RUN: %hirct-gen %S/../../fixtures/SsaCollision.mlir -o %t --only model
+// RUN: cat %t/cmodel/SsaCollision.cpp | %FileCheck %s
+//
+// Two distinct temporaries for the two operations
+// CHECK: uint8_t t0
+// CHECK: uint8_t t1

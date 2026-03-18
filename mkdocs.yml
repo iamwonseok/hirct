@@ -1,0 +1,51 @@
+site_name: HIRCT Documentation
+site_description: HDL IR Compiler & Tools — SystemVerilog/Verilog RTL → CIRCT IR → Automated Artifacts
+repo_url: https://github.com/iamwonseok/llvm-cpp-model
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.expand
+    - toc.integrate
+
+nav:
+  - Home: index.md
+  - Quick Start: quickstart.md
+  - Architecture: architecture.md
+  - Module Status: module-status.md
+  - Plans:
+      - Summary: plans/summary.md
+      - Phase 0 — Setup: plans/phase-0-setup/README.md
+      - Phase 1 — Pipeline: plans/phase-1-pipeline/README.md
+      - Phase 2 — Testing: plans/phase-2-testing/README.md
+      - Phase 3 — Release: plans/phase-3-release/README.md
+
+validation:
+  nav:
+    omitted_files: info
+  links:
+    not_found: info
+    absolute_links: info
+    unrecognized_links: info
+
+markdown_extensions:
+  - admonition
+  - codehilite
+  - toc:
+      permalink: true
+  - tables
+  - attr_list

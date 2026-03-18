@@ -1,0 +1,4 @@
+INCA_libs/
+*.log
+irun.history
+irun.key

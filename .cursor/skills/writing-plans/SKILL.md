@@ -94,6 +94,12 @@ git commit -m "feat: add specific feature"
 - Reference relevant skills with @ syntax
 - DRY, YAGNI, TDD, frequent commits
 
+## Readiness Gate (실행 전 필수)
+
+계획 작성 완료 후, 실행 전에 반드시 `plan-readiness-check` 스킬을 호출하여 Go/No-Go 판정을 받는다.
+- **REQUIRED SUB-SKILL:** Use superpowers:plan-readiness-check
+- No-Go 시 계획을 수정한 뒤 다시 readiness 체크를 통과해야 실행 가능
+
 ## Execution Handoff
 
 After saving the plan, offer execution choice:

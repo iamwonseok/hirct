@@ -1,0 +1,5 @@
+// RUN: %hirct-verify --help | %FileCheck %s
+// CHECK: Usage:
+// CHECK: Options:
+// CHECK: -o
+// CHECK: --seeds

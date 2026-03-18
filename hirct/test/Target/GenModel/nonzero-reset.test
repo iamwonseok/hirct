@@ -1,0 +1,21 @@
+// Test: do_reset() uses actual reset values from seq.compreg/seq.firreg
+// Verifies fix for bug where all registers were initialized to 0 regardless
+// of the RTL reset value specified in the MLIR IR.
+//
+// RUN: %hirct-gen %S/../../fixtures/NonZeroReset.mlir -o %t --only model
+// RUN: cat %t/cmodel/NonZeroReset.cpp | %FileCheck %s
+// RUN: g++ -c -std=c++17 -Wall -Wextra -Werror \
+// RUN:   -I%t/cmodel \
+// RUN:   %t/cmodel/NonZeroReset.cpp \
+// RUN:   -o /dev/null 2>&1 | %FileCheck %s --allow-empty --check-prefix=CHECK-COMPILE
+//
+// seq.firreg with reset async %reset, %true → reset to 1
+// CHECK: do_reset()
+// CHECK: reg_ssa_reg1 = static_cast<bool>(1)
+// CHECK: next_ssa_reg1 = static_cast<bool>(1)
+//
+// seq.compreg with reset value %c42_i8 → reset to 42
+// CHECK: reg_ssa_reg8 = static_cast<uint8_t>(42)
+// CHECK: next_ssa_reg8 = static_cast<uint8_t>(42)
+//
+// CHECK-COMPILE-NOT: error:

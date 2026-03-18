@@ -1,0 +1,16 @@
+// Test GenModel: comb.concat with >64-bit operand producing lossy concat
+//
+// RUN: %hirct-gen %S/../../fixtures/WideConcat.mlir -o %t --only model
+// RUN: cat %t/cmodel/WideConcat.h | %FileCheck %s --check-prefix=CHECK-H
+// RUN: cat %t/cmodel/WideConcat.cpp | %FileCheck %s --check-prefix=CHECK-CPP
+//
+// CHECK-H: AUTO-GENERATED
+// CHECK-H: class WideConcat
+// CHECK-H: uint64_t hi
+// CHECK-H: uint16_t lo
+// CHECK-H: uint64_t result
+//
+// CHECK-CPP: AUTO-GENERATED
+// CHECK-CPP: void WideConcat::eval_comb()
+// CHECK-CPP: static_cast<uint64_t>
+// CHECK-CPP: result =

@@ -1,0 +1,10 @@
+// Test GenRAL: skip when no registers (combinational module)
+//
+// RUN: echo 'module { hw.module @CombOnly(in %%a : i1, out b : i1) { hw.output %%a : i1 } }' > %t.mlir
+// RUN: %hirct-gen %t.mlir -o %t_out --only ral
+// RUN: test ! -d %t_out/ral
+// RUN: cat %t_out/meta.json | %FileCheck %s --check-prefix=CHECK-META
+//
+// CHECK-META: "gen-ral"
+// CHECK-META-SAME: "skipped"
+// CHECK-META-SAME: "no register indicators"

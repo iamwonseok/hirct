@@ -1,0 +1,26 @@
+// Test GenFuncModel: 4-state FSM behavioral model
+//
+// RUN: %hirct-gen %S/../../fixtures/FourStateFSM.mlir -o %t --only func-model
+// RUN: cat %t/func_model/FourStateFSM.h | %FileCheck %s --check-prefix=CHECK-H
+// RUN: cat %t/func_model/FourStateFSM.cpp | %FileCheck %s --check-prefix=CHECK-CPP
+//
+// Task 5: func-model + makefile 함께 생성 시 Makefile에 test-compile-funcmodel 타겟 포함 확인
+// RUN: %hirct-gen %S/../../fixtures/FourStateFSM.mlir -o %t2 --only func-model,makefile
+// RUN: cat %t2/Makefile | %FileCheck %s --check-prefix=CHECK-MAKE
+//
+// CHECK-H: AUTO-GENERATED
+// CHECK-H: enum class State
+// CHECK-H: void tick(
+//
+// CHECK-CPP: AUTO-GENERATED
+// CHECK-CPP: switch (state_)
+// CHECK-CPP: case State::S0
+// Transition conditions: BlockArgument → io.<port>
+// CHECK-CPP: io.start
+// CHECK-CPP: io.ack
+// No unresolved conditions remain
+// CHECK-CPP-NOT: unresolved condition
+//
+// CHECK-MAKE: test-compile-funcmodel
+// CHECK-MAKE: func_model/*.cpp
+// CHECK-MAKE: func_model/$(MODULE).h

@@ -1,0 +1,18 @@
+{
+  "path": "survey-results/gen/ets_con/meta.json",
+  "top": "tempsensor_test_mux",
+  "mlir": "pass",
+  "reason": "",
+  "emitters": {
+    "gen-model": {"result": "pass", "reason": ""},
+    "gen-tb": {"result": "pass", "reason": ""},
+    "gen-makefile": {"result": "pass", "reason": ""},
+    "gen-verify": {"result": "pass", "reason": ""},
+    "gen-dpic": {"result": "pass", "reason": ""},
+    "gen-wrapper": {"result": "pass", "reason": ""},
+    "gen-format": {"result": "pass", "reason": ""},
+    "gen-ral": {"result": "skipped", "detection": "none", "reason": "no register indicators"},
+    "gen-doc": {"result": "pass", "reason": ""},
+    "gen-cocotb": {"result": "pass", "reason": ""}
+  }
+}

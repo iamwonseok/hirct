@@ -1,0 +1,20 @@
+add_library(hirctTransforms
+    Pipeline.cpp
+    HirctSimCleanup.cpp
+    HirctProcessDeseq.cpp
+    HirctProcessFlatten.cpp
+    HirctSignalLowering.cpp
+    HirctUnrollProcessLoops.cpp
+)
+target_link_libraries(hirctTransforms PUBLIC
+    CIRCTHW
+    CIRCTComb
+    CIRCTSeq
+    CIRCTLLHD
+    CIRCTLLHDTransforms
+    MLIRIR
+    MLIRPass
+    MLIRAnalysis
+    MLIRTransforms
+    MLIRControlFlowDialect
+)

@@ -1,0 +1,16 @@
+// RUN: %hirct-gen %S/../../fixtures/CombOnly.mlir --only model -o %t 2>&1
+// RUN: cat %t/meta.json | %FileCheck %s
+
+// Emitter that was requested via --only should run normally.
+// CHECK:      "gen-model": {"result": "pass"
+
+// All other emitters should be recorded as "skipped", not "fail".
+// CHECK:      "gen-tb": {"result": "skipped", "reason": "not in --only filter"}
+// CHECK:      "gen-makefile": {"result": "skipped", "reason": "not in --only filter"}
+// CHECK:      "gen-verify": {"result": "skipped", "reason": "not in --only filter"}
+// CHECK:      "gen-dpic": {"result": "skipped", "reason": "not in --only filter"}
+// CHECK:      "gen-wrapper": {"result": "skipped", "reason": "not in --only filter"}
+// CHECK:      "gen-format": {"result": "skipped", "reason": "not in --only filter"}
+// CHECK:      "gen-ral": {"result": "skipped"
+// CHECK:      "gen-doc": {"result": "skipped", "reason": "not in --only filter"}
+// CHECK:      "gen-cocotb": {"result": "skipped", "reason": "not in --only filter"}

@@ -1,0 +1,18 @@
+{
+  "path": "survey-results/gen/mpm_util/meta.json",
+  "top": "port_prot",
+  "mlir": "pass",
+  "reason": "",
+  "emitters": {
+    "gen-model": {"result": "pass", "reason": ""},
+    "gen-tb": {"result": "pass", "reason": ""},
+    "gen-makefile": {"result": "pass", "reason": ""},
+    "gen-verify": {"result": "pass", "reason": ""},
+    "gen-dpic": {"result": "pass", "reason": ""},
+    "gen-wrapper": {"result": "pass", "reason": ""},
+    "gen-format": {"result": "pass", "reason": ""},
+    "gen-ral": {"result": "pass", "detection": "ir_pattern", "reason": ""},
+    "gen-doc": {"result": "pass", "reason": ""},
+    "gen-cocotb": {"result": "pass", "reason": ""}
+  }
+}

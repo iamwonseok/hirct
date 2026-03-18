@@ -1,0 +1,13 @@
+// Integration test: verilator -E preprocessing resolves +define+ and produces GenModel output
+//
+// REQUIRES: verilator
+// RUN: mkdir -p %t
+// RUN: echo "+define+SMOKE_DEFINE" > %t/define-smoke.f
+// RUN: echo "%S/Inputs/define_mod.v" >> %t/define-smoke.f
+// RUN: %hirct-gen -f %t/define-smoke.f --top define_mod \
+// RUN:   --preprocess verilator -o %t/output 2>&1 | %FileCheck %s --check-prefix=CHECK-RUN
+// RUN: test -f %t/output/_preprocessed.v
+// RUN: test -f %t/output/cmodel/define_mod.h
+// RUN: test -f %t/output/cmodel/define_mod.cpp
+//
+// CHECK-RUN-NOT: error:

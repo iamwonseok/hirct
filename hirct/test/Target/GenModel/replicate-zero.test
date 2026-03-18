@@ -1,0 +1,14 @@
+// Test GenModel: comb.replicate with shrinking bitwidth must fail at MLIR level
+//
+// RUN: echo 'module {' > %t.mlir
+// RUN: echo '  hw.module @ReplicateZero(in %%a : i8, out y : i4) {' >> %t.mlir
+// RUN: echo '    %%0 = comb.replicate %%a : (i8) -> i4' >> %t.mlir
+// RUN: echo '    hw.output %%0 : i4' >> %t.mlir
+// RUN: echo '  }' >> %t.mlir
+// RUN: echo '}' >> %t.mlir
+// RUN: not %hirct-gen %t.mlir -o %t --only model 2>&1 | %FileCheck %s --check-prefix=CHECK-ERR
+// RUN: cat %t/meta.json | %FileCheck %s --check-prefix=CHECK-META
+//
+// CHECK-ERR: comb.replicate{{.*}}shrink bitwidth
+// CHECK-META: "mlir": "fail"
+// CHECK-META: "MLIR parse failed"

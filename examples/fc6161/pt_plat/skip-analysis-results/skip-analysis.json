@@ -1,0 +1,771 @@
+{
+  "generated_at": "2026-03-04T08:20:14.904803+00:00",
+  "total_skip_targets": 53,
+  "verilator_pass": 37,
+  "circt_pass": 6,
+  "mlir_with_modules": 6,
+  "total_hw_modules": 252,
+  "total_llhd_process": 176,
+  "by_baseline_category": {
+    "unknown_module": {
+      "total": 24,
+      "v_pass": 18,
+      "c_pass": 0,
+      "targets": [
+        {
+          "name": "i3c",
+          "v_exit": 0,
+          "v_lines": 85052,
+          "c_exit": 1,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "../../../../../fc6161-trunk-rom/rtl/pt_plat/src/i3c/DWC_mipi_i3c_regb_core.v:2310:37: error: expected ';'\n      regb_target_mrl     <= `IC_SLV_DFLT_MRL;\n                                    ^\n../../../",
+          "elapsed": 0.9
+        },
+        {
+          "name": "edma",
+          "v_exit": 0,
+          "v_lines": 9682,
+          "c_exit": 1,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "../../../../../fc6161-trunk-rom/rtl/pt_plat/src/edma/edma_core.v:1121:2: error: unknown module 'ecc_sync_fifo_ram_128x512'\n        ecc_sync_fifo_ram_128x512 #(.AREADY_LEVEL((1<<7)-2)) U_D128_FIFO (\n  ",
+          "elapsed": 0.2
+        },
+        {
+          "name": "pka",
+          "v_exit": 0,
+          "v_lines": 416611,
+          "c_exit": 1,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "../../../../../fc6161-trunk-rom/rtl/pt_plat/src/pka/DWC_agile_pka_core.sv:189:10: error: expected ']'\n  wire [`DWC_APKA_LATTICE_MATRIX_DIMENSION_WIDTH-1:0]    op_lattice_x;\n         ^\n../../../../../f",
+          "elapsed": 1.9
+        },
+        {
+          "name": "secreg",
+          "v_exit": 0,
+          "v_lines": 2169,
+          "c_exit": 1,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "../../../../../fc6161-trunk-rom/rtl/pt_plat/src/efuse_ip/secded/pure_secded_dec_d64_p8.v:1:8: error: design element does not have a time scale defined but others in the design do\nmodule pure_secded_de",
+          "elapsed": 0.1
+        },
+        {
+          "name": "sys_ctrl",
+          "v_exit": 0,
+          "v_lines": 22205,
+          "c_exit": 1,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "../../../../../fc6161-trunk-rom/rtl/pt_plat/src/sys_ctrl/sys_cfg_t.v:21:8: error: design element does not have a time scale defined but others in the design do\nmodule sys_cfg_t (\n       ^\n../../../../",
+          "elapsed": 0.3
+        },
+        {
+          "name": "clk_rst_gen",
+          "v_exit": 0,
+          "v_lines": 7358,
+          "c_exit": 1,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "../../../../../fc6161-trunk-rom/rtl/pt_plat/src/clk_rst_gen/pt_plat_clk_gen.v:611:5: error: unknown module 'clk_mux2'\n    clk_mux2 u_tm_pll4_fin (.a(ROSC_CLK), .b(SRC_XCLK), .s(PLL4_FIN_SEL), .y(PLL4_",
+          "elapsed": 0.2
+        },
+        {
+          "name": "func_test_io_mux",
+          "v_exit": 0,
+          "v_lines": 42286,
+          "c_exit": 1,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "../../../../../fc6161-trunk-rom/rtl/pt_plat/src/func_test_io_mux/func_mux.v:2807:5: error: unknown module 'clk_and2'\n    clk_and2 U_CPU_TCK (.a(P_F_CPU_JTAG_TCK_C), .b(1'b1), .y(iCPU_JTAG_TCKI));\n    ",
+          "elapsed": 0.3
+        },
+        {
+          "name": "msgd_router",
+          "v_exit": 0,
+          "v_lines": 2182,
+          "c_exit": 1,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "../../../../../fc6161-trunk-rom/rtl/pt_plat/src/msgd/msgd_router.v:188:2: error: unknown module 'pkt2pkt_async_bridge_depth8_r'\n        pkt2pkt_async_bridge_depth8_r #(\n        ^\n../../../../../fc6161",
+          "elapsed": 0.1
+        },
+        {
+          "name": "ahb",
+          "v_exit": 0,
+          "v_lines": 187207,
+          "c_exit": 1,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "../../../../../fc6161-trunk-rom/rtl/pt_plat/src/ahb/DW_ahb_bcm01.v:50:3: error: unknown module 'DW_minmax'\n  DW_minmax\n  ^\n../../../../../fc6161-trunk-rom/rtl/pt_plat/src/ahb/DW_ahb.v:205:39: error: e",
+          "elapsed": 0.5
+        },
+        {
+          "name": "fadu_cse",
+          "v_exit": 0,
+          "v_lines": 8678,
+          "c_exit": 1,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "../../../../../fc6161-trunk-rom/rtl/pt_plat/src/fadu_cse/fadu_cse_ctrl.v:724:1: error: unknown module 'remainder_8bit'\nremainder_8bit #(144) i_remainder_144_0 ( .idata  (cmd_sha3_len  ), .odata_q(data",
+          "elapsed": 0.3
+        },
+        {
+          "name": "top",
+          "v_exit": 0,
+          "v_lines": 34832,
+          "c_exit": 1,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "../../../../../fc6161-trunk-rom/rtl/pt_plat/src/top/pt_plat_pad.v:1853:5: error: unknown module 'XOTS6FFCAA'\n    XOTS6FFCAA U_SYS_OSC (.XIN(PI_SYS_OSC_IN), .XOUT(PO_SYS_OSC_OUT), .CLKOUT(P_SYS_OSC_C),",
+          "elapsed": 0.2
+        },
+        {
+          "name": "pt_ssd_data.encrypt",
+          "v_exit": 1,
+          "v_lines": 20738,
+          "c_exit": 0,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "%Error: /user/wonseok/fc6161-trunk-rom/rtl/pt_ssd_data/src/nvme_e2e/main_e2e_crc.v:22:11: Cannot find include file: 'main_e2e_def.vh'\n   22 |  `include \"main_e2e_def.vh\"\n      |           ^~~~~~~~~~~~",
+          "elapsed": 0.2
+        },
+        {
+          "name": "pt_ssd_data.plain",
+          "v_exit": 0,
+          "v_lines": 1882,
+          "c_exit": 1,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "../../../../../fc6161-trunk-rom/rtl/pt_ssd_data/src/pt_ssd_data.v:710:2: error: unknown module 'apb2apb_async_bridge_s'\n        apb2apb_async_bridge_s U_APB_ASYNC (            // module\n        ^\n../.",
+          "elapsed": 0.1
+        },
+        {
+          "name": "ddr_top",
+          "v_exit": 0,
+          "v_lines": 27488,
+          "c_exit": 1,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "../../../../../fc6161-trunk-rom/rtl/pt_mpm/src/ip/ddr_ip/ddr_chip.v:982:2: error: unknown module 'clk_gate'\n        clk_gate u_cg_ddr4 ( .te(1'b0), .en( ddrc_ddr4_mode), .iclk(core_ddrc_core_clk), .oc",
+          "elapsed": 0.2
+        },
+        {
+          "name": "mpm_top",
+          "v_exit": 0,
+          "v_lines": 15615,
+          "c_exit": 1,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "../../../../../fc6161-trunk-rom/rtl/pt_mpm/src/top/pt_mpm.v:40:2: error: port 'mem0_rx_data_x2_axi_aw_w2r' has no I/O member declaration\n        mem0_rx_data_x2_axi_aw_w2r,\n        ^\n../../../../../fc",
+          "elapsed": 0.1
+        },
+        {
+          "name": "mpm_clkrst",
+          "v_exit": 0,
+          "v_lines": 2111,
+          "c_exit": 1,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "../../../../../fc6161-trunk-rom/rtl/lib/clk_rst/rst_gen_sync_2ff_n.v:27:5: error: unknown module 'clk_mux2'\n    clk_mux2 u_tm_rstn_in (.a(rst_in_an), .b(scan_resetn), .s(scan_mode), .y(iresetn));\n    ",
+          "elapsed": 0.1
+        },
+        {
+          "name": "ddr_phy_pre_map",
+          "v_exit": 0,
+          "v_lines": 255,
+          "c_exit": 1,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "../../../../../fc6161-trunk-rom/rtl/prim_tsmc6n/cell/ddr_phy/dwc_ddrphy_clkgater_pub.v:14:2: error: unknown module 'clk_gate'\n        clk_gate u_inst (.iclk(C), .en(D), .te(1'b0), .oclk(CG));\n        ",
+          "elapsed": 0.1
+        },
+        {
+          "name": "pcie_dma",
+          "v_exit": 0,
+          "v_lines": 23314,
+          "c_exit": 1,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "../../../../../fc6161-trunk-rom/rtl/pt_hcs/src/pcie_dma/pio/hpp_dma_ctrl_mem_rq.v:25:8: error: design element does not have a time scale defined but others in the design do\nmodule hpp_dma_ctrl_mem_rq ",
+          "elapsed": 0.2
+        },
+        {
+          "name": "pt_ncs_cmd_path",
+          "v_exit": 1,
+          "v_lines": 6726,
+          "c_exit": 0,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "%Error: /user/wonseok/fc6161-trunk-rom/rtl/pt_ncs/src/ncs_cmd_path/ncs_cmd_parity_readp_dma.v:25:10: Cannot find include file: 'ncs_cfg_def.vh'\n   25 | `include \"ncs_cfg_def.vh\" \n      |          ^~~~",
+          "elapsed": 0.1
+        },
+        {
+          "name": "pt_ncs_parity_top",
+          "v_exit": 1,
+          "v_lines": 4964,
+          "c_exit": 0,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "%Error: /user/wonseok/fc6161-trunk-rom/rtl/pt_ncs/src/ncs_parity_top/ncs_parity_buff_manager_cmd_exe.v:20:10: Cannot find include file: 'ncs_dma.vh'\n   20 | `include \"ncs_dma.vh\" \n      |          ^~~",
+          "elapsed": 0.1
+        },
+        {
+          "name": "pt_ncs_nphy",
+          "v_exit": 1,
+          "v_lines": 19360,
+          "c_exit": 0,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "%Error: /user/wonseok/fc6161-trunk-rom/rtl/pt_ncs/src/ncs_nphy_handler/nphy_handler_top.v:21:10: Cannot find include file: 'ncs_nphy.vh'\n   21 | `include \"ncs_nphy.vh\" \n      |          ^~~~~~~~~~~~~\n",
+          "elapsed": 0.1
+        },
+        {
+          "name": "pt_ncs_top",
+          "v_exit": 1,
+          "v_lines": 21850,
+          "c_exit": 0,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "%Error: /user/wonseok/fc6161-trunk-rom/rtl/pt_ncs/src/ncs_top/pt_ncs.v:5:10: Cannot find include file: 'ncs_data_pkt_format.vh'\n    5 | `include \"ncs_data_pkt_format.vh\"\n      |          ^~~~~~~~~~~~~",
+          "elapsed": 0.1
+        },
+        {
+          "name": "pt_ldpc_dec",
+          "v_exit": 1,
+          "v_lines": 112427,
+          "c_exit": 0,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "%Error: /user/wonseok/fc6161-trunk-rom/rtl/pt_ldpc_dec/src/pt_ldpc_dec.v:46:10: Cannot find include file: 'ncs_data_pkt_format.vh'\n   46 | `include \"ncs_data_pkt_format.vh\"\n      |          ^~~~~~~~~~",
+          "elapsed": 0.4
+        },
+        {
+          "name": "chip",
+          "v_exit": 0,
+          "v_lines": 6146,
+          "c_exit": 1,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "../../../../../fc6161-trunk-rom/rtl/chip/src/chip_top/fc6161_lhotse.v:2065:5: error: unknown module 'pt_plat'\n    pt_plat U_PT_PLAT (\n    ^\n../../../../../fc6161-trunk-rom/rtl/chip/src/chip_top/fc6161",
+          "elapsed": 0.1
+        }
+      ]
+    },
+    "other": {
+      "total": 10,
+      "v_pass": 4,
+      "c_pass": 0,
+      "targets": [
+        {
+          "name": "ddr_ctrl",
+          "v_exit": 0,
+          "v_lines": 696673,
+          "c_exit": 1,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "../../../../../fc6161-trunk-rom/rtl/pt_mpm/src/ip/ddr_ip/ctrl/src/pas/dwc_ddrctl_pas_cpe_pkg.svh:284:43: error: expected ';'\n   localparam RMW_TYPE_PARTIAL_NBW = `MEMC_RMW_TYPE_PARTIAL_NBW;\n          ",
+          "elapsed": 3.0
+        },
+        {
+          "name": "mpm_bram",
+          "v_exit": 0,
+          "v_lines": 1898,
+          "c_exit": 1,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "../../../../../fc6161-trunk-rom/rtl/pt_mpm/src/ip/bram/bram_sub1.v:712:2: error: unknown module 'bram_sp_8192x523w1'\n        bram_sp_8192x523w1 u_bram_0 (\n        ^\n../../../../../fc6161-trunk-rom/rtl",
+          "elapsed": 0.1
+        },
+        {
+          "name": "mpm_bus",
+          "v_exit": 0,
+          "v_lines": 46510,
+          "c_exit": 1,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "../../../../../fc6161-trunk-rom/rtl/pt_mpm/src/ip/bus/axi4_2x1/axi4_2x1.v:2:8: error: design element does not have a time scale defined but others in the design do\nmodule axi4_2x1(\n       ^\n../../../.",
+          "elapsed": 0.2
+        },
+        {
+          "name": "ddr_phy.syn",
+          "v_exit": 1,
+          "v_lines": 318637,
+          "c_exit": 0,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "%Warning-DEFOVERRIDE: /user/wonseok/fc6161-trunk-rom/rtl/pt_mpm/src/ip/ddr_ip/phy/src/dwc_ddrphy_VDEFINES.v:816:1: Overriding define: 'DWC_DDRPHY_TECH__CDCBUF__DISABLE_BEHAVIORAL_VERILOG' with value: ",
+          "elapsed": 0.7
+        },
+        {
+          "name": "ddr_phy.dep",
+          "v_exit": 1,
+          "v_lines": 25108,
+          "c_exit": 0,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "%Warning-DEFOVERRIDE: /user/wonseok/fc6161-trunk-rom/rtl/pt_mpm/src/ip/ddr_ip/phy/src/dwc_ddrphy_VDEFINES.v:816:1: Overriding define: 'DWC_DDRPHY_TECH__CDCBUF__DISABLE_BEHAVIORAL_VERILOG' with value: ",
+          "elapsed": 0.1
+        },
+        {
+          "name": "p0_pcie_ctl",
+          "v_exit": 1,
+          "v_lines": 119405,
+          "c_exit": 0,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "%Error: /user/wonseok/fc6161-trunk-rom/rtl/pt_hcs/src/pcie_dev_gen6/pcie_ctl/include/DWC_pcie_ctl_all_defs.svh:32:10: Cannot find include file: 'DWC_pcie_ctl_cc_constants.svh'\n   32 | `include \"DWC_pc",
+          "elapsed": 0.3
+        },
+        {
+          "name": "subsystem",
+          "v_exit": 0,
+          "v_lines": 99857,
+          "c_exit": 1,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "../../../../../fc6161-trunk-rom/rtl/pt_hcs/src/pcie_dev_gen6/integration/rams/p0/pcie_iip_rams.sv:108:1: error: unknown module 'pcie_ctl_utp_22x64w1'\npcie_ctl_utp_22x64w1 u_ram_cdm_rasdes_ec_reg (\n^\n.",
+          "elapsed": 0.3
+        },
+        {
+          "name": "pt_ncs_ctrl_path",
+          "v_exit": 1,
+          "v_lines": 19219,
+          "c_exit": 0,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "%Error: /user/wonseok/fc6161-trunk-rom/rtl/pt_ncs/src/ncs_ctrl_path/ncs_cmd_list_index_buff.v:41:10: Cannot find include file: 'ncs.vh'\n   41 | `include \"ncs.vh\" \n      |          ^~~~~~~~\n        ...",
+          "elapsed": 0.1
+        },
+        {
+          "name": "pt_ncs_data_path",
+          "v_exit": 1,
+          "v_lines": 27940,
+          "c_exit": 0,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "%Error: /user/wonseok/fc6161-trunk-rom/rtl/pt_ncs/src/ncs_data_path/ncs_data_path.v:1:10: Cannot find include file: 'ncs_cfg_def.vh'\n    1 | `include \"ncs_cfg_def.vh\" \n      |          ^~~~~~~~~~~~~~~",
+          "elapsed": 0.3
+        },
+        {
+          "name": "inpsytech_onfi_phy_io_vcs",
+          "v_exit": 1,
+          "v_lines": 173483,
+          "c_exit": 0,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "%Warning-DEFOVERRIDE: /user/wonseok/fc6161-trunk-rom/rtl/pt_ncs/src/ncs_onfi_ip/digital_data/hdl/includes/IPTONFIPHY_CONSTANT.svh:218:1: Overriding define: 'IPTONFIPHY_LS_EXT_FEATURE' with value: '' t",
+          "elapsed": 0.4
+        }
+      ]
+    },
+    "timescale_error": {
+      "total": 9,
+      "v_pass": 5,
+      "c_pass": 0,
+      "targets": [
+        {
+          "name": "trng",
+          "v_exit": 0,
+          "v_lines": 142478,
+          "c_exit": 1,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "../../../../../fc6161-trunk-rom/rtl/pt_plat/src/trng/elp_sp80090b_st_hlt_ctrl.v:215:18: error: expected ']'\n  input  wire [`ELP_SP80090B_ST_HLT_REP_CNTR_WIDTH - 1 : 0]             I_st_hlt_rep_cutoff,",
+          "elapsed": 1.1
+        },
+        {
+          "name": "caliptra",
+          "v_exit": 0,
+          "v_lines": 208011,
+          "c_exit": 1,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "../../../../../fc6161-trunk-rom/rtl/pt_plat/src/caliptra/caliptra_subsystem.sv:23:8: error: design element does not have a time scale defined but others in the design do\nmodule caliptra_subsystem (\n  ",
+          "elapsed": 1.7
+        },
+        {
+          "name": "s5",
+          "v_exit": 0,
+          "v_lines": 281289,
+          "c_exit": 1,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "../../../../../fc6161-trunk-rom/rtl/pt_plat/src/s5/design/S5_EICG.v:48:4: error: unknown module 'clk_gate'\n   clk_gate u_sc (\n   ^\n../../../../../fc6161-trunk-rom/rtl/pt_plat/src/s5/memories/PowerGate",
+          "elapsed": 4.5
+        },
+        {
+          "name": "s5mc",
+          "v_exit": 0,
+          "v_lines": 345869,
+          "c_exit": 1,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "../../../../../fc6161-trunk-rom/rtl/pt_plat/src/s5mc/design/S5MC_EICG.v:48:4: error: unknown module 'clk_gate'\n   clk_gate u_sc (\n   ^\n../../../../../fc6161-trunk-rom/rtl/pt_plat/src/s5mc/memories/Pow",
+          "elapsed": 1.5
+        },
+        {
+          "name": "ssd_ctrl_top_wrapper",
+          "v_exit": 1,
+          "v_lines": 117547,
+          "c_exit": 0,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "%Error: /user/wonseok/fc6161-trunk-rom/rtl/pt_plat/src/ssd/ctrl/ssd_ctrl_top_wrapper.v:667:11: Cannot find include file: 'pcie_func_id_conv.vh'\n  667 |  `include \"pcie_func_id_conv.vh\" \n      |       ",
+          "elapsed": 0.3
+        },
+        {
+          "name": "ets",
+          "v_exit": 0,
+          "v_lines": 2895,
+          "c_exit": 1,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "../../../../../fc6161-trunk-rom/rtl/pt_mpm/model/temp_sensor/mr74190_pkg.sv:52:9: error: design element does not have a time scale defined but others in the design do\npackage mr74190_pkg;\n        ^\n..",
+          "elapsed": 0.1
+        },
+        {
+          "name": "p0_pcie_ide",
+          "v_exit": 1,
+          "v_lines": 63702,
+          "c_exit": 0,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "%Error: /user/wonseok/fc6161-trunk-rom/rtl/pt_hcs/src/pcie_dev_gen6/pcie_ide/DWC_ide_fips140_3_uaes_selector.sv:38:10: Cannot find include file: 'DWC_pcie_ide_cc_constants.sv'\n   38 | `include \"DWC_pc",
+          "elapsed": 0.3
+        },
+        {
+          "name": "pcie_phy",
+          "v_exit": 1,
+          "v_lines": 32310,
+          "c_exit": 0,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "%Error: /user/wonseok/fc6161-trunk-rom/rtl/pt_hcs/src/pcie_dev_gen6/phy/upcs/include/dwc_pcie6_upcs_x4_ns_pipe_defines.v:17:11: Cannot find include file: 'dwc_pcie6_x4_ns_pmd_macros.v'\n   17 |  `inclu",
+          "elapsed": 0.2
+        },
+        {
+          "name": "pt_hcs",
+          "v_exit": 1,
+          "v_lines": 59607,
+          "c_exit": 0,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "%Error: /user/wonseok/fc6161-trunk-rom/rtl/pt_hcs/src/pcie_link_cfg/pcie_link_manager.v:81:10: Cannot find include file: 'pcie_ltssm_defines.vh'\n   81 | `include \"pcie_ltssm_defines.vh\"\n      |       ",
+          "elapsed": 0.2
+        }
+      ]
+    },
+    "lowering_fail": {
+      "total": 5,
+      "v_pass": 5,
+      "c_pass": 4,
+      "targets": [
+        {
+          "name": "i2cm",
+          "v_exit": 0,
+          "v_lines": 63255,
+          "c_exit": 0,
+          "mlir_lines": 6926,
+          "hw_modules": 48,
+          "llhd_process": 19,
+          "cf_br": 34,
+          "remaining": [
+            "llhd.process(19)",
+            "cf.br(34)"
+          ],
+          "error": "",
+          "elapsed": 1.1
+        },
+        {
+          "name": "smbus",
+          "v_exit": 0,
+          "v_lines": 62805,
+          "c_exit": 0,
+          "mlir_lines": 18523,
+          "hw_modules": 76,
+          "llhd_process": 42,
+          "cf_br": 132,
+          "remaining": [
+            "llhd.process(42)",
+            "cf.br(132)"
+          ],
+          "error": "",
+          "elapsed": 1.7
+        },
+        {
+          "name": "axi_x2p1",
+          "v_exit": 0,
+          "v_lines": 23065,
+          "c_exit": 0,
+          "mlir_lines": 3145,
+          "hw_modules": 38,
+          "llhd_process": 35,
+          "cf_br": 90,
+          "remaining": [
+            "llhd.process(35)",
+            "cf.br(90)"
+          ],
+          "error": "",
+          "elapsed": 0.3
+        },
+        {
+          "name": "axi_x2p2",
+          "v_exit": 0,
+          "v_lines": 23426,
+          "c_exit": 0,
+          "mlir_lines": 3264,
+          "hw_modules": 38,
+          "llhd_process": 35,
+          "cf_br": 90,
+          "remaining": [
+            "llhd.process(35)",
+            "cf.br(90)"
+          ],
+          "error": "",
+          "elapsed": 0.3
+        },
+        {
+          "name": "axi_x2h",
+          "v_exit": 0,
+          "v_lines": 21050,
+          "c_exit": 1,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "../../../../../fc6161-trunk-rom/rtl/pt_plat/src/axi_x2h/DW_axi_x2h_ahb_cgen_logic.v:367:6: error: failed to legalize operation 'arith.select' that was explicitly marked illegal\n     if (to_process_2b_",
+          "elapsed": 0.3
+        }
+      ]
+    },
+    "unresolved_process": {
+      "total": 2,
+      "v_pass": 2,
+      "c_pass": 2,
+      "targets": [
+        {
+          "name": "uart",
+          "v_exit": 0,
+          "v_lines": 21041,
+          "c_exit": 0,
+          "mlir_lines": 2381,
+          "hw_modules": 42,
+          "llhd_process": 31,
+          "cf_br": 66,
+          "remaining": [
+            "llhd.process(31)",
+            "cf.br(66)"
+          ],
+          "error": "",
+          "elapsed": 0.4
+        },
+        {
+          "name": "gpio",
+          "v_exit": 0,
+          "v_lines": 14100,
+          "c_exit": 0,
+          "mlir_lines": 1376,
+          "hw_modules": 10,
+          "llhd_process": 14,
+          "cf_br": 51,
+          "remaining": [
+            "llhd.process(14)",
+            "cf.br(51)"
+          ],
+          "error": "",
+          "elapsed": 0.3
+        }
+      ]
+    },
+    "unresolved_drive": {
+      "total": 2,
+      "v_pass": 2,
+      "c_pass": 0,
+      "targets": [
+        {
+          "name": "wdt",
+          "v_exit": 0,
+          "v_lines": 10190,
+          "c_exit": 1,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "../../../../../fc6161-trunk-rom/rtl/pt_plat/src/wdt/DW_apb_wdt_regfile.v:113:17: error: expected ']'\n   parameter [`WDT_TORR_WIDTH-1:0]   WDT_TOP_RST        = `WDT_TOP_RST;\n                ^\n../../../",
+          "elapsed": 0.2
+        },
+        {
+          "name": "ptimer",
+          "v_exit": 0,
+          "v_lines": 2982,
+          "c_exit": 1,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "../../../../../fc6161-trunk-rom/rtl/pt_plat/src/ptimer/ptimer_apbif.v:253:61: error: expected ')'\n    assign itdat_wen = ((iwen == 1'b1) && (paddr_f == `REG_TDAT)) ? 1'b1 : 1'b0;\n                     ",
+          "elapsed": 0.2
+        }
+      ]
+    },
+    "timeout": {
+      "total": 1,
+      "v_pass": 1,
+      "c_pass": 0,
+      "targets": [
+        {
+          "name": "axi_2x3",
+          "v_exit": 0,
+          "v_lines": 138314,
+          "c_exit": 1,
+          "mlir_lines": 0,
+          "hw_modules": 0,
+          "llhd_process": 0,
+          "cf_br": 0,
+          "remaining": [],
+          "error": "../../../../../fc6161-trunk-rom/rtl/pt_plat/src/axi_2x3/DW_axi_mp.v:1142:10: error: expected ','\n        `AXI_R_CH,           // Block is being used in a read data\n         ^\n../../../../../fc6161-tru",
+          "elapsed": 0.5
+        }
+      ]
+    }
+  },
+  "timings": {
+    "total_sec": 27.6,
+    "avg_sec": 0.5
+  }
+}

@@ -1,0 +1,843 @@
+{
+  "generated_at": "2026-03-01T15:42:05.974854+00:00",
+  "total_targets": 56,
+  "pass": 3,
+  "pass_with_warnings": 0,
+  "fail": 53,
+  "total_modules_generated": 0,
+  "categories": {
+    "unknown_module": {
+      "count": 24,
+      "percentage": 42.9,
+      "targets": [
+        {
+          "name": "i3c",
+          "filelist": "rtl/pt_plat/bin/lst/i3c_file_list.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 5.4,
+          "modules_generated": 0,
+          "all_categories": [
+            "unknown_module"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/i3c/i3c_top.v\":345:5): error: unknown module 'ecc_i3c_sp_576x32w1'\nError: importVerilog failed"
+        },
+        {
+          "name": "edma",
+          "filelist": "rtl/pt_plat/bin/lst/edma_file_list.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.0,
+          "modules_generated": 0,
+          "all_categories": [
+            "unknown_module"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/edma/edma_core.v\":1121:2): error: unknown module 'ecc_sync_fifo_ram_128x512'\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/edma/edma_core.v\":1184:2): error: unknown module 'sync_fifo_reg_depth3'\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_p"
+        },
+        {
+          "name": "pka",
+          "filelist": "rtl/pt_plat/bin/lst/pka_file_list.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.3,
+          "modules_generated": 0,
+          "all_categories": [
+            "unknown_module",
+            "timescale_error"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/pka/ctrl_cpu/DWC_apka_arc0011_cdc_reset_sync.v\":58:8): error: design element does not have a time scale defined but others in the design do\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/pka/ctrl_cpu/DWC_apka_arc0011_clkgate.v\":48:8): error:"
+        },
+        {
+          "name": "secreg",
+          "filelist": "rtl/pt_plat/bin/lst/secreg_file_list.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.0,
+          "modules_generated": 0,
+          "all_categories": [
+            "unknown_module",
+            "timescale_error"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/efuse_ip/secded/pure_secded_dec_d64_p8.v\":1:8): error: design element does not have a time scale defined but others in the design do\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/efuse_ip/secded/pure_secded_enc_d64_p8.v\":1:8): error: design"
+        },
+        {
+          "name": "sys_ctrl",
+          "filelist": "rtl/pt_plat/bin/lst/sys_ctrl_file_list.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.0,
+          "modules_generated": 0,
+          "all_categories": [
+            "unknown_module",
+            "timescale_error"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/sys_ctrl/sys_cfg_t.v\":21:8): error: design element does not have a time scale defined but others in the design do\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/sys_ctrl/sys_cfg.v\":27:8): error: design element does not have a time scale defi"
+        },
+        {
+          "name": "clk_rst_gen",
+          "filelist": "rtl/pt_plat/bin/lst/clk_rst_gen_file_list.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.0,
+          "modules_generated": 0,
+          "all_categories": [
+            "unknown_module"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/clk_rst_gen/pt_plat_clk_gen.v\":697:5): error: unknown module 'clkgen_div_css'\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/clk_rst_gen/pt_plat_clk_gen.v\":719:5): error: unknown module 'occ_buf'\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_p"
+        },
+        {
+          "name": "func_test_io_mux",
+          "filelist": "rtl/pt_plat/bin/lst/func_test_io_mux_file_list.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.1,
+          "modules_generated": 0,
+          "all_categories": [
+            "unknown_module",
+            "timescale_error"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/func_test_io_mux/efuse_test_mux.v\":21:8): error: design element does not have a time scale defined but others in the design do\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/func_test_io_mux/func_mux.v\":21:8): error: design element does not "
+        },
+        {
+          "name": "msgd_router",
+          "filelist": "rtl/pt_plat/bin/lst/msgd_router_file_list.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.0,
+          "modules_generated": 0,
+          "all_categories": [
+            "unknown_module",
+            "timescale_error"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/msgd/msgd_router.v\":188:2): error: unknown module 'pkt2pkt_async_bridge_depth8_r'\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/msgd/msgd_router.v\":204:2): error: unknown module 'msgd_ecc_sync_fifo_ram_2048x32_level'\nloc(\"../../../../../fc6"
+        },
+        {
+          "name": "ahb",
+          "filelist": "rtl/pt_plat/bin/lst/ahb_file_list.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 5.1,
+          "modules_generated": 0,
+          "all_categories": [
+            "unknown_module"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/ahb/DW_ahb_bcm01.v\":50:3): error: unknown module 'DW_minmax'\nError: importVerilog failed"
+        },
+        {
+          "name": "fadu_cse",
+          "filelist": "rtl/pt_plat/bin/lst/fadu_cse_file_list.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.1,
+          "modules_generated": 0,
+          "all_categories": [
+            "unknown_module",
+            "timescale_error"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/fadu_cse/fadu_cse_ctrl.v\":724:1): error: unknown module 'remainder_8bit'\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/fadu_cse/fadu_cse_ctrl.v\":725:1): error: unknown module 'remainder_8bit'\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat"
+        },
+        {
+          "name": "top",
+          "filelist": "rtl/pt_plat/bin/lst/top_file_list.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.1,
+          "modules_generated": 0,
+          "all_categories": [
+            "unknown_module",
+            "timescale_error"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/top/pt_plat_pad.v\":21:8): error: design element does not have a time scale defined but others in the design do\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/top/pt_plat_pad.v\":1853:5): error: unknown module 'XOTS6FFCAA'\nloc(\"../../../../../"
+        },
+        {
+          "name": "pt_ssd_data.encrypt",
+          "filelist": "rtl/pt_ssd_data/bin/lst/pt_ssd_data.encrypt.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.1,
+          "modules_generated": 0,
+          "all_categories": [
+            "unknown_module"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_ssd_data/src/nvme_e2e/main_e2e_crc.v\":22:11): error: 'main_e2e_def.vh': No such file or directory\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_ssd_data/src/nvme_e2e/main_e2e_crc.v\":23:11): error: 'nvme_e2e_crc.vh': No such file or directory\nloc(\"../../../.."
+        },
+        {
+          "name": "pt_ssd_data.plain",
+          "filelist": "rtl/pt_ssd_data/bin/lst/pt_ssd_data.plain.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.0,
+          "modules_generated": 0,
+          "all_categories": [
+            "unknown_module"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_ssd_data/src/pt_ssd_data.v\":710:2): error: unknown module 'apb2apb_async_bridge_s'\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_ssd_data/src/pt_ssd_data.v\":728:2): error: unknown module 'pkt2pkt_async_bridge_depth10_r'\nloc(\"../../../../../fc6161-trunk-rom/r"
+        },
+        {
+          "name": "ddr_top",
+          "filelist": "rtl/pt_mpm/bin/lst/ddr_top.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.0,
+          "modules_generated": 0,
+          "all_categories": [
+            "unknown_module"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_mpm/src/ip/ddr_ip/ddr_chip.v\":1018:2): error: unknown module 'DWC_ddrctl'\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_mpm/src/ip/ddr_ip/ddr_chip.v\":1423:2): error: unknown module 'ddr_rrb_utp_64x288w1'\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_mpm/src/ip"
+        },
+        {
+          "name": "mpm_top",
+          "filelist": "rtl/pt_mpm/bin/lst/mpm_top.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.1,
+          "modules_generated": 0,
+          "all_categories": [
+            "unknown_module",
+            "timescale_error"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_mpm/src/ip/down_sizer/ddr_phy_down_sizer.v\":18:8): error: design element does not have a time scale defined but others in the design do\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_mpm/src/top/mpm_core.v\":2013:1): error: unknown module 'mpm_bus'\nloc(\"../../"
+        },
+        {
+          "name": "mpm_clkrst",
+          "filelist": "rtl/pt_mpm/bin/lst/mpm_clkrst.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.0,
+          "modules_generated": 0,
+          "all_categories": [
+            "unknown_module"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_mpm/src/ip/clkrst/pt_mpm_clk_gen.v\":154:5): error: unknown module 'occ_buf'\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_mpm/src/ip/clkrst/pt_mpm_clk_gen.v\":200:5): error: unknown module 'occ_buf'\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_mpm/src/ip/clkrs"
+        },
+        {
+          "name": "ddr_phy_pre_map",
+          "filelist": "rtl/pt_mpm/bin/lst/ddr_phy_pre_map.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.0,
+          "modules_generated": 0,
+          "all_categories": [
+            "unknown_module",
+            "timescale_error"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/prim_tsmc6n/cell/ddr_phy/dwc_ddrphy_clkgater_pub.v\":7:8): error: design element does not have a time scale defined but others in the design do\nloc(\"../../../../../fc6161-trunk-rom/rtl/prim_tsmc6n/cell/ddr_phy/dwc_ddrphy_glitchless_mux_pub.v\":7:8): error: desi"
+        },
+        {
+          "name": "pcie_dma",
+          "filelist": "rtl/pt_hcs/bin/lst/pcie_dma.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.1,
+          "modules_generated": 0,
+          "all_categories": [
+            "unknown_module",
+            "timescale_error"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_hcs/src/pcie_dma/pio/hpp_dma_ctrl_mem_rq.v\":25:8): error: design element does not have a time scale defined but others in the design do\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_hcs/src/pcie_dma/pio/hpp_dma_ctrl_mem_rq.v\":1029:2): error: unknown module '"
+        },
+        {
+          "name": "pt_ncs_cmd_path",
+          "filelist": "rtl/pt_ncs/bin/lst/pt_ncs_cmd_path.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.0,
+          "modules_generated": 0,
+          "all_categories": [
+            "unknown_module"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_ncs/src/ncs_cmd_path/ncs_cmd_parity_readp_dma.v\":25:10): error: 'ncs_cfg_def.vh': No such file or directory\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_ncs/src/ncs_cmd_path/ncs_cmd_parity_readp_dma.v\":251:25): error: unknown macro or compiler directive '`C"
+        },
+        {
+          "name": "pt_ncs_parity_top",
+          "filelist": "rtl/pt_ncs/bin/lst/pt_ncs_parity_top.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.0,
+          "modules_generated": 0,
+          "all_categories": [
+            "unknown_module"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_ncs/src/ncs_parity_top/ncs_parity_buff_manager_cmd_exe.v\":20:10): error: 'ncs_dma.vh': No such file or directory\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_ncs/src/ncs_parity_top/ncs_parity_buff_manager_cmd_exe.v\":21:10): error: 'ncs_cfg_def.vh': No such "
+        },
+        {
+          "name": "pt_ncs_nphy",
+          "filelist": "rtl/pt_ncs/bin/lst/pt_ncs_nphy.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.1,
+          "modules_generated": 0,
+          "all_categories": [
+            "unknown_module",
+            "timescale_error"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_ncs/src/ncs_nphy_handler/nphy_handler_top.v\":21:10): error: 'ncs_nphy.vh': No such file or directory\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_ncs/src/ncs_nphy_handler/nphy_handler_top.v\":23:8): error: design element does not have a time scale defined bu"
+        },
+        {
+          "name": "pt_ncs_top",
+          "filelist": "rtl/pt_ncs/bin/lst/pt_ncs_top.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.1,
+          "modules_generated": 0,
+          "all_categories": [
+            "unknown_module",
+            "port_mismatch",
+            "timescale_error"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_ncs/src/ncs_top/pt_ncs.v\":5:10): error: 'ncs_data_pkt_format.vh': No such file or directory\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_ncs/src/ncs_top/pt_ncs.v\":6:10): error: 'ncs_dsp_pkt_format.vh': No such file or directory\nloc(\"../../../../../fc6161-tr"
+        },
+        {
+          "name": "pt_ldpc_dec",
+          "filelist": "rtl/pt_ldpc_dec/bin/lst/pt_ldpc_dec.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.7,
+          "modules_generated": 0,
+          "all_categories": [
+            "unknown_module",
+            "timescale_error"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_ldpc_dec/src/pt_ldpc_dec.v\":46:10): error: 'ncs_data_pkt_format.vh': No such file or directory\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_ldpc_dec/src/pt_ldpc_dec.v\":47:10): error: 'ncs_dsp_pkt_format.vh': No such file or directory\nloc(\"../../../../../fc6"
+        },
+        {
+          "name": "chip",
+          "filelist": "rtl/chip/bin/lst/chip_file_list.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.0,
+          "modules_generated": 0,
+          "all_categories": [
+            "unknown_module"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/chip/src/chip_top/fc6161_lhotse.v\":2065:5): error: unknown module 'pt_plat'\nloc(\"../../../../../fc6161-trunk-rom/rtl/chip/src/chip_top/fc6161_lhotse.v\":3017:5): error: unknown module 'pt_hcs'\nloc(\"../../../../../fc6161-trunk-rom/rtl/chip/src/chip_top/fc6161_l"
+        }
+      ],
+      "multi_issue": [
+        {
+          "name": "pka",
+          "categories": [
+            "unknown_module",
+            "timescale_error"
+          ]
+        },
+        {
+          "name": "secreg",
+          "categories": [
+            "unknown_module",
+            "timescale_error"
+          ]
+        },
+        {
+          "name": "sys_ctrl",
+          "categories": [
+            "unknown_module",
+            "timescale_error"
+          ]
+        },
+        {
+          "name": "func_test_io_mux",
+          "categories": [
+            "unknown_module",
+            "timescale_error"
+          ]
+        },
+        {
+          "name": "msgd_router",
+          "categories": [
+            "unknown_module",
+            "timescale_error"
+          ]
+        },
+        {
+          "name": "fadu_cse",
+          "categories": [
+            "unknown_module",
+            "timescale_error"
+          ]
+        },
+        {
+          "name": "top",
+          "categories": [
+            "unknown_module",
+            "timescale_error"
+          ]
+        },
+        {
+          "name": "mpm_top",
+          "categories": [
+            "unknown_module",
+            "timescale_error"
+          ]
+        },
+        {
+          "name": "ddr_phy_pre_map",
+          "categories": [
+            "unknown_module",
+            "timescale_error"
+          ]
+        },
+        {
+          "name": "pcie_dma",
+          "categories": [
+            "unknown_module",
+            "timescale_error"
+          ]
+        },
+        {
+          "name": "pt_ncs_nphy",
+          "categories": [
+            "unknown_module",
+            "timescale_error"
+          ]
+        },
+        {
+          "name": "pt_ncs_top",
+          "categories": [
+            "unknown_module",
+            "port_mismatch",
+            "timescale_error"
+          ]
+        },
+        {
+          "name": "pt_ldpc_dec",
+          "categories": [
+            "unknown_module",
+            "timescale_error"
+          ]
+        }
+      ]
+    },
+    "other": {
+      "count": 10,
+      "percentage": 17.9,
+      "targets": [
+        {
+          "name": "ddr_ctrl",
+          "filelist": "rtl/pt_mpm/bin/lst/ddr_ctrl.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 2.1,
+          "modules_generated": 0,
+          "all_categories": [],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_mpm/src/ip/ddr_ip/ctrl/src/apb/DWC_ddrctl_reg_pkg.svh\":32:9): error: redefinition of 'DWC_ddrctl_reg_pkg'\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_mpm/src/ip/ddr_ip/ctrl/src/apb/DWC_ddrctl_reg_pkg.svh\":32:9): error: redefinition of 'DWC_ddrctl_reg_pkg'\n"
+        },
+        {
+          "name": "mpm_bram",
+          "filelist": "rtl/pt_mpm/bin/lst/mpm_bram.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.0,
+          "modules_generated": 0,
+          "all_categories": [],
+          "stderr_preview": "Error: cannot open: +define+DEBUG"
+        },
+        {
+          "name": "mpm_bus",
+          "filelist": "rtl/pt_mpm/bin/lst/mpm_bus.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.0,
+          "modules_generated": 0,
+          "all_categories": [],
+          "stderr_preview": "Error: cannot open: +define+DEBUG"
+        },
+        {
+          "name": "ddr_phy.syn",
+          "filelist": "rtl/pt_mpm/bin/lst/ddr_phy.syn.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.0,
+          "modules_generated": 0,
+          "all_categories": [],
+          "stderr_preview": "Error: cannot open: +define+DWC_DDRPHY_TECH__CDCBUF__DISABLE_BEHAVIORAL_VERILOG"
+        },
+        {
+          "name": "ddr_phy.dep",
+          "filelist": "rtl/pt_mpm/bin/lst/ddr_phy.dep.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.0,
+          "modules_generated": 0,
+          "all_categories": [],
+          "stderr_preview": "Error: cannot open: +define+DWC_DDRPHY_TECH__CDCBUF__DISABLE_BEHAVIORAL_VERILOG"
+        },
+        {
+          "name": "p0_pcie_ctl",
+          "filelist": "rtl/pt_hcs/bin/lst/p0_pcie_ctl.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.0,
+          "modules_generated": 0,
+          "all_categories": [],
+          "stderr_preview": "Error: cannot open: -y /tools/synopsys/syn/U-2022.12-SP7/dw/sim_ver"
+        },
+        {
+          "name": "subsystem",
+          "filelist": "rtl/pt_hcs/bin/lst/subsystem.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.0,
+          "modules_generated": 0,
+          "all_categories": [],
+          "stderr_preview": "Error: cannot open: -sverilog"
+        },
+        {
+          "name": "pt_ncs_ctrl_path",
+          "filelist": "rtl/pt_ncs/bin/lst/pt_ncs_ctrl_path.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.1,
+          "modules_generated": 0,
+          "all_categories": [],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_ncs/src/ncs_ctrl_path/ncs_cmd_list_index_buff.v\":41:10): error: 'ncs.vh': No such file or directory\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_ncs/src/ncs_ctrl_path/ncs_cmd_list_index_buff.v\":151:24): error: unknown macro or compiler directive '`NCS_LOW_P"
+        },
+        {
+          "name": "pt_ncs_data_path",
+          "filelist": "rtl/pt_ncs/bin/lst/pt_ncs_data_path.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.0,
+          "modules_generated": 0,
+          "all_categories": [],
+          "stderr_preview": "Error: cannot open: /user/wonseok/fc6161-trunk-rom/rtl/pt_ncs/src/ncs_misc/simple_axis_demux.v // ALPHA // TEMPORAL USE"
+        },
+        {
+          "name": "inpsytech_onfi_phy_io_vcs",
+          "filelist": "rtl/pt_ncs/bin/lst/inpsytech_onfi_phy_io_vcs.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.0,
+          "modules_generated": 0,
+          "all_categories": [],
+          "stderr_preview": "Error: cannot open: +define+ipt_onfi_50_phy_tsmc06_12_v300"
+        }
+      ],
+      "multi_issue": []
+    },
+    "timescale_error": {
+      "count": 9,
+      "percentage": 16.1,
+      "targets": [
+        {
+          "name": "trng",
+          "filelist": "rtl/pt_plat/bin/lst/trng_file_list.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.1,
+          "modules_generated": 0,
+          "all_categories": [
+            "timescale_error"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/trng/DWC_trng_core_bcm00_ck_inv.v\":28:8): error: design element does not have a time scale defined but others in the design do\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/trng/DWC_trng_core_bcm21.v\":37:8): error: design element does not h"
+        },
+        {
+          "name": "caliptra",
+          "filelist": "rtl/pt_plat/bin/lst/caliptra_file_list.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.5,
+          "modules_generated": 0,
+          "all_categories": [
+            "timescale_error"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/caliptra/caliptra_subsystem.sv\":23:8): error: design element does not have a time scale defined but others in the design do\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/caliptra/caliptra_sram.sv\":15:8): error: design element does not have "
+        },
+        {
+          "name": "s5",
+          "filelist": "rtl/pt_plat/bin/lst/s5_file_list.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.4,
+          "modules_generated": 0,
+          "all_categories": [
+            "timescale_error"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/s5/design/Fadu_K2_S5_TLPseudoStream_21.v\":20:8): error: design element does not have a time scale defined but others in the design do\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/s5/design/Fadu_K2_S5_SimpleLazyModule_1.v\":20:8): error: des"
+        },
+        {
+          "name": "s5mc",
+          "filelist": "rtl/pt_plat/bin/lst/s5mc_file_list.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.5,
+          "modules_generated": 0,
+          "all_categories": [
+            "timescale_error"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/s5mc/design/Fadu_K2_S5MC_tag_array_0.v\":20:8): error: design element does not have a time scale defined but others in the design do\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/s5mc/design/Fadu_K2_S5MC_SimpleLazyModule_25.v\":20:8): error: "
+        },
+        {
+          "name": "ssd_ctrl_top_wrapper",
+          "filelist": "rtl/pt_plat/bin/lst/ssd_ctrl_top_wrapper.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 3.5,
+          "modules_generated": 0,
+          "all_categories": [
+            "timescale_error"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/ssd/ctrl/ssd_ctrl_top_wrapper.v\":1:8): error: design element does not have a time scale defined but others in the design do\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/ssd/ctrl/ssd_ctrl_top_wrapper.v\":667:11): error: 'pcie_func_id_conv.vh"
+        },
+        {
+          "name": "ets",
+          "filelist": "rtl/pt_mpm/bin/lst/ets_file_list.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.0,
+          "modules_generated": 0,
+          "all_categories": [
+            "timescale_error"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_mpm/model/temp_sensor/mr74190.sv\":361:7): error: unknown system name '$disable_warnings' [-Wunknown-sys-name]\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_mpm/model/temp_sensor/mr74190.sv\":368:7): error: unknown system name '$enable_warnings' [-Wunknown-sys"
+        },
+        {
+          "name": "p0_pcie_ide",
+          "filelist": "rtl/pt_hcs/bin/lst/p0_pcie_ide.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.5,
+          "modules_generated": 0,
+          "all_categories": [
+            "timescale_error"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_hcs/src/pcie_dev_gen6/pcie_ide/ide_pkg.svh\":210:9): error: design element does not have a time scale defined but others in the design do\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_hcs/src/pcie_dev_gen6/pcie_ide/DWC_ide_bist_pkg.svh\":66:9): error: design e"
+        },
+        {
+          "name": "pcie_phy",
+          "filelist": "rtl/pt_hcs/bin/lst/pcie_phy.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.4,
+          "modules_generated": 0,
+          "all_categories": [
+            "timescale_error"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_hcs/src/pcie_dev_gen6/phy/upcs/include/dwc_pcie6_upcs_x4_ns_pipe_defines.v\":17:11): error: 'dwc_pcie6_x4_ns_pmd_macros.v': No such file or directory\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_hcs/src/pcie_dev_gen6/phy/upcs/include/dwc_pcie6_upcs_x4_ns_pip"
+        },
+        {
+          "name": "pt_hcs",
+          "filelist": "rtl/pt_hcs/bin/lst/pt_hcs.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.4,
+          "modules_generated": 0,
+          "all_categories": [
+            "timescale_error"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_hcs/src/bus/pt_hcs_apb2ahblite.v\":37:8): error: design element does not have a time scale defined but others in the design do\nloc(\"../../../../../fc6161-trunk-rom/rtl/pt_hcs/src/ppu/pt_hcs_ppu.v\":2:8): error: design element does not have a time scale defin"
+        }
+      ],
+      "multi_issue": []
+    },
+    "lowering_fail": {
+      "count": 5,
+      "percentage": 8.9,
+      "targets": [
+        {
+          "name": "i2cm",
+          "filelist": "rtl/pt_plat/bin/lst/i2cm_file_list.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 0.2,
+          "modules_generated": 0,
+          "all_categories": [
+            "lowering_fail"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/i2cm/m_DWC_i2c_sync.v\":559:11): error: failed to legalize operation 'moore.concat_ref'\nError: moore/llhd-to-core lowering failed"
+        },
+        {
+          "name": "smbus",
+          "filelist": "rtl/pt_plat/bin/lst/smbus_file_list.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 5.5,
+          "modules_generated": 0,
+          "all_categories": [
+            "lowering_fail"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/smbus/s_DWC_i2c_sync.v\":620:11): error: failed to legalize operation 'moore.concat_ref'\nError: moore/llhd-to-core lowering failed"
+        },
+        {
+          "name": "axi_x2p1",
+          "filelist": "rtl/pt_plat/bin/lst/axi_x2p1_file_list.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 5.2,
+          "modules_generated": 0,
+          "all_categories": [
+            "lowering_fail"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/axi_x2p1/x2p1_DW_axi_x2p.v\":339:10): error: failed to legalize operation 'moore.concat_ref'\nError: moore/llhd-to-core lowering failed"
+        },
+        {
+          "name": "axi_x2p2",
+          "filelist": "rtl/pt_plat/bin/lst/axi_x2p2_file_list.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 5.6,
+          "modules_generated": 0,
+          "all_categories": [
+            "lowering_fail"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/axi_x2p2/x2p2_DW_axi_x2p.v\":433:10): error: failed to legalize operation 'moore.concat_ref'\nError: moore/llhd-to-core lowering failed"
+        },
+        {
+          "name": "axi_x2h",
+          "filelist": "rtl/pt_plat/bin/lst/axi_x2h_file_list.f",
+          "top": "",
+          "exit_code": 1,
+          "elapsed": 5.6,
+          "modules_generated": 0,
+          "all_categories": [
+            "lowering_fail"
+          ],
+          "stderr_preview": "loc(\"../../../../../fc6161-trunk-rom/rtl/pt_plat/src/axi_x2h/DW_axi_x2h_ahb_cgen_logic.v\":123:7): error: failed to legalize operation 'moore.concat_ref'\nError: moore/llhd-to-core lowering failed"
+        }
+      ],
+      "multi_issue": []
+    },
+    "pass": {
+      "count": 3,
+      "percentage": 5.4,
+      "targets": [
+        {
+          "name": "fsl_wflow",
+          "filelist": "rtl/pt_plat/bin/lst/fsl_wflow_file_list.f",
+          "top": "",
+          "exit_code": 0,
+          "elapsed": 0.6,
+          "modules_generated": 0,
+          "all_categories": [],
+          "stderr_preview": ""
+        },
+        {
+          "name": "mpm_util",
+          "filelist": "rtl/pt_mpm/bin/lst/mpm_util.f",
+          "top": "",
+          "exit_code": 0,
+          "elapsed": 0.5,
+          "modules_generated": 0,
+          "all_categories": [],
+          "stderr_preview": ""
+        },
+        {
+          "name": "ets_con",
+          "filelist": "rtl/pt_mpm/bin/lst/ets_con_file_list.f",
+          "top": "",
+          "exit_code": 0,
+          "elapsed": 0.2,
+          "modules_generated": 0,
+          "all_categories": [],
+          "stderr_preview": ""
+        }
+      ],
+      "multi_issue": []
+    },
+    "unresolved_process": {
+      "count": 2,
+      "percentage": 3.6,
+      "targets": [
+        {
+          "name": "uart",
+          "filelist": "rtl/pt_plat/bin/lst/uart_file_list.f",
+          "top": "uart_top",
+          "exit_code": 0,
+          "elapsed": 0.6,
+          "modules_generated": 0,
+          "all_categories": [
+            "unresolved_process",
+            "unresolved_drive"
+          ],
+          "stderr_preview": "GenModel MLIR: 1 LLHD process(es) unresolved\nGenModel MLIR: 1 LLHD process(es) unresolved\nGenModel MLIR: 1 LLHD process(es) unresolved\nGenModel MLIR: 1 LLHD process(es) unresolved\nGenModel MLIR: 1 LLHD process(es) unresolved\nGenModel MLIR: 1 LLHD process(es) unresolved\nGenModel MLIR: 1 LLHD process("
+        },
+        {
+          "name": "gpio",
+          "filelist": "rtl/pt_plat/bin/lst/gpio_file_list.f",
+          "top": "",
+          "exit_code": 0,
+          "elapsed": 5.5,
+          "modules_generated": 0,
+          "all_categories": [
+            "unresolved_process",
+            "unresolved_drive",
+            "flatten_cycle"
+          ],
+          "stderr_preview": "GenModel MLIR: 1 LLHD process(es) unresolved\nGenModel MLIR: 1 LLHD process(es) unresolved\nflatten_block_mlir: cycle on path at depth 5\nflatten_block_mlir: cycle on path at depth 5\nflatten_block_mlir: cycle on path at depth 5\nflatten_block_mlir: cycle on path at depth 5\nflatten_block_mlir: cycle on p"
+        }
+      ],
+      "multi_issue": [
+        {
+          "name": "uart",
+          "categories": [
+            "unresolved_process",
+            "unresolved_drive"
+          ]
+        },
+        {
+          "name": "gpio",
+          "categories": [
+            "unresolved_process",
+            "unresolved_drive",
+            "flatten_cycle"
+          ]
+        }
+      ]
+    },
+    "unresolved_drive": {
+      "count": 2,
+      "percentage": 3.6,
+      "targets": [
+        {
+          "name": "wdt",
+          "filelist": "rtl/pt_plat/bin/lst/wdt_file_list.f",
+          "top": "",
+          "exit_code": 0,
+          "elapsed": 5.7,
+          "modules_generated": 0,
+          "all_categories": [
+            "unresolved_drive"
+          ],
+          "stderr_preview": "GenModel MLIR: 1 LLHD drive(s) unresolved\nGenModel MLIR: 1 LLHD drive(s) unresolved"
+        },
+        {
+          "name": "ptimer",
+          "filelist": "rtl/pt_plat/bin/lst/ptimer_file_list.f",
+          "top": "",
+          "exit_code": 0,
+          "elapsed": 0.2,
+          "modules_generated": 0,
+          "all_categories": [
+            "unresolved_drive"
+          ],
+          "stderr_preview": "GenModel MLIR: 1 LLHD drive(s) unresolved"
+        }
+      ],
+      "multi_issue": []
+    },
+    "timeout": {
+      "count": 1,
+      "percentage": 1.8,
+      "targets": [
+        {
+          "name": "axi_2x3",
+          "filelist": "rtl/pt_plat/bin/lst/axi_2x3_file_list.f",
+          "top": "",
+          "exit_code": 137,
+          "elapsed": 301.6,
+          "modules_generated": 0,
+          "all_categories": [
+            "timeout"
+          ],
+          "stderr_preview": "timeout after 300s"
+        }
+      ],
+      "multi_issue": []
+    }
+  },
+  "timings": {
+    "total_sec": 357.8,
+    "avg_sec": 6.4,
+    "max_sec": 301.6
+  }
+}

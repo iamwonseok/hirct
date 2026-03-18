@@ -1,2 +1,0 @@
-add_library(hirctAnalysis ModuleAnalyzer.cpp)
-target_link_libraries(hirctAnalysis PUBLIC hirctSupport)

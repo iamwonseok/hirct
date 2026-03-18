@@ -1,0 +1,4 @@
+[submodule "hirct/third_party/circt"]
+	path = hirct/third_party/circt
+	url = git@gitlab.fadutec.dev:soc-ip/agentic-ai/hw/circt.git
+	branch = hirct-support

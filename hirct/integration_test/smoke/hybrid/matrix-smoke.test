@@ -1,0 +1,9 @@
+// Smoke test for hybrid verify matrix CLI skeleton.
+// hybrid-verify-matrix.py is an examples/fc6161-specific utility, not present
+// under hirct/utils/. Tracked as KL-6 in known-limitations.md.
+// XFAIL: *
+// RUN: python3 %S/../../../../utils/hybrid-verify-matrix.py --help | grep -q "usage: hybrid-verify-matrix.py"
+// RUN: python3 %S/../../../../utils/hybrid-verify-matrix.py --mode module --seeds 2 --cycles 20 --dry-run --out-json %t.json > %t.out
+// RUN: grep -q "dry-run: mode=module seeds=2 cycles=20" %t.out
+// RUN: grep -q '"mode": "module"' %t.json
+// RUN: grep -q '"dry_run": true' %t.json

@@ -1,0 +1,5 @@
+// Smoke test: verify pipeline works end-to-end on a known-good module.
+// Uses E21_Bext_IntXbar_2 — small combinational crossbar, compiles fast.
+// Prerequisite: `make generate` must have populated the output/ directory.
+// REQUIRES: output-populated
+// RUN: make -C %output-dir/lib/ppu/riscv_e21/E21_Bext_IntXbar_2/E21_Bext_IntXbar_2 test-verify SEED=1 CYCLES=10

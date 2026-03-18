@@ -1,0 +1,1 @@
++define+SMOKE_DEFINE

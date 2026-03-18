@@ -1,0 +1,34 @@
+// Test GenRAL: UVM RAL generation for LevelGateway (has 1 register)
+//
+// RUN: %hirct-gen %S/../../fixtures/LevelGateway.mlir -o %t --only ral
+// RUN: cat %t/ral/Fadu_K2_S5_LevelGateway_ral.sv | %FileCheck %s --check-prefix=CHECK-RAL
+// RUN: cat %t/ral/Fadu_K2_S5_LevelGateway_hal.h | %FileCheck %s --check-prefix=CHECK-HAL
+// RUN: cat %t/ral/Fadu_K2_S5_LevelGateway_driver.c | %FileCheck %s --check-prefix=CHECK-DRV
+// RUN: gcc -c %t/ral/Fadu_K2_S5_LevelGateway_driver.c -I %t/ral -o %t/test_driver.o
+//
+// CHECK-RAL: AUTO-GENERATED
+// CHECK-RAL: import uvm_pkg::*
+// CHECK-RAL: class inFlight_reg extends uvm_reg
+// CHECK-RAL: uvm_reg_field data
+// CHECK-RAL: super.new(name, 1, UVM_NO_COVERAGE)
+// CHECK-RAL: uvm_reg_field::type_id::create("data")
+// CHECK-RAL: endclass
+// CHECK-RAL: class Fadu_K2_S5_LevelGateway_reg_block extends uvm_reg_block
+// CHECK-RAL: inFlight_reg inFlight
+// CHECK-RAL: offset 0x00, width 1
+// CHECK-RAL: inFlight_reg::type_id::create("inFlight")
+// CHECK-RAL: default_map.add_reg(inFlight, 'h0, "RW")
+// CHECK-RAL: endclass
+//
+// CHECK-HAL: AUTO-GENERATED
+// CHECK-HAL: #ifndef FADU_K2_S5_LEVELGATEWAY_HAL_H
+// CHECK-HAL: #include <stdint.h>
+// CHECK-HAL: #define FADU_K2_S5_LEVELGATEWAY_REG_INFLIGHT_OFFSET
+// CHECK-HAL: static inline uint32_t fadu_k2_s5_levelgateway_read
+// CHECK-HAL: static inline void fadu_k2_s5_levelgateway_write
+// CHECK-HAL: #define FADU_K2_S5_LEVELGATEWAY_READ_INFLIGHT
+// CHECK-HAL: #define FADU_K2_S5_LEVELGATEWAY_WRITE_INFLIGHT
+//
+// CHECK-DRV: AUTO-GENERATED
+// CHECK-DRV: #include "Fadu_K2_S5_LevelGateway_hal.h"
+// CHECK-DRV: void fadu_k2_s5_levelgateway_init

@@ -1,0 +1,44 @@
+// Test GenDPIC: DPI-C wrapper generation for LevelGateway
+//
+// RUN: %hirct-gen %S/../../fixtures/LevelGateway.mlir -o %t
+// RUN: cat %t/dpi/Fadu_K2_S5_LevelGateway_dpi.h | %FileCheck %s --check-prefix=CHECK-HEADER
+// RUN: cat %t/dpi/Fadu_K2_S5_LevelGateway_dpi.cpp | %FileCheck %s --check-prefix=CHECK-IMPL
+// RUN: cat %t/dpi/Fadu_K2_S5_LevelGateway_dpi.sv | %FileCheck %s --check-prefix=CHECK-SV
+// RUN: g++ -std=c++17 -c %t/dpi/Fadu_K2_S5_LevelGateway_dpi.cpp -I %t/dpi -o %t/test_dpi.o
+//
+// --- DPI-C Header ---
+// CHECK-HEADER: AUTO-GENERATED
+// CHECK-HEADER: fadu_k2_s5_levelgateway_create
+// CHECK-HEADER: fadu_k2_s5_levelgateway_destroy
+// CHECK-HEADER: fadu_k2_s5_levelgateway_do_reset
+// CHECK-HEADER: fadu_k2_s5_levelgateway_step
+// CHECK-HEADER: fadu_k2_s5_levelgateway_eval_comb
+// CHECK-HEADER: set_preset_flops
+// CHECK-HEADER: set_io_interrupt
+// CHECK-HEADER: get_io_plic_valid
+// CHECK-HEADER: set_io_plic_ready
+// CHECK-HEADER: set_io_plic_complete
+//
+// --- DPI-C Implementation ---
+// CHECK-IMPL: AUTO-GENERATED
+// CHECK-IMPL: #include "Fadu_K2_S5_LevelGateway_dpi.h"
+// CHECK-IMPL: #include "../cmodel/Fadu_K2_S5_LevelGateway.h"
+// CHECK-IMPL: fadu_k2_s5_levelgateway_create
+// CHECK-IMPL: fadu_k2_s5_levelgateway_destroy
+// CHECK-IMPL: fadu_k2_s5_levelgateway_do_reset
+// CHECK-IMPL: do_reset()
+// CHECK-IMPL: fadu_k2_s5_levelgateway_step
+// CHECK-IMPL: step()
+// CHECK-IMPL: fadu_k2_s5_levelgateway_eval_comb
+// CHECK-IMPL: eval_comb()
+//
+// --- SystemVerilog Wrapper ---
+// CHECK-SV: AUTO-GENERATED
+// CHECK-SV: module Fadu_K2_S5_LevelGateway_dpi_wrapper
+// CHECK-SV: import "DPI-C"
+// CHECK-SV: chandle model_handle
+// CHECK-SV: posedge clock
+// CHECK-SV: if (reset)
+// CHECK-SV: fadu_k2_s5_levelgateway_do_reset
+// CHECK-SV: fadu_k2_s5_levelgateway_step
+// CHECK-SV: endmodule

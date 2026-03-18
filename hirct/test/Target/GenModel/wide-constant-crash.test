@@ -1,0 +1,10 @@
+// Test: wide constants (>= 64 bits) must not crash with APInt::getZExtValue() assert.
+// Regression test for KL-3: i128/i384 ConstantOp in EmitExpr and GenModel reset_val.
+//
+// RUN: %hirct-gen %S/../../fixtures/WideConstant.mlir -o %t --only model
+// RUN: cat %t/cmodel/WideConstant.cpp | %FileCheck %s
+//
+// Verify do_reset() emits truncated 64-bit values without crashing.
+// CHECK: do_reset()
+// CHECK: reg_ssa_reg128 = static_cast<uint64_t>(16045690984503098046ULL)
+// CHECK: reg_ssa_reg384 = static_cast<uint64_t>(1808788007904223008)

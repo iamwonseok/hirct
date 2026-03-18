@@ -1,0 +1,8 @@
+// Test GenFormat: Formatted RTL generation for LevelGateway
+//
+// RUN: %hirct-gen %S/../../fixtures/LevelGateway.mlir -o %t --only format
+// RUN: ls %t/rtl/Fadu_K2_S5_LevelGateway.v
+// RUN: cat %t/rtl/Fadu_K2_S5_LevelGateway.v | %FileCheck %s
+//
+// CHECK: AUTO-GENERATED
+// CHECK: module

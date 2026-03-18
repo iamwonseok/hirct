@@ -1,0 +1,17 @@
+// Regression test: step() must place memory writes AFTER the second eval_comb()
+// to enforce write_latency=1 semantics (written data visible on next cycle).
+//
+// RUN: %hirct-gen %S/../../fixtures/FirmemBasic.mlir -o %t --only model
+// RUN: cat %t/cmodel/FirmemBasic.cpp | %FileCheck %s
+//
+// The ordering inside step() must be:
+//   1. eval_comb()
+//   2. reg_* = next_*   (register updates)
+//   3. eval_comb()      (re-evaluate with new registers, old memory)
+//   4. if (mem_wp_en_*) (memory writes — visible next cycle)
+//
+// CHECK:      void FirmemBasic::step()
+// CHECK-NEXT: {
+// CHECK:        eval_comb();
+// CHECK:        eval_comb();
+// CHECK:        if (mem_wp_en_0)

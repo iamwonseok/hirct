@@ -1,0 +1,110 @@
+cmake_minimum_required(VERSION 3.20)
+project(hirct LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
+# CIRCT/MLIR/LLVM discovery
+set(CIRCT_BUILD "$ENV{CIRCT_BUILD}" CACHE PATH "CIRCT build directory")
+if(NOT CIRCT_BUILD AND DEFINED ENV{HOME})
+  set(CIRCT_BUILD "$ENV{HOME}/circt/build")
+endif()
+
+set(CIRCT_DIR "${CIRCT_BUILD}/lib/cmake/circt" CACHE PATH "")
+set(MLIR_DIR "${CIRCT_BUILD}/lib/cmake/mlir" CACHE PATH "")
+set(LLVM_DIR "${CIRCT_BUILD}/lib/cmake/llvm" CACHE PATH "")
+
+find_package(LLVM REQUIRED CONFIG)
+find_package(MLIR REQUIRED CONFIG)
+find_package(CIRCT REQUIRED CONFIG)
+
+list(APPEND CMAKE_MODULE_PATH "${MLIR_CMAKE_DIR}")
+list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
+
+include(TableGen)
+include(AddLLVM)
+include(AddMLIR)
+
+include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
+include_directories(SYSTEM ${MLIR_INCLUDE_DIRS})
+include_directories(SYSTEM ${CIRCT_INCLUDE_DIRS})
+
+if(NOT LLVM_ENABLE_RTTI)
+  add_compile_options(-fno-rtti)
+endif()
+
+option(HIRCT_STATIC "Fully static link for cross-server portability" OFF)
+if(HIRCT_STATIC)
+  add_link_options(-static)
+endif()
+
+option(HIRCT_ENABLE_UNITTESTS "Build unit tests (requires googletest)" OFF)
+
+include_directories(${PROJECT_SOURCE_DIR}/include)
+
+add_subdirectory(lib)
+add_subdirectory(tools)
+
+# lit
+find_program(LIT_COMMAND lit REQUIRED)
+find_program(FILECHECK_COMMAND FileCheck REQUIRED)
+add_subdirectory(test)
+add_subdirectory(integration_test)
+
+# gtest (optional — three-tier: system → CIRCT bundled → FetchContent)
+if(HIRCT_ENABLE_UNITTESTS)
+  find_package(GTest QUIET)
+  if(NOT GTest_FOUND)
+    set(_gtest_search_paths "")
+    if(DEFINED ENV{CIRCT_BUILD})
+      list(APPEND _gtest_search_paths "$ENV{CIRCT_BUILD}/../llvm/third-party/unittest/googletest")
+    endif()
+    if(DEFINED ENV{HOME})
+      list(APPEND _gtest_search_paths "$ENV{HOME}/circt/llvm/third-party/unittest/googletest")
+    endif()
+    list(APPEND _gtest_search_paths "${PROJECT_SOURCE_DIR}/../third-party/googletest")
+
+    foreach(_candidate IN LISTS _gtest_search_paths)
+      get_filename_component(_candidate "${_candidate}" ABSOLUTE)
+      if(EXISTS "${_candidate}/src/gtest-all.cc")
+        set(_gtest_base "${_candidate}")
+        break()
+      endif()
+    endforeach()
+
+    if(_gtest_base)
+      message(STATUS "Using local googletest: ${_gtest_base}")
+      find_package(Threads REQUIRED)
+      add_library(gtest STATIC "${_gtest_base}/src/gtest-all.cc")
+      target_include_directories(gtest PUBLIC "${_gtest_base}/include")
+      target_include_directories(gtest PRIVATE "${_gtest_base}")
+      target_compile_definitions(gtest PUBLIC GTEST_NO_LLVM_SUPPORT=1)
+      target_link_libraries(gtest PUBLIC Threads::Threads)
+      set_target_properties(gtest PROPERTIES POSITION_INDEPENDENT_CODE ON)
+      add_library(gtest_main STATIC "${_gtest_base}/src/gtest_main.cc")
+      target_include_directories(gtest_main PUBLIC "${_gtest_base}/include")
+      target_include_directories(gtest_main PRIVATE "${_gtest_base}")
+      target_link_libraries(gtest_main PUBLIC gtest)
+      add_library(GTest::gtest ALIAS gtest)
+      add_library(GTest::gtest_main ALIAS gtest_main)
+      set(GTest_FOUND TRUE)
+    endif()
+  endif()
+  if(NOT GTest_FOUND)
+    include(FetchContent)
+    FetchContent_Declare(googletest
+      GIT_REPOSITORY git@gitlab.fadutec.dev:soc-ip/agentic-ai/hw/googletest.git
+      GIT_TAG v1.14.0
+      GIT_SHALLOW TRUE)
+    FetchContent_MakeAvailable(googletest)
+    if(NOT TARGET GTest::gtest_main)
+      add_library(GTest::gtest ALIAS gtest)
+      add_library(GTest::gtest_main ALIAS gtest_main)
+    endif()
+  endif()
+  enable_testing()
+  add_subdirectory(unittests)
+endif()

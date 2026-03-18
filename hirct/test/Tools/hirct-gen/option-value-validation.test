@@ -1,0 +1,15 @@
+// Test: options that consume a value starting with '-' are rejected,
+//       and validation failures exit with status 1.
+//
+// 'not cmd 2>&1 | FileCheck' is the canonical lit idiom: 'not' inverts the
+// non-zero exit to 0 so pipefail does not trip, while FileCheck checks stderr.
+//
+// RUN: not %hirct-gen -o --only 2>&1 | %FileCheck %s --check-prefix=ERR-O
+// RUN: not %hirct-gen foo.v --top --only 2>&1 | %FileCheck %s --check-prefix=ERR-TOP
+// RUN: not %hirct-gen foo.v bar.v 2>&1 | %FileCheck %s --check-prefix=ERR-POS
+// RUN: not %hirct-gen -f --only 2>&1 | %FileCheck %s --check-prefix=ERR-F
+//
+// ERR-O: error:{{.*}}-o{{.*}}value
+// ERR-TOP: error:{{.*}}--top{{.*}}value
+// ERR-POS: error:{{.*}}positional
+// ERR-F: error:{{.*}}-f{{.*}}value

@@ -1,23 +1,23 @@
-# HIRCT Python Dependencies
-# Python 3.10+ 필수
+# HIRCT Python Dependencies (Python 3.10+)
 #
-# 설치 방법 (PEP 668: externally-managed-environment 대응):
-#   bash)    source utils/setup-env.sh   ← .venv 자동 생성/활성화 후 설치까지 처리
-#   zsh)     bash utils/setup-env.sh && source .venv/bin/activate
-#   tcsh)    bash utils/setup-env.sh && source .venv/bin/activate.csh
-#   수동)    python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+# 설치:
+#   python3 -m venv .venv && source .venv/bin/activate
+#   pip install -r requirements.txt
 
-# ─── Lint / Format (Phase 0~2) ───
+# ─── Lint / Format ───
 black>=24.0
 flake8>=7.0
 mypy>=1.8
 
-# ─── Pre-commit (Phase 0+) ───
+# ─── Pre-commit ───
 pre-commit>=3.0
 
-# ─── Test Infrastructure (Phase 0+) ───
+# ─── Test Infrastructure ───
 lit>=18.0
 
-# ─── Test Runner Dependencies (Phase 2) ───
-# generate-report.py는 stdlib만 사용하므로 추가 패키지 없음
-# (json, pathlib, subprocess, concurrent.futures, argparse, dataclasses)
+# ─── Documentation ───
+mkdocs>=1.6
+mkdocs-material>=9.5
+
+# ─── Cocotb (gen-cocotb 테스트용) ───
+cocotb>=1.9

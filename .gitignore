@@ -1,5 +1,6 @@
 # Build artifacts
 build/
+hirct/build/
 output/
 site/
 
@@ -15,8 +16,32 @@ __pycache__/
 # Verilator
 obj_dir/
 
+# VCS
+csrc/
+simv
+simv.daidir/
+vc_hdrs.h
+ucli.key
+*.fsdb
+*.vpd
+*.shm/
+
+# lit test artifacts
+hirct/test/.lit_test_times.txt
+hirct/test/**/Output/
+hirct/integration_test/.lit_test_times.txt
+hirct/integration_test/**/Output/
+
+# Example outputs and cosim artifacts
+examples/*/pt_plat/output/
+examples/*/pt_plat/cosim/simv_*
+examples/*/pt_plat/cosim/*.daidir/
+examples/*/pt_plat/cosim/csrc/
+examples/*/pt_plat/cosim/results/
+
 # RTL sources (local development copy, not committed)
 rtl/
 
 # Worktrees
 .worktrees/
+examples

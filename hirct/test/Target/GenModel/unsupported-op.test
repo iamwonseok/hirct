@@ -1,0 +1,15 @@
+// Test GenModel: unsupported op emits warning and generates default value
+//
+// RUN: echo 'module {' > %t.mlir
+// RUN: echo '  hw.module @UnsupportedOp(in %%a : i8, in %%b : i8, out y : i8) {' >> %t.mlir
+// RUN: echo '    %%0 = "fake.unknown_op"(%%a, %%b) : (i8, i8) -> i8' >> %t.mlir
+// RUN: echo '    hw.output %%0 : i8' >> %t.mlir
+// RUN: echo '  }' >> %t.mlir
+// RUN: echo '}' >> %t.mlir
+// RUN: %hirct-gen %t.mlir -o %t --only model 2>&1 | %FileCheck %s --check-prefix=CHECK-WARN
+// RUN: cat %t/cmodel/UnsupportedOp.cpp | %FileCheck %s --check-prefix=CHECK-CPP
+// RUN: cat %t/meta.json | %FileCheck %s --check-prefix=CHECK-META
+//
+// CHECK-WARN: unsupported op 'fake.unknown_op'
+// CHECK-CPP: y =
+// CHECK-META: "gen-model": {"result": "pass"
