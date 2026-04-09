@@ -628,21 +628,22 @@ def emit(arc_defs, hw_mods) -> str:
                                 if _in_deg[_dp] == 0:
                                     _q.append(_dp)
 
-                # Pre-declared cycle PKs have their results already in ssa, so
-                # Kahn's in-degree will drop naturally as if they were already emitted.
-                # Seed the satisfied set with pre-declared PKs so Kahn triggers their
-                # dependents, but still add them to kahn_order for reassignment.
+                # Step 1: reduce in-degrees of dependents of predecl pks (as if satisfied).
+                # THEN mark predecl pks as satisfied so _kahn_full does NOT emit them a
+                # second time — doing so would double-decrement their dependents' in_deg,
+                # causing non-cycle nodes (e.g. v3597 that depends on both a predecl v80
+                # AND a non-predecl v3598) to be queued before their non-predecl deps are
+                # resolved.  Predecl pk reassignments are added to _emit_order separately
+                # after the main Kahn pass.
                 for _pk in _rem_pks:
                     if _pk in _predecl_pks:
-                        # Reduce in-degrees of dependents (as if already satisfied)
                         for _dp in _dependents[_pk]:
                             if _dp not in _satisfied:
                                 _in_deg[_dp] -= 1
+                # Mark predecl pks satisfied BEFORE _kahn_full so they are excluded from
+                # the initial queue and never re-processed (eliminates double-decrement).
+                _satisfied.update(_predecl_pks)
 
-                # Now run Kahn's.  Pre-declared PKs start with in_deg already
-                # decremented; non-cycle nodes with all deps satisfied start at 0.
-                # We still need to emit pre-declared PKs (as reassignments), so we
-                # do a separate pass that builds the full emission order.
                 _emit_order: list = []
 
                 def _kahn_full():
@@ -663,10 +664,71 @@ def emit(arc_defs, hw_mods) -> str:
                                     _q.append(_dp)
 
                 _kahn_full()
-                # Any truly stuck nodes (shouldn't happen after pre-decl) — emit anyway
+
+                # Step 2: emit predecl pk reassignments AFTER non-predecl deps are computed.
+                # Order within the predecl set: topological where possible (for simulation
+                # correctness), MLIR order for any remaining genuine intra-cycle nodes.
+                _pd_in_deg: dict = {pk: 0 for pk in _predecl_pks}
+                _pd_deps: dict = {pk: [] for pk in _predecl_pks}
+                for _pk in _predecl_pks:
+                    for _dp in _intra_deps_pks(_pk):
+                        if _dp in _predecl_pks and _dp != _pk:
+                            _pd_in_deg[_pk] += 1
+                            _pd_deps[_dp].append(_pk)
+                from collections import deque as _dq_pd
+                _pd_q = _dq_pd(sorted(
+                    [pk for pk in _predecl_pks if _pd_in_deg[pk] == 0],
+                    key=lambda pk: _pk_orig_pos[pk]))
+                _pd_sat: set = set()
+                while _pd_q:
+                    _pk = _pd_q.popleft()
+                    if _pk in _pd_sat:
+                        continue
+                    _pd_sat.add(_pk)
+                    _emit_order.append(_pk_to_call[_pk])
+                    for _dp in _pd_deps[_pk]:
+                        if _dp not in _pd_sat:
+                            _pd_in_deg[_dp] -= 1
+                            if _pd_in_deg[_dp] <= 0:
+                                _pd_q.append(_dp)
+                # Remaining intra-cycle predecl pks (genuine cycle) — MLIR order
                 for _pk in _rem_pks:
-                    if _pk not in _satisfied:
+                    if _pk in _predecl_pks and _pk not in _pd_sat:
                         _emit_order.append(_pk_to_call[_pk])
+
+                # Step 3: stuck non-predecl nodes — sort topologically within the stuck
+                # set instead of using MLIR order (which can violate dependency order).
+                _stuck_pks = [pk for pk in _rem_pks
+                               if pk not in _satisfied and pk not in _predecl_pks]
+                if _stuck_pks:
+                    _stk_set = set(_stuck_pks)
+                    _stk_in_deg = {pk: 0 for pk in _stuck_pks}
+                    _stk_deps: dict = {pk: [] for pk in _stuck_pks}
+                    for _pk in _stuck_pks:
+                        for _dp in _intra_deps_pks(_pk):
+                            if _dp in _stk_set and _dp != _pk:
+                                _stk_in_deg[_pk] += 1
+                                _stk_deps[_dp].append(_pk)
+                    from collections import deque as _dq_stk
+                    _stk_q = _dq_stk(sorted(
+                        [pk for pk in _stuck_pks if _stk_in_deg[pk] == 0],
+                        key=lambda pk: _pk_orig_pos[pk]))
+                    _stk_sat: set = set()
+                    while _stk_q:
+                        _pk = _stk_q.popleft()
+                        if _pk in _stk_sat:
+                            continue
+                        _stk_sat.add(_pk)
+                        _emit_order.append(_pk_to_call[_pk])
+                        for _dp in _stk_deps[_pk]:
+                            if _dp not in _stk_sat:
+                                _stk_in_deg[_dp] -= 1
+                                if _stk_in_deg[_dp] <= 0:
+                                    _stk_q.append(_dp)
+                    # Any remaining stuck (genuine intra-stuck cycle) — MLIR order
+                    for _pk in _rem_pks:
+                        if _pk in _stk_set and _pk not in _stk_sat:
+                            _emit_order.append(_pk_to_call[_pk])
 
                 def _emit_call_or_reassign(_c) -> None:
                     """Emit call as declaration or reassignment for pre-declared vars."""
