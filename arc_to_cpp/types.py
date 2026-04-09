@@ -18,11 +18,24 @@ def cpp_uint(bits: int) -> str:
     return f"uint64_t /*i{bits} truncated*/"
 
 def cpp_type(mlir_type: str) -> str:
-    t = mlir_type.strip()
+    t = mlir_type.strip().lstrip("!")
     if "seq.clock" in t:
         return "bool"
+    # hw.array<N x iW> → std::array<elem_ctype, N>  (value type that supports copy)
+    m = re.match(r'hw\.array<(\d+)\s*x\s*(i\d+)>', t)
+    if m:
+        n, elem_t = m.group(1), cpp_uint(int(m.group(2)[1:]))
+        return f"std::array<{elem_t}, {n}>"
     m = re.match(r'i(\d+)', t)
     return cpp_uint(int(m.group(1))) if m else "uint32_t"
+
+def cpp_array_type(mlir_type: str) -> tuple[str, int] | None:
+    """Parse !hw.array<N x iW>, returns (elem_ctype, N) or None."""
+    t = mlir_type.strip().lstrip("!")
+    m = re.match(r'hw\.array<(\d+)\s*x\s*(i\d+)>', t)
+    if m:
+        return cpp_uint(int(m.group(2)[1:])), int(m.group(1))
+    return None
 
 def parse_memory_type(mlir_type: str) -> Optional[tuple[int, str, int]]:
     """Parse '<N x iW, iA>'. Returns (num_words, word_ctype, addr_bits) or None."""

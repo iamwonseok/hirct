@@ -2,7 +2,7 @@
 import re
 import textwrap
 from typing import Optional
-from .types import cpp_type, cpp_uint, bits_of
+from .types import cpp_type, cpp_uint, bits_of, cpp_array_type
 
 COMB_BINOPS = {
     "comb.add": "+", "comb.sub": "-", "comb.mul": "*",
@@ -28,6 +28,10 @@ def strip_ssa(s: str) -> str:
     inner = s[1:]
     return inner if not inner.isdigit() else f"v{inner}"
 
+# MLIR SSA names can include '-' (e.g. %c-8_i4, %c-128_i8).
+# Use [^\s,():=]+ instead of [\w]+ to capture these names.
+_SSA = r'%[^\s,():=]+'
+
 def emit_arc_body(body_lines: list[str], arg_map: dict, ret_ctypes: list[str]) -> str:
     out = []
     ssa = dict(arg_map)
@@ -37,7 +41,7 @@ def emit_arc_body(body_lines: list[str], arg_map: dict, ret_ctypes: list[str]) -
         if not line: continue
 
         # N-ary comb binop (strip optional 'bin' qualifier)
-        m = re.match(r'(%[\w]+)\s*=\s*(comb\.\w+)\s+(.*?)\s*:\s*(\S+)$', line)
+        m = re.match(r'(' + _SSA + r')\s*=\s*(comb\.\w+)\s+(.*?)\s*:\s*(\S+)$', line)
         if m and m.group(2) in COMB_BINOPS:
             res = strip_ssa(m.group(1))
             op = COMB_BINOPS[m.group(2)]
@@ -49,7 +53,7 @@ def emit_arc_body(body_lines: list[str], arg_map: dict, ret_ctypes: list[str]) -
             ssa[res] = res; continue
 
         # comb.shrs (arithmetic right shift)
-        m = re.match(r'(%[\w]+)\s*=\s*comb\.shrs\s+(.*?)\s*:\s*(\S+)$', line)
+        m = re.match(r'(' + _SSA + r')\s*=\s*comb\.shrs\s+(.*?)\s*:\s*(\S+)$', line)
         if m:
             res = strip_ssa(m.group(1))
             ops = [ssa.get(strip_ssa(o.strip()), strip_ssa(o.strip()))
@@ -61,7 +65,7 @@ def emit_arc_body(body_lines: list[str], arg_map: dict, ret_ctypes: list[str]) -
             ssa[res] = res; continue
 
         # comb.icmp
-        m = re.match(r'(%[\w]+)\s*=\s*comb\.icmp\s+(\w+)\s+(.*?)\s*:\s*(\S+)$', line)
+        m = re.match(r'(' + _SSA + r')\s*=\s*comb\.icmp\s+(\w+)\s+(.*?)\s*:\s*(\S+)$', line)
         if m:
             res = strip_ssa(m.group(1))
             predicate = m.group(2)
@@ -77,7 +81,7 @@ def emit_arc_body(body_lines: list[str], arg_map: dict, ret_ctypes: list[str]) -
             ssa[res] = res; continue
 
         # comb.mux (handles 'bin' qualifier)
-        m = re.match(r'(%[\w]+)\s*=\s*comb\.mux\s+(?:bin\s+)?(%[\w]+),\s*(%[\w]+),\s*(%[\w]+)\s*:\s*(\S+)', line)
+        m = re.match(r'(' + _SSA + r')\s*=\s*comb\.mux\s+(?:bin\s+)?(' + _SSA + r'),\s*(' + _SSA + r'),\s*(' + _SSA + r')\s*:\s*(\S+)', line)
         if m:
             res = strip_ssa(m.group(1))
             sel, a, b = [ssa.get(strip_ssa(m.group(i)), strip_ssa(m.group(i))) for i in [2,3,4]]
@@ -86,7 +90,7 @@ def emit_arc_body(body_lines: list[str], arg_map: dict, ret_ctypes: list[str]) -
             ssa[res] = res; continue
 
         # comb.concat
-        m = re.match(r'(%[\w]+)\s*=\s*comb\.concat\s+(.*?)\s*:\s*(.+)$', line)
+        m = re.match(r'(' + _SSA + r')\s*=\s*comb\.concat\s+(.*?)\s*:\s*(.+)$', line)
         if m:
             res = strip_ssa(m.group(1))
             operands = [strip_ssa(o.strip()) for o in m.group(2).split(",")]
@@ -97,26 +101,31 @@ def emit_arc_body(body_lines: list[str], arg_map: dict, ret_ctypes: list[str]) -
             exprs, shift = [], 0
             for i in range(len(operands)-1, -1, -1):
                 v = ssa.get(operands[i], operands[i])
-                exprs.insert(0, f"(({t}){v} << {shift})" if shift else f"({t}){v}")
+                # Clamp shift to 63 for 64-bit types to avoid UB (wide types are truncated anyway)
+                safe_shift = min(shift, 63) if total > 64 else shift
+                exprs.insert(0, f"(({t}){v} << {safe_shift})" if shift else f"({t}){v}")
                 shift += bits_list[i]
             out.append(f"  {t} {res} = {' | '.join(exprs)};")
             ssa[res] = res; continue
 
         # comb.extract
-        m = re.match(r'(%[\w]+)\s*=\s*comb\.extract\s+(%[\w]+)\s+from\s+(\d+)\s*:\s*\([^)]+\)\s*->\s*(\S+)', line)
+        m = re.match(r'(' + _SSA + r')\s*=\s*comb\.extract\s+(' + _SSA + r')\s+from\s+(\d+)\s*:\s*\([^)]+\)\s*->\s*(\S+)', line)
         if m:
             res = strip_ssa(m.group(1))
             src = ssa.get(strip_ssa(m.group(2)), strip_ssa(m.group(2)))
             offset = int(m.group(3))
             t = cpp_type(m.group(4))
             bits = bits_of(m.group(4))
-            mask = (1 << bits) - 1
-            expr = f"({t})(({src}) >> {offset}) & 0x{mask:X}u" if offset else f"({t}){src} & 0x{mask:X}u"
+            # Clamp mask to 64-bit max (wide types are already truncated to uint64_t)
+            mask = min((1 << bits) - 1, 0xFFFFFFFFFFFFFFFF)
+            # Clamp offset to 63 for shifts on 64-bit types
+            safe_offset = min(offset, 63)
+            expr = f"({t})(({src}) >> {safe_offset}) & 0x{mask:X}u" if offset else f"({t}){src} & 0x{mask:X}u"
             out.append(f"  {t} {res} = {expr};")
             ssa[res] = res; continue
 
         # comb.parity
-        m = re.match(r'(%[\w]+)\s*=\s*comb\.parity\s+(%[\w]+)\s*:', line)
+        m = re.match(r'(' + _SSA + r')\s*=\s*comb\.parity\s+(' + _SSA + r')\s*:', line)
         if m:
             res = strip_ssa(m.group(1))
             src = ssa.get(strip_ssa(m.group(2)), strip_ssa(m.group(2)))
@@ -124,7 +133,7 @@ def emit_arc_body(body_lines: list[str], arg_map: dict, ret_ctypes: list[str]) -
             ssa[res] = res; continue
 
         # comb.replicate
-        m = re.match(r'(%[\w]+)\s*=\s*comb\.replicate\s+(%[\w]+)\s*:\s*\(([^)]+)\)\s*->\s*(\S+)', line)
+        m = re.match(r'(' + _SSA + r')\s*=\s*comb\.replicate\s+(' + _SSA + r')\s*:\s*\(([^)]+)\)\s*->\s*(\S+)', line)
         if m:
             res = strip_ssa(m.group(1))
             src = ssa.get(strip_ssa(m.group(2)), strip_ssa(m.group(2)))
@@ -135,24 +144,97 @@ def emit_arc_body(body_lines: list[str], arg_map: dict, ret_ctypes: list[str]) -
             out.append(f"  {t} {res} = {' | '.join(parts)};")
             ssa[res] = res; continue
 
+        # hw.aggregate_constant [v0 : T, v1 : T, ...] : !hw.array<N x T>
+        # MLIR aggregate_constant stores elements with index N-1 first (MSB to LSB).
+        # std::array[0] = last element in MLIR list.
+        m = re.match(r'(' + _SSA + r')\s*=\s*hw\.aggregate_constant\s+\[(.+)\]\s*:\s*(!?hw\.array<(\d+)\s*x\s*(i\d+)>)', line)
+        if m:
+            res = strip_ssa(m.group(1))
+            # Parse [v : T, v : T, ...] elements — mask negatives to bit width
+            elem_bits = int(m.group(5)[1:])
+            elem_t = cpp_uint(elem_bits)
+            n = int(m.group(4))
+            raw_strs = re.findall(r'(-?\d+)\s*:\s*i\d+', m.group(2))
+            # Mask each value to bit width (handles negative two's complement values)
+            mask = (1 << elem_bits) - 1
+            if elem_bits > 64:
+                mask = 0xFFFFFFFFFFFFFFFF
+            def _mask_val(s):
+                v = int(s) & mask
+                return f"{v}u" if v >= (1 << 63) else str(v)
+            masked_vals = [_mask_val(s) for s in raw_strs]
+            # Reverse so index 0 = last listed element (MLIR aggregate_constant convention)
+            vals = list(reversed(masked_vals)) if masked_vals else ["0"] * n
+            arr_t = f"std::array<{elem_t}, {n}>"
+            out.append(f"  const {arr_t} {res} = {{{', '.join(vals)}}};")
+            ssa[res] = res; continue
+
+        # hw.array_create %v0, %v1, ... : T, T, ... → std::array literal
+        # hw.array_create produces {v0, v1, ...} in MLIR element order (LSB to MSB).
+        m = re.match(r'(' + _SSA + r')\s*=\s*hw\.array_create\s+(.*?)\s*:\s*(.+)$', line)
+        if m:
+            res = strip_ssa(m.group(1))
+            elems = [ssa.get(strip_ssa(e.strip()), strip_ssa(e.strip()))
+                     for e in m.group(2).split(",") if e.strip()]
+            # Parse return type to get std::array<elem_t, N>
+            type_strs = [t.strip() for t in m.group(3).split(",") if t.strip()]
+            elem_t = cpp_type(type_strs[0]) if type_strs else "uint32_t"
+            n = len(elems)
+            arr_t = f"std::array<{elem_t}, {n}>"
+            out.append(f"  {arr_t} {res} = {{{', '.join(elems)}}};")
+            ssa[res] = res; continue
+
+        # hw.array_get %arr[%idx] : !hw.array<N x T>, iK → elem_t
+        m = re.match(r'(' + _SSA + r')\s*=\s*hw\.array_get\s+(' + _SSA + r')\[(' + _SSA + r')\]\s*:\s*(!?hw\.array<[^>]+>),\s*(\S+)', line)
+        if m:
+            res = strip_ssa(m.group(1))
+            arr = ssa.get(strip_ssa(m.group(2)), strip_ssa(m.group(2)))
+            idx = ssa.get(strip_ssa(m.group(3)), strip_ssa(m.group(3)))
+            arr_info = cpp_array_type(m.group(4))
+            elem_t = arr_info[0] if arr_info else cpp_type(m.group(4))
+            out.append(f"  {elem_t} {res} = {arr}[{idx}];")
+            ssa[res] = res; continue
+
+        # hw.array_inject %arr[%idx], %val : !hw.array<N x T>, iK → new array with val at idx
+        m = re.match(r'(' + _SSA + r')\s*=\s*hw\.array_inject\s+(' + _SSA + r')\[(' + _SSA + r')\],\s*(' + _SSA + r')\s*:\s*(!?hw\.array<[^>]+>),\s*\S+', line)
+        if m:
+            res = strip_ssa(m.group(1))
+            arr = ssa.get(strip_ssa(m.group(2)), strip_ssa(m.group(2)))
+            idx = ssa.get(strip_ssa(m.group(3)), strip_ssa(m.group(3)))
+            val = ssa.get(strip_ssa(m.group(4)), strip_ssa(m.group(4)))
+            arr_t = cpp_type(m.group(5))
+            out.append(f"  {arr_t} {res} = {arr};")
+            out.append(f"  {res}[{idx}] = {val};")
+            ssa[res] = res; continue
+
         # hw.constant true/false
-        m = re.match(r'(%[\w]+)\s*=\s*hw\.constant\s+(true|false)', line)
+        m = re.match(r'(' + _SSA + r')\s*=\s*hw\.constant\s+(true|false)', line)
         if m:
             ssa[strip_ssa(m.group(1))] = "1" if m.group(2) == "true" else "0"; continue
 
         # hw.constant N : T — fold inline (no variable declaration)
-        m = re.match(r'(%[\w]+)\s*=\s*hw\.constant\s+(-?\d+)\s*:\s*(\S+)', line)
+        # Negative values are masked to the bit width (MLIR uses two's complement).
+        # Wide types (>64-bit) are truncated to 64-bit (uint64_t is the widest C++ type we emit).
+        m = re.match(r'(' + _SSA + r')\s*=\s*hw\.constant\s+(-?\d+)\s*:\s*(\S+)', line)
         if m:
-            ssa[strip_ssa(m.group(1))] = m.group(2)  # store literal value, no declaration
+            raw_val = int(m.group(2))
+            nbits = bits_of(m.group(3))
+            # Mask to actual bit width (handles negatives and oversized positives)
+            raw_val = raw_val & ((1 << nbits) - 1)
+            # Truncate to 64-bit if wider (cpp_uint maps anything >64 to uint64_t)
+            if nbits > 64:
+                raw_val = raw_val & 0xFFFFFFFFFFFFFFFF
+            # Add 'u' suffix for values >= 2^63 to avoid signed-integer-too-large warnings
+            ssa[strip_ssa(m.group(1))] = (f"{raw_val}u" if raw_val >= (1 << 63) else str(raw_val))
             continue
 
         # seq.to_clock (passthrough)
-        m = re.match(r'(%[\w]+)\s*=\s*seq\.to_clock\s+(%[\w]+)', line)
+        m = re.match(r'(' + _SSA + r')\s*=\s*seq\.to_clock\s+(' + _SSA + r')', line)
         if m:
             ssa[strip_ssa(m.group(1))] = ssa.get(strip_ssa(m.group(2)), strip_ssa(m.group(2))); continue
 
         # arc.output (single)
-        m = re.match(r'arc\.output\s+(%[\w]+)\s*:', line)
+        m = re.match(r'arc\.output\s+(' + _SSA + r')\s*:', line)
         if m:
             v = ssa.get(strip_ssa(m.group(1)), strip_ssa(m.group(1)))
             out.append(f"  return {v};"); continue
@@ -187,6 +269,7 @@ def emit(arc_defs, hw_mods) -> str:
     parts = [textwrap.dedent("""\
         // Auto-generated by arc-to-cpp
         #pragma once
+        #include <array>
         #include <cstdint>
         #include <tuple>
     """)]
@@ -259,24 +342,23 @@ def emit(arc_defs, hw_mods) -> str:
             cls.append(f"  void eval_{clk_name}() {{")
             _is_first_clk = clk_name == next(iter(clk_groups))
             ssa: dict = {}
+            # Pre-populate hw.constant values (folded inline as literals)
+            ssa.update(mod.constants)
             for p in mod.in_ports:
                 ssa[p.name] = f"state.{p.name}"
             for s in mod.states:
-                ssa[s.result] = f"state.{s.reg_name}"
+                if s.initial_ids:
+                    # Multi-result arc.state: individual results extracted from tuple field
+                    for i, rn in enumerate(s.initial_ids):
+                        cls.append(f"    auto {rn} = std::get<{i}>(state.{s.reg_name});")
+                        ssa[rn] = rn
+                else:
+                    ssa[s.result] = f"state.{s.reg_name}"
             for mem in mod.memories:
                 ssa[mem.ssa_id] = f"state.{mem.name}"
 
-            # Memory reads — emit only in first clock domain to avoid duplicate declarations
-            if _is_first_clk:
-                for r in mod.mem_reads:
-                    addr = ssa.get(r.addr_id, r.addr_id)
-                    mem_obj = next((m for m in mod.memories if m.ssa_id == r.mem_id), None)
-                    mem_name = f"state.{mem_obj.name}" if mem_obj else r.mem_id
-                    cls.append(f"    {r.word_ctype} {r.result} = {mem_name}[{addr}];")
-                    ssa[r.result] = r.result
-
-            # Collect all SSA ids that are actually used in data flow
-            # (call args, state args, enable/reset ids, mem write args, output ids)
+            # Collect all SSA ids that are actually used in data flow.
+            # For multi-result calls, all result names must be included.
             used_in_data: set = set()
             for c in mod.calls:
                 used_in_data.update(c.arg_ids)
@@ -289,14 +371,138 @@ def emit(arc_defs, hw_mods) -> str:
             for w in mod.mem_writes:
                 used_in_data.update(w.arg_ids)
             used_in_data.update(mod.output_ids)
+            # Also include memory read addresses so their defining calls are not skipped
+            for r in mod.mem_reads:
+                used_in_data.add(r.addr_id)
+            # InlineOps and their operands feed into data flow
+            for op in mod.inline_ops:
+                # Extract identifier tokens from expr (may be referenced by calls/outputs)
+                for tok in re.findall(r'\b[A-Za-z_]\w*\b', op.expr):
+                    used_in_data.add(tok)
+                used_in_data.add(op.result)
 
-            # arc.call computations (skip calls whose result is never used in data)
+            # Build set of all result names produced by calls (single + multi-result)
+            all_call_result_names: set = set()
             for c in mod.calls:
+                if c.results:
+                    all_call_result_names.update(c.results)
+                else:
+                    all_call_result_names.add(c.result)
+
+            def _emit_call(c) -> None:
+                """Emit a single or multi-result arc.call and update ssa."""
                 args_cpp = [ssa.get(a, a) for a in c.arg_ids]
-                if c.result not in used_in_data:
-                    continue  # clock-conversion results not needed in data flow
-                cls.append(f"    {c.ctype} {c.result} = {c.arc_ref}({', '.join(args_cpp)});")
-                ssa[c.result] = c.result
+                if c.results:
+                    # Multi-result: auto [r0, r1, ...] = func(args);
+                    bindings = ", ".join(c.results)
+                    cls.append(f"    auto [{bindings}] = {c.arc_ref}({', '.join(args_cpp)});")
+                    for r in c.results:
+                        ssa[r] = r
+                else:
+                    cls.append(f"    {c.ctype} {c.result} = {c.arc_ref}({', '.join(args_cpp)});")
+                    ssa[c.result] = c.result
+
+            def _call_is_needed(c) -> bool:
+                """True if this call's result(s) are used in data flow."""
+                if c.results:
+                    return any(r in used_in_data for r in c.results)
+                return c.result in used_in_data
+
+            def _call_args_ready(c) -> bool:
+                """True if all args of this call are available in ssa."""
+                return all(a in ssa or a not in all_call_result_names for a in c.arg_ids)
+
+            def _call_result_emitted(c) -> bool:
+                """True if this call's primary result is already in ssa."""
+                return (c.results[0] if c.results else c.result) in ssa
+
+            def _emit_inline_op(op) -> None:
+                """Emit an inline comb op (e.g. comb.xor in hw.module body)."""
+                # Substitute ssa map into expr operands
+                expr = op.expr
+                for tok in re.findall(r'\b[A-Za-z_]\w*\b', op.expr):
+                    if tok in ssa and ssa[tok] != tok:
+                        expr = re.sub(r'\b' + re.escape(tok) + r'\b', ssa[tok], expr)
+                cls.append(f"    {op.ctype} {op.result} = {expr};")
+                ssa[op.result] = op.result
+
+            def _inline_op_ready(op) -> bool:
+                """True if all tokens in op.expr are available in ssa or are literals."""
+                for tok in re.findall(r'\b[A-Za-z_]\w*\b', op.expr):
+                    if tok not in ssa and tok in all_call_result_names:
+                        return False
+                return True
+
+            # Pending memory reads — emit lazily once their address SSA is available.
+            pending_mem_reads = list(mod.mem_reads) if _is_first_clk else []
+
+            def _flush_ready_mem_reads():
+                """Emit any pending mem reads whose address is now in ssa."""
+                still_pending = []
+                for r in pending_mem_reads:
+                    if r.addr_id in ssa:
+                        addr = ssa[r.addr_id]
+                        mem_obj = next((m for m in mod.memories if m.ssa_id == r.mem_id), None)
+                        mem_name = f"state.{mem_obj.name}" if mem_obj else r.mem_id
+                        cls.append(f"    {r.word_ctype} {r.result} = {mem_name}[{addr}];")
+                        ssa[r.result] = r.result
+                    else:
+                        still_pending.append(r)
+                pending_mem_reads[:] = still_pending
+
+            # Flush any reads whose addresses are already in ssa (from states/inputs)
+            _flush_ready_mem_reads()
+
+            # Topological ordering of arc.calls and inline comb ops.
+            # Both may have forward-reference dependencies, so we interleave them.
+            pending_calls = [c for c in mod.calls if _call_is_needed(c)]
+            pending_inline = list(mod.inline_ops)
+
+            max_passes = len(pending_calls) + len(pending_inline) + 1
+            for _pass in range(max_passes):
+                any_emitted = False
+                still_pending_calls = []
+                for c in pending_calls:
+                    if _call_result_emitted(c):
+                        continue
+                    if _call_args_ready(c):
+                        _emit_call(c)
+                        any_emitted = True
+                        _flush_ready_mem_reads()
+                    else:
+                        still_pending_calls.append(c)
+                pending_calls = still_pending_calls
+
+                still_pending_inline = []
+                for op in pending_inline:
+                    if op.result in ssa:
+                        continue
+                    if _inline_op_ready(op):
+                        _emit_inline_op(op)
+                        any_emitted = True
+                        _flush_ready_mem_reads()
+                    else:
+                        still_pending_inline.append(op)
+                pending_inline = still_pending_inline
+
+                if not any_emitted:
+                    break  # No progress (cycle) — emit remaining in original order
+            # Emit any remaining calls that couldn't be ordered (cycles)
+            for c in pending_calls:
+                _emit_call(c)
+                _flush_ready_mem_reads()
+            for op in pending_inline:
+                if op.result not in ssa:
+                    _emit_inline_op(op)
+                    _flush_ready_mem_reads()
+
+            # Flush any remaining pending reads (addresses should all be resolved now)
+            for r in pending_mem_reads:
+                addr = ssa.get(r.addr_id, r.addr_id)
+                mem_obj = next((m for m in mod.memories if m.ssa_id == r.mem_id), None)
+                mem_name = f"state.{mem_obj.name}" if mem_obj else r.mem_id
+                cls.append(f"    {r.word_ctype} {r.result} = {mem_name}[{addr}];")
+                ssa[r.result] = r.result
 
             # Two-phase register update (compute next values, then assign)
             next_vars = []
@@ -306,8 +512,9 @@ def emit(arc_defs, hw_mods) -> str:
                 if s.reset_id and s.enable_id:
                     rst = ssa.get(s.reset_id, s.reset_id)
                     en = ssa.get(s.enable_id, s.enable_id)
+                    zero = f"{s.ctype}{{}}" if s.initial_ids else f"({s.ctype})0"
                     cls.append(f"    {s.ctype} {nxt};")
-                    cls.append(f"    if ({rst}) {{ {nxt} = ({s.ctype})0; }}")
+                    cls.append(f"    if ({rst}) {{ {nxt} = {zero}; }}")
                     cls.append(f"    else if ({en}) {{ {nxt} = {s.arc_ref}({', '.join(args_cpp)}); }}")
                     cls.append(f"    else {{ {nxt} = state.{s.reg_name}; }}")
                 elif s.enable_id:
