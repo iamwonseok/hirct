@@ -148,6 +148,28 @@ def test_memory_write_conditional():
     code = emit(*parse((Path(__file__).parent / "fixtures" / "memory_arc.mlir").read_text()))
     assert "if (" in code  # write enable
 
+def test_all_fixtures_parse():
+    """Every fixture must parse without raising."""
+    for f in sorted((Path(__file__).parent / "fixtures").glob("*.mlir")):
+        defs, mods = parse(f.read_text())  # must not raise
+
+def test_register_fallback_naming():
+    """When no {names=[...]}, register gets reg_<ssa> name, not 'reg_v0' from stale SSA."""
+    mlir = """
+module {
+  arc.define @f(%arg0: i32) -> i32 {
+    arc.output %arg0 : i32
+  }
+  hw.module @M(in %clock : !seq.clock, in %a : i32, out q : i32) {
+    %r = arc.state @f(%a) clock %clock latency 1 : (i32) -> i32
+    hw.output %r : i32
+  }
+}
+"""
+    code = emit(*parse(mlir))
+    assert "uint32_t" in code
+    assert "struct MState" in code
+
 def test_memory_cycle_accurate():
     import subprocess, tempfile, os
     from pathlib import Path
