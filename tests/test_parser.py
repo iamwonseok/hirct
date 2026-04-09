@@ -1,8 +1,10 @@
+from pathlib import Path
 from arc_to_cpp.parser import parse
 
-SIMPLE = open("tests/fixtures/simple_arc.mlir").read()
-ENABLE_RESET = open("tests/fixtures/enable_reset_arc.mlir").read()
-MEMORY = open("tests/fixtures/memory_arc.mlir").read()
+_FIXTURES = Path(__file__).parent / "fixtures"
+SIMPLE = (_FIXTURES / "simple_arc.mlir").read_text()
+ENABLE_RESET = (_FIXTURES / "enable_reset_arc.mlir").read_text()
+MEMORY = (_FIXTURES / "memory_arc.mlir").read_text()
 
 def test_parse_arc_define():
     defs, _ = parse(SIMPLE)

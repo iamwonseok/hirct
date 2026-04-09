@@ -55,8 +55,8 @@ _STATE_RE = re.compile(
     r'(?:\s+enable\s+(%[\w]+))?'
     r'(?:\s+reset\s+(%[\w]+)(?:,\s*%[\w]+)?)?'
     r'.*?'
-    r'(?:\{(?:names\s*=\s*\["(\w+)"\]|name\s*=\s*"(\w+)")[^}]*\})?'
-    r'\s*:\s*\([^)]*\)\s*->\s*(\S+)',
+    r'(?:\{(?:names\s*=\s*\["([^"]+)"\]|name\s*=\s*"([^"]+)")[^}]*\})?'
+    r'\s*:\s*\([^)]*\)\s*->\s*(\(.+?\)|\S+)',
     re.DOTALL
 )
 _MEM_RE = re.compile(r'^\s*(%[\w]+)\s*=\s*arc\.memory\s+<(\d+)\s*x\s*(i\d+),\s*(i\d+)>')
@@ -126,7 +126,7 @@ def _parse_hw_module(lines: list, start: int) -> tuple:
 
     body_lines, end = _collect_block(lines, start)
     states, calls, memories, mem_reads, mem_writes, output_ids = [], [], [], [], [], []
-    mem_counter = [0]
+    mem_idx = 0
 
     for line in body_lines:
         ms = _STATE_RE.match(line)
@@ -146,7 +146,7 @@ def _parse_hw_module(lines: list, start: int) -> tuple:
             ssa_id = strip_ssa(mm.group(1))
             word_ctype = cpp_uint(int(mm.group(3)[1:]))
             addr_bits = int(mm.group(4)[1:])
-            mem_name = f"mem{mem_counter[0]}"; mem_counter[0] += 1
+            mem_name = f"mem{mem_idx}"; mem_idx += 1
             memories.append(MemInst(ssa_id, mem_name, int(mm.group(2)), word_ctype, addr_bits))
             continue
 
