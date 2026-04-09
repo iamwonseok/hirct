@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "arc-to-cpp"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+arc-to-cpp = "arc_to_cpp.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["arc_to_cpp*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
