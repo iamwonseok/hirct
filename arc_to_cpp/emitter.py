@@ -1,6 +1,7 @@
 """C++ code emitter for Arc dialect MLIR."""
 import re
 import textwrap
+from typing import Optional
 from .types import cpp_type, cpp_uint, bits_of
 
 COMB_BINOPS = {
@@ -154,8 +155,9 @@ def emit_arc_body(body_lines: list[str], arg_map: dict, ret_ctypes: list[str]) -
     return "\n".join(out)
 
 
-def trace_clock_to_port_name(clk_id: str, calls, in_ports) -> str:
-    """Follow arc.call chain from clock SSA id back to input port name."""
+def trace_clock_to_port_name(clk_id: str, calls, in_ports) -> Optional[str]:
+    """Follow arc.call chain from clock SSA id back to input port name.
+    Returns the port name if found, None if the chain cannot be resolved."""
     port_names = {p.name for p in in_ports}
     if clk_id in port_names:
         return clk_id
@@ -163,8 +165,9 @@ def trace_clock_to_port_name(clk_id: str, calls, in_ports) -> str:
         if c.result == clk_id:
             for a in c.arg_ids:
                 r = trace_clock_to_port_name(a, calls, in_ports)
-                if r: return r
-    return clk_id  # fallback
+                if r is not None:
+                    return r
+    return None  # unresolvable
 
 
 def emit(arc_defs, hw_mods) -> str:
@@ -188,10 +191,16 @@ def emit(arc_defs, hw_mods) -> str:
 
     for mod in hw_mods:
         # Collect clock domain names from states AND memory writes
-        clock_names = {trace_clock_to_port_name(s.clock_id, mod.calls, mod.in_ports)
-                       for s in mod.states}
-        clock_names |= {trace_clock_to_port_name(w.clock_id, mod.calls, mod.in_ports)
-                        for w in mod.mem_writes}
+        clock_names = {
+            trace_clock_to_port_name(s.clock_id, mod.calls, mod.in_ports)
+            for s in mod.states
+        }
+        clock_names |= {
+            trace_clock_to_port_name(w.clock_id, mod.calls, mod.in_ports)
+            for w in mod.mem_writes
+        }
+        # Filter None (unresolvable clock chains should not pollute port name sets)
+        clock_names.discard(None)
 
         # State struct
         # Collect already-declared field names to avoid duplicate struct members
@@ -228,10 +237,10 @@ def emit(arc_defs, hw_mods) -> str:
         # Group states by clock domain
         clk_groups: dict = {}
         for s in mod.states:
-            cname = trace_clock_to_port_name(s.clock_id, mod.calls, mod.in_ports)
+            cname = trace_clock_to_port_name(s.clock_id, mod.calls, mod.in_ports) or s.clock_id
             clk_groups.setdefault(cname, []).append(s)
         for w in mod.mem_writes:
-            cname = trace_clock_to_port_name(w.clock_id, mod.calls, mod.in_ports)
+            cname = trace_clock_to_port_name(w.clock_id, mod.calls, mod.in_ports) or w.clock_id
             clk_groups.setdefault(cname, [])
 
         for clk_name, states in clk_groups.items():
@@ -303,7 +312,7 @@ def emit(arc_defs, hw_mods) -> str:
 
             # Memory writes (clocked — only for this clock domain)
             for w in mod.mem_writes:
-                w_clk = trace_clock_to_port_name(w.clock_id, mod.calls, mod.in_ports)
+                w_clk = trace_clock_to_port_name(w.clock_id, mod.calls, mod.in_ports) or w.clock_id
                 if w_clk != clk_name:
                     continue
                 mem_obj = next((m for m in mod.memories if m.ssa_id == w.mem_id), None)

@@ -15,6 +15,7 @@ def emit_systemc_wrapper(mod: HWMod) -> str:
         trace_clock_to_port_name(w.clock_id, mod.calls, mod.in_ports)
         for w in mod.mem_writes
     }
+    clock_names.discard(None)
 
     data_in = [p for p in mod.in_ports if p.name not in clock_names]
     clk_ports = [p for p in mod.in_ports if p.name in clock_names]
