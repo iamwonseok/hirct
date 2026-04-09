@@ -1,4 +1,7 @@
+from pathlib import Path
 from arc_to_cpp.emitter import emit_arc_body
+from arc_to_cpp.parser import parse
+from arc_to_cpp.emitter import emit
 
 def test_comb_add():
     body = ["%0 = comb.add %arg0, %arg1 : i8", "arc.output %0 : i8"]
@@ -59,3 +62,53 @@ def test_arc_output_tuple():
     body = ["arc.output %arg0, %arg1 : i8, i8"]
     code = emit_arc_body(body, {"arg0": "a", "arg1": "b"}, ["uint8_t", "uint8_t"])
     assert "make_tuple" in code
+
+def test_emit_simple_structure():
+    code = emit(*parse(open(str(Path(__file__).parent / "fixtures" / "simple_arc.mlir")).read()))
+    assert "#pragma once" in code
+    assert "struct TopState" in code
+    assert "class Top" in code
+    assert "void eval_" in code
+
+def test_emit_register_naming():
+    code = emit(*parse(open(str(Path(__file__).parent / "fixtures" / "simple_arc.mlir")).read()))
+    assert "state.foo" in code
+    assert "state.bar" in code
+
+def test_emit_simple_compiles():
+    import subprocess, tempfile, os
+    code = emit(*parse(open(str(Path(__file__).parent / "fixtures" / "simple_arc.mlir")).read()))
+    with tempfile.NamedTemporaryFile(suffix=".hpp", mode="w", delete=False) as f:
+        f.write(code); fname = f.name
+    r = subprocess.run(["clang++", "-std=c++17", "-Wall", "-Werror",
+                        "-fsyntax-only", "-x", "c++-header", fname],
+                       capture_output=True, text=True)
+    os.unlink(fname)
+    assert r.returncode == 0, r.stderr
+
+def test_emit_counter_cycle_accurate():
+    import subprocess, tempfile, os
+    code = emit(*parse(open(str(Path(__file__).parent / "fixtures" / "counter_arc.mlir")).read()))
+    tb = r'''
+#include "m.h"
+#include <cassert>
+#include <cstdio>
+int main() {
+    fc_counter dut;
+    dut.set_rst_n(0); dut.set_en(0); dut.set_thresh(5);
+    dut.eval_clk();
+    assert(dut.get_count() == 0);
+    dut.set_rst_n(1); dut.set_en(1);
+    for (int i = 0; i < 3; i++) dut.eval_clk();
+    assert(dut.get_count() == 3);
+    printf("PASS\n");
+}
+'''
+    with tempfile.TemporaryDirectory() as d:
+        open(f"{d}/m.h", "w").write(code)
+        open(f"{d}/tb.cpp", "w").write(tb)
+        r = subprocess.run(["clang++", "-std=c++17", "-o", f"{d}/tb", f"{d}/tb.cpp"],
+                           capture_output=True, text=True, cwd=d)
+        assert r.returncode == 0, r.stderr
+        r2 = subprocess.run([f"{d}/tb"], capture_output=True, text=True)
+        assert "PASS" in r2.stdout
