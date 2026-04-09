@@ -14,7 +14,13 @@ ICMP_PRED = {
     "slt": "<", "sle": "<=", "sgt": ">", "sge": ">=",
     "ult": "<", "ule": "<=", "ugt": ">", "uge": ">=",
 }
-SIGNED_TYPES = {8: "int8_t", 16: "int16_t", 32: "int32_t", 64: "int64_t"}
+SIGNED_PREDS = {"slt", "sle", "sgt", "sge"}
+
+def _signed_type_for(bits: int) -> str:
+    if bits <= 8:  return "int8_t"
+    if bits <= 16: return "int16_t"
+    if bits <= 32: return "int32_t"
+    return "int64_t"
 
 def strip_ssa(s: str) -> str:
     s = s.strip()
@@ -50,7 +56,7 @@ def emit_arc_body(body_lines: list[str], arg_map: dict, ret_ctypes: list[str]) -
                    for o in m.group(2).split(",") if o.strip()]
             bits = bits_of(m.group(3))
             t = cpp_uint(bits)
-            signed_t = SIGNED_TYPES.get(bits, f"int{bits}_t")
+            signed_t = _signed_type_for(bits)
             out.append(f"  {t} {res} = ({t})(({signed_t}){ops[0]} >> {ops[1]});")
             ssa[res] = res; continue
 
@@ -58,10 +64,16 @@ def emit_arc_body(body_lines: list[str], arg_map: dict, ret_ctypes: list[str]) -
         m = re.match(r'(%[\w]+)\s*=\s*comb\.icmp\s+(\w+)\s+(.*?)\s*:\s*(\S+)$', line)
         if m:
             res = strip_ssa(m.group(1))
-            pred = ICMP_PRED.get(m.group(2), "==")
+            predicate = m.group(2)
+            pred = ICMP_PRED.get(predicate, "==")
             ops = [ssa.get(strip_ssa(o.strip()), strip_ssa(o.strip()))
                    for o in m.group(3).split(",") if o.strip()]
-            out.append(f"  bool {res} = {ops[0]} {pred} {ops[1]};")
+            if predicate in SIGNED_PREDS:
+                b = bits_of(m.group(4))
+                st = _signed_type_for(b)
+                out.append(f"  bool {res} = ({st}){ops[0]} {pred} ({st}){ops[1]};")
+            else:
+                out.append(f"  bool {res} = {ops[0]} {pred} {ops[1]};")
             ssa[res] = res; continue
 
         # comb.mux (handles 'bin' qualifier)

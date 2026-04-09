@@ -58,6 +58,11 @@ def test_comb_shrs():
     code = emit_arc_body(body, {"arg0": "a", "arg1": "b"}, ["uint8_t"])
     assert "int8_t" in code and ">>" in code
 
+def test_comb_icmp_slt():
+    body = ["%0 = comb.icmp slt %arg0, %arg1 : i32", "arc.output %0 : i1"]
+    code = emit_arc_body(body, {"arg0": "a", "arg1": "b"}, ["bool"])
+    assert "int32_t" in code and "<" in code
+
 def test_arc_output_tuple():
     body = ["arc.output %arg0, %arg1 : i8, i8"]
     code = emit_arc_body(body, {"arg0": "a", "arg1": "b"}, ["uint8_t", "uint8_t"])
