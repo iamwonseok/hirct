@@ -112,3 +112,66 @@ int main() {
         assert r.returncode == 0, r.stderr
         r2 = subprocess.run([f"{d}/tb"], capture_output=True, text=True)
         assert "PASS" in r2.stdout
+
+def test_enable_generates_if():
+    from pathlib import Path
+    code = emit(*parse((Path(__file__).parent / "fixtures" / "enable_reset_arc.mlir").read_text()))
+    assert "if (" in code and "en" in code
+    assert "next_q0 = state.q0" in code  # hold path in two-phase update
+
+def test_reset_generates_else():
+    from pathlib import Path
+    code = emit(*parse((Path(__file__).parent / "fixtures" / "enable_reset_arc.mlir").read_text()))
+    assert "rst" in code
+    assert "(uint32_t)0" in code or "= 0" in code  # reset-to-zero path
+
+def test_enable_reset_compiles():
+    import subprocess, tempfile, os
+    from pathlib import Path
+    code = emit(*parse((Path(__file__).parent / "fixtures" / "enable_reset_arc.mlir").read_text()))
+    with tempfile.NamedTemporaryFile(suffix=".h", mode="w", delete=False) as f:
+        f.write(code); fname = f.name
+    r = subprocess.run(["clang++", "-std=c++17", "-Wall", "-Werror",
+                        "-fsyntax-only", "-x", "c++-header", fname],
+                       capture_output=True, text=True)
+    os.unlink(fname)
+    assert r.returncode == 0, r.stderr
+
+def test_memory_has_array():
+    import re
+    from pathlib import Path
+    code = emit(*parse((Path(__file__).parent / "fixtures" / "memory_arc.mlir").read_text()))
+    assert re.search(r'uint32_t\s+\w+\[1024\]', code)
+
+def test_memory_write_conditional():
+    from pathlib import Path
+    code = emit(*parse((Path(__file__).parent / "fixtures" / "memory_arc.mlir").read_text()))
+    assert "if (" in code  # write enable
+
+def test_memory_cycle_accurate():
+    import subprocess, tempfile, os
+    from pathlib import Path
+    code = emit(*parse((Path(__file__).parent / "fixtures" / "memory_arc.mlir").read_text()))
+    # Read-before-write: cycle 1 writes, cycle 2 reads the written value.
+    tb = r'''
+#include "m.h"
+#include <cassert>
+#include <cstdio>
+int main() {
+    simple_mem2 dut;
+    dut.set_wr_en(1); dut.set_wr_addr(42); dut.set_wr_data(0xDEADBEEF);
+    dut.set_rd_addr(42);
+    dut.eval_clk();     // cycle 1: write occurs, rd_data = old (0)
+    dut.set_wr_en(0);
+    dut.eval_clk();     // cycle 2: read reflects written value
+    assert(dut.get_rd_data() == 0xDEADBEEF);
+    printf("PASS\n");
+}
+'''
+    with tempfile.TemporaryDirectory() as d:
+        open(f"{d}/m.h", "w").write(code)
+        open(f"{d}/tb.cpp", "w").write(tb)
+        r = subprocess.run(["clang++", "-std=c++17", "-o", f"{d}/tb", f"{d}/tb.cpp"],
+                           capture_output=True, text=True, cwd=d)
+        assert r.returncode == 0, r.stderr
+        assert "PASS" in subprocess.run([f"{d}/tb"], capture_output=True, text=True).stdout

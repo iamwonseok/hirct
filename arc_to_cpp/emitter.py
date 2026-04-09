@@ -194,16 +194,24 @@ def emit(arc_defs, hw_mods) -> str:
                         for w in mod.mem_writes}
 
         # State struct
+        # Collect already-declared field names to avoid duplicate struct members
+        # (output ports often share names with registers in the same module)
+        declared_fields: set = set()
         struct = [f"struct {mod.name}State {{"]
         for mem in mod.memories:
             struct.append(f"  {mem.word_ctype} {mem.name}[{mem.num_words}];  // arc.memory")
+            declared_fields.add(mem.name)
         for s in mod.states:
             struct.append(f"  {s.ctype} {s.reg_name}{{}};  // register")
+            declared_fields.add(s.reg_name)
         for p in mod.in_ports:
-            if p.name not in clock_names:
+            if p.name not in clock_names and p.name not in declared_fields:
                 struct.append(f"  {p.ctype} {p.name}{{}};  // input port")
+                declared_fields.add(p.name)
         for p in mod.out_ports:
-            struct.append(f"  {p.ctype} {p.name}{{}};  // output port")
+            if p.name not in declared_fields:
+                struct.append(f"  {p.ctype} {p.name}{{}};  // output port")
+                declared_fields.add(p.name)
         struct.append("};")
         parts.append("\n".join(struct))
 
