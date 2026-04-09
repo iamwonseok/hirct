@@ -1,0 +1,3 @@
+"""Arc MLIR text parser."""
+def parse(text): return [], []
+def strip_ssa(s): ...
