@@ -486,11 +486,209 @@ def emit(arc_defs, hw_mods) -> str:
                 pending_inline = still_pending_inline
 
                 if not any_emitted:
-                    break  # No progress (cycle) — emit remaining in original order
-            # Emit any remaining calls that couldn't be ordered (cycles)
-            for c in pending_calls:
-                _emit_call(c)
-                _flush_ready_mem_reads()
+                    break  # No progress — cycle detected, use DFS fallback below
+
+            # Fallback for remaining calls that form cycles:
+            # 1. Run Tarjan's SCC to find true cycle members.
+            # 2. Pre-declare all cycle-member results with zero-initialisation so that
+            #    later nodes that reference them can compile even before the cycle is
+            #    fully evaluated.
+            # 3. Emit all pending calls in Kahn-topological order; cycle members are
+            #    emitted as reassignments (no type prefix) since they are already
+            #    declared in step 2.
+            if pending_calls:
+                # Build primary-key maps
+                _rem_primary: dict = {}
+                for _c in pending_calls:
+                    _pk = _c.results[0] if _c.results else _c.result
+                    if _c.results:
+                        for _r in _c.results:
+                            _rem_primary[_r] = _pk
+                    else:
+                        _rem_primary[_c.result] = _pk
+                _pk_to_call: dict = {}
+                for _c in pending_calls:
+                    _pk = _c.results[0] if _c.results else _c.result
+                    _pk_to_call[_pk] = _c
+
+                _rem_pks = list(_pk_to_call.keys())  # preserves original MLIR order
+                _pk_orig_pos: dict = {pk: i for i, pk in enumerate(_rem_pks)}
+
+                def _intra_deps_pks(pk: str) -> list:
+                    _c = _pk_to_call[pk]
+                    _seen: set = set()
+                    _out: list = []
+                    for _a in _c.arg_ids:
+                        _dpk = _rem_primary.get(_a)
+                        if _dpk and _dpk != pk and _dpk not in _seen:
+                            _seen.add(_dpk)
+                            _out.append(_dpk)
+                    return _out
+
+                # ── Tarjan's iterative SCC to detect cycle members ──────────
+                _idx_ctr: list = [0]
+                _t_stack: list = []
+                _low: dict = {}
+                _idx_map: dict = {}
+                _on_stk: set = set()
+                _sccs: list = []
+
+                for _root in _rem_pks:
+                    if _root in _idx_map:
+                        continue
+                    _cs = [(_root, iter(_intra_deps_pks(_root)))]
+                    _idx_map[_root] = _low[_root] = _idx_ctr[0]
+                    _idx_ctr[0] += 1
+                    _t_stack.append(_root)
+                    _on_stk.add(_root)
+                    while _cs:
+                        _v, _ch = _cs[-1]
+                        try:
+                            _w = next(_ch)
+                            if _w not in _idx_map:
+                                _idx_map[_w] = _low[_w] = _idx_ctr[0]
+                                _idx_ctr[0] += 1
+                                _t_stack.append(_w)
+                                _on_stk.add(_w)
+                                _cs.append((_w, iter(_intra_deps_pks(_w))))
+                            elif _w in _on_stk:
+                                _low[_v] = min(_low[_v], _idx_map[_w])
+                        except StopIteration:
+                            _cs.pop()
+                            if _cs:
+                                _low[_cs[-1][0]] = min(_low[_cs[-1][0]], _low[_v])
+                            if _low[_v] == _idx_map[_v]:
+                                _scc: list = []
+                                while True:
+                                    _w = _t_stack.pop()
+                                    _on_stk.discard(_w)
+                                    _scc.append(_w)
+                                    if _w == _v:
+                                        break
+                                _sccs.append(_scc)
+
+                # Set of PKs that are in a true cycle (SCC size > 1)
+                _cycle_pks: set = set(
+                    _n for _scc in _sccs if len(_scc) > 1 for _n in _scc
+                )
+
+                # ── Pre-declare all cycle-member results with zero-init ──────
+                # This breaks forward-reference compile errors: later nodes can
+                # reference a cycle-member variable even before it is computed.
+                # Cycle members are then *reassigned* (no type prefix) during the
+                # Kahn emission step below.
+                import re as _re
+                _predecl_pks: set = set()
+                for _pk in _rem_pks:
+                    if _pk not in _cycle_pks:
+                        continue
+                    _c = _pk_to_call[_pk]
+                    if _c.results:
+                        # Multi-result: extract individual types from tuple<T1,T2,...>
+                        _m = _re.match(r'std::tuple<(.+)>', _c.ctype)
+                        if _m:
+                            _ind_types = [_t.strip() for _t in _m.group(1).split(",")]
+                        else:
+                            _ind_types = [_c.ctype] * len(_c.results)
+                        for _r, _t in zip(_c.results, _ind_types):
+                            cls.append(f"    {_t} {_r} = {{}};")
+                            ssa[_r] = _r
+                    else:
+                        cls.append(f"    {_c.ctype} {_c.result} = {{}};")
+                        ssa[_c.result] = _c.result
+                    _predecl_pks.add(_pk)
+
+                # ── Kahn topological sort for emission order ─────────────────
+                # Build in-degree and reverse-dep maps
+                _in_deg: dict = {pk: 0 for pk in _rem_pks}
+                _dependents: dict = {pk: [] for pk in _rem_pks}
+                for _pk in _rem_pks:
+                    for _dp in _intra_deps_pks(_pk):
+                        if _dp in _pk_to_call:
+                            _in_deg[_pk] += 1
+                            _dependents[_dp].append(_pk)
+
+                _satisfied: set = set()
+                _kahn_order: list = []
+
+                def _kahn_drain():
+                    from collections import deque as _deque
+                    _q = _deque(sorted(
+                        [pk for pk in _rem_pks if pk not in _satisfied and _in_deg[pk] == 0],
+                        key=lambda pk: _pk_orig_pos[pk]))
+                    while _q:
+                        _pk = _q.popleft()
+                        if _pk in _satisfied:
+                            continue
+                        _satisfied.add(_pk)
+                        _kahn_order.append(_pk_to_call[_pk])
+                        for _dp in _dependents[_pk]:
+                            if _dp not in _satisfied:
+                                _in_deg[_dp] -= 1
+                                if _in_deg[_dp] == 0:
+                                    _q.append(_dp)
+
+                # Pre-declared cycle PKs have their results already in ssa, so
+                # Kahn's in-degree will drop naturally as if they were already emitted.
+                # Seed the satisfied set with pre-declared PKs so Kahn triggers their
+                # dependents, but still add them to kahn_order for reassignment.
+                for _pk in _rem_pks:
+                    if _pk in _predecl_pks:
+                        # Reduce in-degrees of dependents (as if already satisfied)
+                        for _dp in _dependents[_pk]:
+                            if _dp not in _satisfied:
+                                _in_deg[_dp] -= 1
+
+                # Now run Kahn's.  Pre-declared PKs start with in_deg already
+                # decremented; non-cycle nodes with all deps satisfied start at 0.
+                # We still need to emit pre-declared PKs (as reassignments), so we
+                # do a separate pass that builds the full emission order.
+                _emit_order: list = []
+
+                def _kahn_full():
+                    from collections import deque as _dq
+                    _q = _dq(sorted(
+                        [pk for pk in _rem_pks if pk not in _satisfied and _in_deg[pk] <= 0],
+                        key=lambda pk: _pk_orig_pos[pk]))
+                    while _q:
+                        _pk = _q.popleft()
+                        if _pk in _satisfied:
+                            continue
+                        _satisfied.add(_pk)
+                        _emit_order.append(_pk_to_call[_pk])
+                        for _dp in _dependents[_pk]:
+                            if _dp not in _satisfied:
+                                _in_deg[_dp] -= 1
+                                if _in_deg[_dp] <= 0:
+                                    _q.append(_dp)
+
+                _kahn_full()
+                # Any truly stuck nodes (shouldn't happen after pre-decl) — emit anyway
+                for _pk in _rem_pks:
+                    if _pk not in _satisfied:
+                        _emit_order.append(_pk_to_call[_pk])
+
+                def _emit_call_or_reassign(_c) -> None:
+                    """Emit call as declaration or reassignment for pre-declared vars."""
+                    _pk = _c.results[0] if _c.results else _c.result
+                    _args_cpp = [ssa.get(_a, _a) for _a in _c.arg_ids]
+                    if _pk in _predecl_pks:
+                        # Reassign — variable already declared
+                        if _c.results:
+                            _binds = ", ".join(_c.results)
+                            cls.append(
+                                f"    std::tie({_binds}) = {_c.arc_ref}({', '.join(_args_cpp)});")
+                        else:
+                            cls.append(
+                                f"    {_c.result} = {_c.arc_ref}({', '.join(_args_cpp)});")
+                        # ssa entries already added during pre-decl; no update needed
+                    else:
+                        _emit_call(_c)
+
+                for _c in _emit_order:
+                    _emit_call_or_reassign(_c)
+                    _flush_ready_mem_reads()
+
             for op in pending_inline:
                 if op.result not in ssa:
                     _emit_inline_op(op)
