@@ -1,5 +1,6 @@
 """C++ code emitter for Arc dialect MLIR."""
 import re
+import textwrap
 from .types import cpp_type, cpp_uint, bits_of
 
 COMB_BINOPS = {
@@ -166,8 +167,6 @@ def trace_clock_to_port_name(clk_id: str, calls, in_ports) -> str:
     return clk_id  # fallback
 
 
-import textwrap
-
 def emit(arc_defs, hw_mods) -> str:
     """Generate a complete C++ header from parsed Arc MLIR data structures."""
     parts = [textwrap.dedent("""\
@@ -201,8 +200,8 @@ def emit(arc_defs, hw_mods) -> str:
         for s in mod.states:
             struct.append(f"  {s.ctype} {s.reg_name}{{}};  // register")
         for p in mod.in_ports:
-            # Clock ports are included for internal SSA resolution but have no setter
-            struct.append(f"  {p.ctype} {p.name}{{}};  // {'clock port' if p.name in clock_names else 'input port'}")
+            if p.name not in clock_names:
+                struct.append(f"  {p.ctype} {p.name}{{}};  // input port")
         for p in mod.out_ports:
             struct.append(f"  {p.ctype} {p.name}{{}};  // output port")
         struct.append("};")
@@ -229,6 +228,7 @@ def emit(arc_defs, hw_mods) -> str:
 
         for clk_name, states in clk_groups.items():
             cls.append(f"  void eval_{clk_name}() {{")
+            _is_first_clk = clk_name == next(iter(clk_groups))
             ssa: dict = {}
             for p in mod.in_ports:
                 ssa[p.name] = f"state.{p.name}"
@@ -237,13 +237,14 @@ def emit(arc_defs, hw_mods) -> str:
             for mem in mod.memories:
                 ssa[mem.ssa_id] = f"state.{mem.name}"
 
-            # Memory reads (combinational — before clocked writes)
-            for r in mod.mem_reads:
-                addr = ssa.get(r.addr_id, r.addr_id)
-                mem_obj = next((m for m in mod.memories if m.ssa_id == r.mem_id), None)
-                mem_name = f"state.{mem_obj.name}" if mem_obj else r.mem_id
-                cls.append(f"    {r.word_ctype} {r.result} = {mem_name}[{addr}];")
-                ssa[r.result] = r.result
+            # Memory reads — emit only in first clock domain to avoid duplicate declarations
+            if _is_first_clk:
+                for r in mod.mem_reads:
+                    addr = ssa.get(r.addr_id, r.addr_id)
+                    mem_obj = next((m for m in mod.memories if m.ssa_id == r.mem_id), None)
+                    mem_name = f"state.{mem_obj.name}" if mem_obj else r.mem_id
+                    cls.append(f"    {r.word_ctype} {r.result} = {mem_name}[{addr}];")
+                    ssa[r.result] = r.result
 
             # Collect all SSA ids that are actually used in data flow
             # (call args, state args, enable/reset ids, mem write args, output ids)
@@ -308,11 +309,12 @@ def emit(arc_defs, hw_mods) -> str:
                     addr, data = args_cpp[0], args_cpp[1]
                     cls.append(f"    state.{mem_obj.name}[{addr}] = {data};")
 
-            # Output ports
-            for i, p in enumerate(mod.out_ports):
-                if i < len(mod.output_ids):
-                    v = ssa.get(mod.output_ids[i], mod.output_ids[i])
-                    cls.append(f"    state.{p.name} = {v};")
+            # Output ports — emit only in first clock domain
+            if _is_first_clk:
+                for i, p in enumerate(mod.out_ports):
+                    if i < len(mod.output_ids):
+                        v = ssa.get(mod.output_ids[i], mod.output_ids[i])
+                        cls.append(f"    state.{p.name} = {v};")
 
             cls.append("  }")
         cls.append("};")
