@@ -1,0 +1,11 @@
+// RUN: %hirct-semantic %s --module CombOnly | %FileCheck %s
+
+module {
+  hw.module @CombOnly(in %a : i8, in %b : i8, out out : i8) {
+    %0 = comb.xor %a, %b : i8
+    hw.output %0 : i8
+  }
+}
+
+// CHECK: module: CombOnly
+// CHECK: output: out visibility=comb source=comb.xor

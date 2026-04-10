@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(hirct LANGUAGES CXX)
+project(hirct LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -19,6 +19,8 @@ set(LLVM_DIR "${CIRCT_BUILD}/lib/cmake/llvm" CACHE PATH "")
 
 find_package(LLVM REQUIRED CONFIG)
 find_package(MLIR REQUIRED CONFIG)
+# CIRCT's exported slang target references Boost::headers.
+find_package(Boost REQUIRED)
 find_package(CIRCT REQUIRED CONFIG)
 
 list(APPEND CMAKE_MODULE_PATH "${MLIR_CMAKE_DIR}")
@@ -49,8 +51,14 @@ add_subdirectory(lib)
 add_subdirectory(tools)
 
 # lit
-find_program(LIT_COMMAND lit REQUIRED)
-find_program(FILECHECK_COMMAND FileCheck REQUIRED)
+find_program(LIT_COMMAND NAMES llvm-lit lit HINTS
+  ${LLVM_TOOLS_BINARY_DIR}
+  ${LLVM_BINARY_DIR}/bin
+  REQUIRED)
+find_program(FILECHECK_COMMAND NAMES FileCheck HINTS
+  ${LLVM_TOOLS_BINARY_DIR}
+  ${LLVM_BINARY_DIR}/bin
+  REQUIRED)
 add_subdirectory(test)
 add_subdirectory(integration_test)
 

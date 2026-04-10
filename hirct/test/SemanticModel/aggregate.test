@@ -1,0 +1,16 @@
+// RUN: %hirct-semantic %s --module AggMod | %FileCheck %s
+
+module {
+  arc.define @AggArc(%arg0: !hw.array<4xi8>) -> !hw.array<4xi8> {
+    arc.output %arg0 : !hw.array<4xi8>
+  }
+  hw.module @AggMod(in %clock : !seq.clock, in %d : !hw.array<4xi8>,
+                     out q : !hw.array<4xi8>) {
+    %q = arc.state @AggArc(%d) clock %clock latency 1 {names = ["arr_reg"]} : (!hw.array<4xi8>) -> !hw.array<4xi8>
+    hw.output %q : !hw.array<4xi8>
+  }
+}
+
+// CHECK: module: AggMod
+// CHECK: aggregate_state: arr_reg width=32 elements=4 element_width=8 clock=clock update=full_replace
+// CHECK: output: q visibility=edge source=state entity=arr_reg

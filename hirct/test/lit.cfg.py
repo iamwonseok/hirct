@@ -21,10 +21,25 @@ if not hasattr(config, "hirct_obj_root"):
 # Tool substitutions (set by CMake-generated lit.site.cfg.py)
 if hasattr(config, "hirct_gen_path"):
     config.substitutions.append(("%hirct-gen", config.hirct_gen_path))
+if hasattr(config, "hirct_semantic_path"):
+    config.substitutions.append(("%hirct-semantic", config.hirct_semantic_path))
 if hasattr(config, "hirct_verify_path"):
     config.substitutions.append(("%hirct-verify", config.hirct_verify_path))
 if hasattr(config, "filecheck_path"):
     config.substitutions.append(("%FileCheck", config.filecheck_path))
+
+# Standalone fallback: resolve from --path or PATH
+def _resolve_sub(name, config):
+    for _, val in config.substitutions:
+        if name in _:
+            return
+    exe = name.lstrip("%")
+    found = shutil.which(exe)
+    if found:
+        config.substitutions.append((name, found))
+
+_resolve_sub("%hirct-semantic", config)
+_resolve_sub("%FileCheck", config)
 
 # Make LLVM utility tools (e.g. 'not') available on PATH for RUN lines.
 _not_path = shutil.which("not")

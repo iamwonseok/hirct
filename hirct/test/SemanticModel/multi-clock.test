@@ -1,0 +1,20 @@
+// RUN: %hirct-semantic %s --module DualClk | %FileCheck %s
+
+module {
+  arc.define @Id8(%arg0: i8) -> i8 {
+    arc.output %arg0 : i8
+  }
+  hw.module @DualClk(in %clk_a : !seq.clock, in %clk_b : !seq.clock,
+                      in %d : i8, out qa : i8, out qb : i8) {
+    %qa = arc.state @Id8(%d) clock %clk_a latency 1 {names = ["reg_a"]} : (i8) -> i8
+    %qb = arc.state @Id8(%d) clock %clk_b latency 1 {names = ["reg_b"]} : (i8) -> i8
+    hw.output %qa, %qb : i8, i8
+  }
+}
+
+// CHECK: module: DualClk
+// CHECK: clocks: clk_a clk_b
+// CHECK: state: reg_a width=8 clock=clk_a enable=no reset=no
+// CHECK: state: reg_b width=8 clock=clk_b enable=no reset=no
+// CHECK: output: qa visibility=edge source=state entity=reg_a
+// CHECK: output: qb visibility=edge source=state entity=reg_b

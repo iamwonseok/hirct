@@ -5,3 +5,13 @@ target_link_libraries(GenFuncModelTest PRIVATE
     MLIRParser
     GTest::gtest_main)
 add_test(NAME GenFuncModelTest COMMAND GenFuncModelTest)
+
+add_executable(CModelEmitterTest CModelEmitterTest.cpp)
+target_link_libraries(CModelEmitterTest PRIVATE
+    hirctCModelEmitter
+    hirctSemanticModel
+    CIRCTArc CIRCTComb CIRCTSeq CIRCTHW
+    MLIRFuncDialect
+    MLIRParser
+    GTest::gtest_main)
+add_test(NAME CModelEmitterTest COMMAND CModelEmitterTest)

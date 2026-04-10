@@ -30,6 +30,65 @@ build/bin/hirct-gen rtl/plat/src/s5/design/Fadu_K2_S5_LevelGateway.v \
 
 ---
 
+## Semantic Model C++ Workflow
+
+The current semantic-model and C-model exporter work lives under `hirct/`.
+
+Typical server setup:
+
+```bash
+git clone git@github.com:iamwonseok/hirct.git
+cd hirct/hirct
+
+export CIRCT_BUILD=~/work/circt/build
+
+cmake -S . -B build \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DHIRCT_ENABLE_UNITTESTS=ON
+
+cmake --build build -j8
+```
+
+Sanity checks:
+
+```bash
+./build/bin/hirct-semantic --help
+./build/bin/SemanticModelTest
+./build/bin/CModelEmitterTest
+PATH="$CIRCT_BUILD/bin:$PATH" python3 "$CIRCT_BUILD/../llvm/llvm/utils/lit/lit.py" -sv build/test/SemanticModel
+```
+
+Real RTL regression helper:
+
+```bash
+export CIRCT_BIN="$CIRCT_BUILD/bin"
+export HIRCT_DIR="$PWD"
+export WORK_DIR=/tmp/hirct_rtl_regression
+
+./scripts/rtl_regression.sh <module_name> <verilog_source> [include_dirs...]
+```
+
+Recommended first regression targets:
+
+- `ncs_core_evt_log_if`
+- `simple_demux`
+- `simple_mux`
+- `ncs_core_iu_arbiter`
+- `util_round_robin_arbiter`
+- one PT1 top-level multi-file case from `makefile_for_alex`
+
+Record results per module with:
+
+- S1 `circt-verilog --ir-hw`
+- S2 `arc-strip-sv`
+- S2b `llhd.delay` cleanup needed or not
+- S3 `convert-to-arcs`
+- S4 `hirct-semantic`
+- failure log excerpt
+- taxonomy: `RTL authoring issue`, `upstream normalization issue`, `semantic model contract gap`, `emitter/runtime bug`
+
+---
+
 ## Generated Artifacts
 
 | Emitter | Output Dir | Description |

@@ -5,3 +5,8 @@ target_link_libraries(hirctTarget PUBLIC
     CIRCTTransforms
     CIRCTSeqTransforms
 )
+
+add_library(hirctCModelEmitter CModelEmitter.cpp)
+target_link_libraries(hirctCModelEmitter PUBLIC
+    hirctSemanticModel
+)

@@ -1,4 +1,5 @@
 add_subdirectory(Support)
 add_subdirectory(Analysis)
+add_subdirectory(SemanticModel)
 add_subdirectory(Target)
 add_subdirectory(Transforms)
