@@ -96,7 +96,7 @@ struct Condition {
       return false;
     if (is_false())
       return true;
-    return circt::comb::createOrFoldNot(value().getLoc(), value(), builder);
+    return circt::comb::createOrFoldNot(builder, value().getLoc(), value());
   }
 
 private:

@@ -154,8 +154,8 @@ struct Condition {
       return false;
     if (isFalse())
       return true;
-    return circt::comb::createOrFoldNot(getValue().getLoc(), getValue(),
-                                        builder);
+    return circt::comb::createOrFoldNot(builder, getValue().getLoc(),
+                                        getValue());
   }
 
 private:

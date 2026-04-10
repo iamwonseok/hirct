@@ -96,6 +96,7 @@ void print_usage(const char *prog) {
                "                             Passes: sim-cleanup, unroll-process-loops, remove-control-flow,\n"
                "                                     canonicalize, process-flatten, process-deseq,\n"
                "                                     signal-lowering, cse\n"
+               "  --run-pass <pass>          Alias for --pipeline; run a single named pass\n"
                "  --pipeline-checkpoint-dir <dir>  Save IR after each pass as {N}_{name}.mlir\n"
                "  --dump-ir                  Print final IR to stdout after pipeline and exit\n"
                "  --timing          Enable PassManager timing statistics\n"
@@ -161,8 +162,8 @@ Options parse_args(int argc, char *argv[]) {
       opts.dump_ir = true;
     } else if (arg == "--timing") {
       opts.timing = true;
-    } else if (arg == "--pipeline") {
-      if (!consume_value("--pipeline", i, opts.pipeline)) {
+    } else if (arg == "--pipeline" || arg == "--run-pass") {
+      if (!consume_value(arg, i, opts.pipeline)) {
         opts.help = true;
         opts.parse_error = true;
         return opts;

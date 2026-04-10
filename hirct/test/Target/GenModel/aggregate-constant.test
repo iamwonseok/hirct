@@ -10,7 +10,7 @@
 //
 // CHECK-CPP: AUTO-GENERATED
 // CHECK-CPP: void AggregateConstant::eval_comb()
-// CHECK-CPP: static_cast<uint32_t>(10)
-// CHECK-CPP: static_cast<uint32_t>(20)
-// CHECK-CPP: static_cast<uint32_t>(30)
-// CHECK-CPP: static_cast<uint32_t>(40)
+// CHECK-CPP: static_cast<uint8_t>(10)
+// CHECK-CPP: static_cast<uint8_t>(20)
+// CHECK-CPP: static_cast<uint8_t>(30)
+// CHECK-CPP: static_cast<uint8_t>(40)

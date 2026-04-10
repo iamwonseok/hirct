@@ -17,6 +17,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 
+#include <climits>
 #include <optional>
 #include <string>
 
