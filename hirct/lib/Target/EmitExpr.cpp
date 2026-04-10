@@ -712,6 +712,10 @@ static std::string render_callee_expr(
            renderOp(def->getOperand(0)) + ")))";
   }
 
+  if (opName == "seq.to_clock" || opName == "seq.from_clock") {
+    return renderOp(def->getOperand(0));
+  }
+
   if (opName == "arc.call") {
     unsigned ri = 0;
     if (auto opResult = mlir::dyn_cast<mlir::OpResult>(val))

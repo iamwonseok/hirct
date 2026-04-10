@@ -121,8 +121,24 @@ bool GenModel::emit(const std::string &output_dir, bool is_submodule) {
     return false;
   }
 
+  auto mkdirs = [](const std::string &path) -> bool {
+    if (path.empty())
+      return false;
+    std::string cur;
+    for (size_t i = 0; i < path.size(); ++i) {
+      cur += path[i];
+      if (path[i] == '/' || i == path.size() - 1) {
+        if (cur == "/")
+          continue;
+        if (mkdir(cur.c_str(), 0755) != 0 && errno != EEXIST)
+          return false;
+      }
+    }
+    return true;
+  };
+
   std::string cmodel_dir = output_dir + "/cmodel";
-  if (mkdir(cmodel_dir.c_str(), 0755) != 0 && errno != EEXIST) {
+  if (!mkdirs(cmodel_dir)) {
     last_error_reason_ = "cannot create cmodel directory";
     std::cerr << "GenModel: cannot create directory: " << cmodel_dir << ": "
               << strerror(errno) << "\n";
