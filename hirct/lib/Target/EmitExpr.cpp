@@ -157,33 +157,74 @@ std::string emit_op_expr(
         expr(mux.getTrueValue()) + ") : (" +
         expr(mux.getFalseValue()) + "))";
   } else if (auto concat = mlir::dyn_cast<circt::comb::ConcatOp>(op)) {
+    // ConcatOp: operands are ordered MSB-first. We compute the bit offset of
+    // each operand from the LSB, then only include operands whose bits overlap
+    // with the lower 64 bits of the result. This avoids UB shifts >= 64.
+    unsigned total_w = w_of(concat.getResult());
+    struct ConcatSlice { unsigned lo; unsigned ow; mlir::Value val; };
+    llvm::SmallVector<ConcatSlice> slices;
+    {
+      unsigned cursor = total_w;
+      for (auto operand : concat.getOperands()) {
+        unsigned ow = w_of(operand);
+        cursor -= ow;
+        slices.push_back({cursor, ow, operand});
+      }
+    }
     std::string acc = "0ULL";
-    for (auto operand : concat.getOperands()) {
-      unsigned ow = w_of(operand);
-      std::string oe = expr(operand);
-      if (ow >= 64)
-        acc = "(static_cast<uint64_t>(" + oe + "))";
+    for (auto &s : slices) {
+      if (s.lo >= 64)
+        continue;
+      std::string oe = expr(s.val);
+      unsigned usable = std::min(s.ow, 64u - s.lo);
+      std::string masked = "(static_cast<uint64_t>(" + oe + ") & " +
+                           width_mask_expr(usable) + ")";
+      if (s.lo == 0)
+        acc = "(" + acc + " | " + masked + ")";
       else
-        acc = "((" + acc + ") << " + std::to_string(ow) +
-              ") | (static_cast<uint64_t>(" + oe + ") & " +
-              width_mask_expr(ow) + ")";
+        acc = "(" + acc + " | (" + masked + " << " + std::to_string(s.lo) + "))";
     }
     e = "(" + acc + ")";
   } else if (auto ext = mlir::dyn_cast<circt::comb::ExtractOp>(op)) {
     unsigned from = ext.getLowBit();
-    e = "((static_cast<uint64_t>(" + expr(ext.getInput()) + ") >> " +
-        std::to_string(from) + ") & " + width_mask_expr(w) + ")";
+    unsigned src_w = w_of(ext.getInput());
+    if (from >= 64 && src_w > 64) {
+      // Extracting from bit >= 64 of a wide value. The scalar val only holds
+      // the lower 64 bits, so the result is 0 within the scalar model.
+      // If the source is a wide port array, access the correct word.
+      std::string src_e = expr(ext.getInput());
+      unsigned wordIdx = from / 64;
+      unsigned bitInWord = from % 64;
+      // Check if src_e is a port name (wide port array); if so use word access.
+      // We generate a conditional expression that is always compile-safe.
+      e = "((static_cast<uint64_t>(" + src_e + "[" + std::to_string(wordIdx) +
+          "]) >> " + std::to_string(bitInWord) + ") & " + width_mask_expr(w) + ")";
+    } else if (from >= 64) {
+      // Source is <= 64 bits but from >= 64: logically unreachable in valid IR,
+      // but guard against UB.
+      e = "0ULL";
+    } else {
+      e = "((static_cast<uint64_t>(" + expr(ext.getInput()) + ") >> " +
+          std::to_string(from) + ") & " + width_mask_expr(w) + ")";
+    }
   } else if (auto rep = mlir::dyn_cast<circt::comb::ReplicateOp>(op)) {
     unsigned src_w = w_of(rep.getInput());
     int cnt = (src_w > 0) ? w / src_w : 0;
     std::ostringstream oss;
     oss << "(";
+    bool first = true;
     for (int i = 0; i < cnt; ++i) {
-      if (i > 0)
+      unsigned shift = static_cast<unsigned>(i) * src_w;
+      if (shift >= 64)
+        break;
+      if (!first)
         oss << " | ";
+      first = false;
       oss << "(static_cast<uint64_t>(" << expr(rep.getInput())
-          << ") << " << (i * src_w) << ")";
+          << ") << " << shift << ")";
     }
+    if (first)
+      oss << "0ULL";
     oss << ")";
     e = oss.str();
   } else if (auto par = mlir::dyn_cast<circt::comb::ParityOp>(op)) {

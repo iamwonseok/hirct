@@ -15,6 +15,7 @@
 #include "hirct/Target/GenWrapper.h"
 #include "hirct/Transforms/Passes.h"
 
+#include "circt/Dialect/Arc/ArcDialect.h"
 #include "circt/Dialect/Comb/CombDialect.h"
 #include "circt/Dialect/HW/HWDialect.h"
 #include "circt/Dialect/HW/HWOps.h"
@@ -785,9 +786,10 @@ int main(int argc, char *argv[]) {
   // Unified MLIR native path — VerilogLoader for .v, MLIR parser for .mlir
   mlir::MLIRContext mlir_ctx;
   mlir_ctx.allowUnregisteredDialects();
-  mlir_ctx.loadDialect<circt::hw::HWDialect, circt::comb::CombDialect,
-                        circt::seq::SeqDialect, circt::llhd::LLHDDialect,
-                        circt::sv::SVDialect, circt::sim::SimDialect,
+  mlir_ctx.loadDialect<circt::arc::ArcDialect, circt::hw::HWDialect,
+                        circt::comb::CombDialect, circt::seq::SeqDialect,
+                        circt::llhd::LLHDDialect, circt::sv::SVDialect,
+                        circt::sim::SimDialect,
                         mlir::cf::ControlFlowDialect,
                         mlir::func::FuncDialect>();
 

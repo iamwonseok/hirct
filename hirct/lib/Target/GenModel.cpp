@@ -185,8 +185,13 @@ bool GenModel::emit_header(const std::string &dir) {
     unsigned w = p.width;
     if (w == 0)
       w = 1;
-    std::string ctype = cpp_type_for_width(w);
-    ofs << "  " << ctype << " " << p.name << ";\n";
+    if (w > 64) {
+      unsigned words = (w + 63) / 64;
+      ofs << "  uint64_t " << p.name << "[" << words << "];\n";
+    } else {
+      std::string ctype = cpp_type_for_width(w);
+      ofs << "  " << ctype << " " << p.name << ";\n";
+    }
   }
 
   ofs << "\n  void do_reset();\n";
@@ -372,7 +377,13 @@ void GenModel::emit_reset(std::ofstream &ofs, const std::string &name) {
   ofs << "void " << name << "::do_reset()\n{\n";
 
   for (const auto &p : input_ports) {
-    ofs << "  " << p.name << " = 0;\n";
+    if (p.width > 64) {
+      unsigned words = (p.width + 63) / 64;
+      ofs << "  for (unsigned __k = 0; __k < " << words << "; ++__k) "
+          << p.name << "[__k] = 0;\n";
+    } else {
+      ofs << "  " << p.name << " = 0;\n";
+    }
   }
 
   for (const auto &reg : regs) {
@@ -693,6 +704,15 @@ void GenModel::emit_eval_comb(std::ofstream &ofs,
       return;
     }
     unsigned w = w_of(result);
+    if (w > 64) {
+      // Wide result: store as uint64_t (lower 64 bits only).
+      // The expression from emit_op_expr already returns a uint64_t-safe string.
+      std::string rn = next_tmp();
+      ofs << "  uint64_t " << rn << " = static_cast<uint64_t>(" << e << ");\n";
+      val[result] = rn;
+      try_emit_instances();
+      return;
+    }
     std::string ctype = cpp_type_for_width(w);
     std::string rn = next_tmp();
     if (w == 1)
@@ -1004,15 +1024,19 @@ void GenModel::emit_eval_comb(std::ofstream &ofs,
             val[res] = fr.values[k];
           } else {
             unsigned w = w_of(res);
-            std::string ctype = cpp_type_for_width(w);
             std::string rn = next_tmp();
-            if (w == 1)
+            if (w > 64) {
+              ofs << "  uint64_t " << rn << " = static_cast<uint64_t>("
+                  << fr.values[k] << ");\n";
+            } else if (w == 1) {
               ofs << "  bool " << rn << " = ((" << fr.values[k]
                   << ") & 1ULL) != 0;\n";
-            else
+            } else {
+              std::string ctype = cpp_type_for_width(w);
               ofs << "  " << ctype << " " << rn << " = static_cast<"
                   << ctype << ">((" << fr.values[k] << ") & "
                   << width_mask_expr(w) << ");\n";
+            }
             val[res] = rn;
           }
         }
@@ -1126,6 +1150,14 @@ void GenModel::emit_eval_comb(std::ofstream &ofs,
           continue;
         }
         unsigned w = w_of(result);
+        if (w > 64) {
+          std::string rn = next_tmp();
+          ofs << "  uint64_t " << rn << " = static_cast<uint64_t>(" << e << ");\n";
+          val[result] = rn;
+          improved.insert(result);
+          progress = true;
+          continue;
+        }
         std::string ctype = cpp_type_for_width(w);
         std::string rn = next_tmp();
         if (w == 1)
@@ -1274,16 +1306,39 @@ void GenModel::emit_eval_comb(std::ofstream &ofs,
       if (oi >= outputOp.getNumOperands())
         break;
       std::string oe = expr(outputOp.getOperand(oi));
+      if (oe.empty())
+        oe = "0";
       unsigned ow = hirct::get_type_width(p.type);
       if (ow == 0)
         ow = 1;
-      if (ow == 1)
+      if (ow > 64) {
+        unsigned words = (ow + 63) / 64;
+        // Check if the source operand is also a wide value (i.e., a wide port
+        // mapped to a word array). If so, do a word-by-word copy.
+        mlir::Value srcVal = outputOp.getOperand(oi);
+        unsigned src_w = hirct::get_type_width(srcVal.getType());
+        if (src_w > 64 && !oe.empty() && oe != "0") {
+          // Source is a wide port array — copy words directly
+          for (unsigned k = 0; k < words; ++k)
+            ofs << "  " << p.getName().str() << "[" << k << "] = "
+                << oe << "[" << k << "];\n";
+        } else if (!oe.empty() && oe != "0") {
+          ofs << "  " << p.getName().str() << "[0] = static_cast<uint64_t>("
+              << oe << ");\n";
+          for (unsigned k = 1; k < words; ++k)
+            ofs << "  " << p.getName().str() << "[" << k << "] = 0;\n";
+        } else {
+          for (unsigned k = 0; k < words; ++k)
+            ofs << "  " << p.getName().str() << "[" << k << "] = 0;\n";
+        }
+      } else if (ow == 1) {
         ofs << "  " << p.getName().str() << " = ((" << oe
             << ") & 1ULL) != 0;\n";
-      else
+      } else {
         ofs << "  " << p.getName().str() << " = static_cast<"
             << cpp_type_for_width(ow) << ">((" << oe << ") & "
             << width_mask_expr(ow) << ");\n";
+      }
       ++oi;
     }
   }
@@ -1669,13 +1724,16 @@ std::vector<std::string> GenModel::flatten_block(
 
     mlir::Value result = op.getResult(0);
     unsigned w = w_of(result);
-    std::string ctype = hirct::cpp_type_for_width(w);
     std::string rn = "t" + std::to_string(tmp_cnt++);
-    if (w == 1)
+    if (w > 64) {
+      ofs << "  uint64_t " << rn << " = static_cast<uint64_t>(" << e << ");\n";
+    } else if (w == 1) {
       ofs << "  bool " << rn << " = ((" << e << ") & 1ULL) != 0;\n";
-    else
+    } else {
+      std::string ctype = hirct::cpp_type_for_width(w);
       ofs << "  " << ctype << " " << rn << " = static_cast<" << ctype
           << ">((" << e << ") & " << width_mask_expr(w) << ");\n";
+    }
     val[result] = rn;
   }
 
