@@ -11,12 +11,14 @@
 ///
 //===----------------------------------------------------------------------===//
 
+#include "hirct/Analysis/IRAnalysis.h"
 #include "hirct/SemanticModel/Builder.h"
 #include "hirct/SemanticModel/Validation.h"
 
 #include "circt/Dialect/Arc/ArcOps.h"
 #include "circt/Dialect/Arc/ArcTypes.h"
 #include "circt/Dialect/Comb/CombDialect.h"
+#include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/HW/HWOps.h"
 #include "circt/Dialect/HW/HWTypes.h"
 #include "circt/Dialect/Seq/SeqOps.h"
@@ -55,35 +57,36 @@ static void addUniqueClock(llvm::SmallVectorImpl<std::string> &clocks,
     clocks.push_back(clockName.str());
 }
 
+static hirct::ClockTraceResult traceClockFull(Value value,
+                                              hw::HWModuleOp hwModule) {
+  auto parentModule = hwModule->getParentOfType<ModuleOp>();
+  if (!parentModule)
+    return {};
+  return hirct::trace_clock_result(value, hwModule, parentModule);
+}
+
 static std::string traceClockName(Value value,
                                   const llvm::SmallVector<PortInfo> &inputPorts,
                                   hw::HWModuleOp hwModule) {
-  Value current = value;
-  while (current) {
-    if (auto blockArg = dyn_cast<BlockArgument>(current)) {
-      if (blockArg.getOwner() == hwModule.getBodyBlock() &&
-          blockArg.getArgNumber() < inputPorts.size())
-        return inputPorts[blockArg.getArgNumber()].name;
-      return {};
-    }
-
-    Operation *defOp = current.getDefiningOp();
-    if (!defOp)
-      return {};
-
-    if (auto toClock = dyn_cast<seq::ToClockOp>(defOp)) {
-      current = toClock.getInput();
-      continue;
-    }
-    if (auto call = dyn_cast<arc::CallOp>(defOp)) {
-      if (!call.getInputs().empty()) {
-        current = call.getInputs().front();
-        continue;
-      }
-    }
-    return {};
-  }
+  (void)inputPorts;
+  auto trace = traceClockFull(value, hwModule);
+  if (trace.isResolved())
+    return trace.clock_port_name;
   return {};
+}
+
+static ClockBoundaryKind classifyBoundaryOp(llvm::StringRef opName) {
+  if (opName == "comb.or")
+    return ClockBoundaryKind::CombOr;
+  if (opName == "comb.and")
+    return ClockBoundaryKind::CombAnd;
+  if (opName == "comb.xor")
+    return ClockBoundaryKind::CombXor;
+  if (opName == "seq.clock_gate")
+    return ClockBoundaryKind::ClockGate;
+  if (opName == "comb.mux")
+    return ClockBoundaryKind::MuxTrueUnresolved;
+  return ClockBoundaryKind::CombOther;
 }
 
 static std::string getStateName(arc::StateOp state, unsigned fallbackIndex) {
@@ -317,8 +320,15 @@ FailureOr<ModuleModel> buildModuleModel(hw::HWModuleOp hwModule) {
       }
     }
 
+    auto clockTrace = traceClockFull(state.getClock(), hwModule);
     std::string clockDomain =
-        traceClockName(state.getClock(), model.inputPorts, hwModule);
+        clockTrace.isResolved() ? clockTrace.clock_port_name : std::string();
+    if (!clockTrace.isResolved() && clockTrace.hit_boundary) {
+      std::string stateName = getStateName(state, isAggregate ? nextAggIndex : nextStateIndex);
+      model.boundaryReasons.push_back(
+          {classifyBoundaryOp(clockTrace.boundary_op_name),
+           stateName, clockTrace.boundary_op_name});
+    }
     statefulOps.insert(state.getOperation());
 
     if (isAggregate) {

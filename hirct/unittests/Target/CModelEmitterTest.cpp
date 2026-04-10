@@ -2627,6 +2627,338 @@ TEST_F(CModelEmitterFixture, GenModel_MultiResultArcCall_AllResultsBound) {
 }
 
 // ---------------------------------------------------------------------------
+// Async reset-like: nested arc.call providing clock+reset to arc.state
+// ---------------------------------------------------------------------------
+
+TEST_F(CModelEmitterFixture, GenModel_ArcState_NestedCallProvidesClockReset) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @split_clk_rst(%arg0: i1, %arg1: i1, %arg2: i1) -> (i1, !seq.clock) {
+        %0 = comb.xor %arg0, %arg1 : i1
+        %1 = seq.to_clock %arg2
+        arc.output %0, %1 : i1, !seq.clock
+      }
+      arc.define @counter_arc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @NestedClkRst(in %rst_n : i1, in %clk_i : i1,
+                              out cnt : i8) {
+        %cr:2 = arc.call @split_clk_rst(%rst_n, %true, %clk_i) : (i1, i1, i1) -> (i1, !seq.clock)
+        %true = hw.constant true
+        %0 = arc.state @counter_arc(%0) clock %cr#1 reset %cr#0 latency 1 {names = ["cnt_reg"]} : (i8) -> i8
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule = module->lookupSymbol<circt::hw::HWModuleOp>("NestedClkRst");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_nestedclkrst");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_nestedclkrst");
+  ASSERT_TRUE(ok) << "GenModel::emit failed for NestedClkRst";
+
+  std::ifstream cpp_ifs("/tmp/hirct_genmodel_nestedclkrst/cmodel/NestedClkRst.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  EXPECT_NE(cpp_content.find("next_"), std::string::npos)
+      << "step() must contain next-state logic for arc.state";
+  EXPECT_NE(cpp_content.find("reg_"), std::string::npos)
+      << "step() must reference arc.state register";
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_nestedclkrst/cmodel "
+      "/tmp/hirct_genmodel_nestedclkrst/cmodel/NestedClkRst.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "NestedClkRst must compile";
+
+  std::string driverSrc = R"(
+#include "NestedClkRst.h"
+#include <cassert>
+int main() {
+  NestedClkRst s;
+  s.do_reset();
+  assert(s.cnt == 0);
+
+  // rst_n=1 ^ true = 0, so reset signal is 0 -> no reset
+  s.rst_n = 1;
+  s.step();
+  assert(s.cnt == 1);
+
+  s.step();
+  assert(s.cnt == 2);
+
+  // rst_n=0 ^ true = 1, so reset signal is 1 -> reset
+  s.rst_n = 0;
+  s.step();
+  assert(s.cnt == 0);
+
+  // release reset
+  s.rst_n = 1;
+  s.step();
+  assert(s.cnt == 1);
+
+  return 0;
+}
+)";
+
+  {
+    std::ofstream df("/tmp/hirct_genmodel_nestedclkrst/cmodel/driver.cpp");
+    df << driverSrc;
+  }
+
+  int compileRc = std::system(
+      "c++ -std=c++17 -O0 -Werror "
+      "-I/tmp/hirct_genmodel_nestedclkrst/cmodel "
+      "/tmp/hirct_genmodel_nestedclkrst/cmodel/NestedClkRst.cpp "
+      "/tmp/hirct_genmodel_nestedclkrst/cmodel/driver.cpp "
+      "-o /tmp/hirct_genmodel_nestedclkrst/driver 2>&1");
+  ASSERT_EQ(compileRc, 0) << "NestedClkRst driver must compile";
+
+  int runRc = std::system("/tmp/hirct_genmodel_nestedclkrst/driver");
+  EXPECT_EQ(runRc, 0)
+      << "nested arc.call providing clock+reset to arc.state must work at runtime";
+
+  std::system("rm -rf /tmp/hirct_genmodel_nestedclkrst");
+}
+
+// ---------------------------------------------------------------------------
+// Boundary: arc.state with enable+reset from nested arc.call results
+// ---------------------------------------------------------------------------
+
+TEST_F(CModelEmitterFixture, GenModel_ArcState_EnableResetFromArcCall) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @ctrl_arc(%arg0: i1, %arg1: i1, %arg2: i1) -> (i1, i1, !seq.clock) {
+        %0 = comb.xor %arg0, %arg1 : i1
+        %1 = seq.to_clock %arg2
+        arc.output %arg1, %0, %1 : i1, i1, !seq.clock
+      }
+      arc.define @inc_arc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @EnRstFromCall(in %rst_n : i1, in %en : i1, in %clk : i1,
+                               out cnt : i8) {
+        %ctrl:3 = arc.call @ctrl_arc(%rst_n, %en, %clk) : (i1, i1, i1) -> (i1, i1, !seq.clock)
+        %0 = arc.state @inc_arc(%0) clock %ctrl#2 enable %ctrl#0 reset %ctrl#1 latency 1 {names = ["cnt_reg"]} : (i8) -> i8
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule = module->lookupSymbol<circt::hw::HWModuleOp>("EnRstFromCall");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_enrstcall");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_enrstcall");
+  ASSERT_TRUE(ok) << "GenModel::emit failed for EnRstFromCall";
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_enrstcall/cmodel "
+      "/tmp/hirct_genmodel_enrstcall/cmodel/EnRstFromCall.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "EnRstFromCall must compile";
+
+  std::system("rm -rf /tmp/hirct_genmodel_enrstcall");
+}
+
+// ---------------------------------------------------------------------------
+// Boundary: nonzero reset value is not yet supported -- arc.state init_value
+// Current behavior: reset always goes to 0.
+// This test documents the boundary and must be updated when nonzero reset
+// is supported.
+// ---------------------------------------------------------------------------
+
+TEST_F(CModelEmitterFixture, GenModel_ArcState_NonZeroResetBoundary) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @pass_arc(%arg0: i8) -> i8 {
+        arc.output %arg0 : i8
+      }
+      arc.define @clk_arc(%arg0: i1) -> !seq.clock {
+        %0 = seq.to_clock %arg0
+        arc.output %0 : !seq.clock
+      }
+      hw.module @NonZeroRst(in %clk : i1, in %rst : i1, in %d : i8,
+                            out q : i8) {
+        %clock = arc.call @clk_arc(%clk) : (i1) -> !seq.clock
+        %0 = arc.state @pass_arc(%d) clock %clock reset %rst latency 1 {names = ["reg0"]} : (i8) -> i8
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule = module->lookupSymbol<circt::hw::HWModuleOp>("NonZeroRst");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_nzrst");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_nzrst");
+  ASSERT_TRUE(ok) << "GenModel::emit failed for NonZeroRst";
+
+  std::ifstream cpp_ifs("/tmp/hirct_genmodel_nzrst/cmodel/NonZeroRst.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  // BOUNDARY: currently reset always goes to 0 regardless of arc.state
+  // initial_value. When nonzero reset is supported, update this test.
+  EXPECT_NE(cpp_content.find("= 0;"), std::string::npos)
+      << "current boundary: reset always goes to 0";
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_nzrst/cmodel "
+      "/tmp/hirct_genmodel_nzrst/cmodel/NonZeroRst.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "NonZeroRst must compile";
+
+  std::system("rm -rf /tmp/hirct_genmodel_nzrst");
+}
+
+// ---------------------------------------------------------------------------
+// Real RTL regression: ncs_core_evt_log_if (complex reset+state+multi-result)
+// ---------------------------------------------------------------------------
+
+TEST_F(CModelEmitterFixture, GenModel_RealRtl_EvtLogIf_ResetStateRegression) {
+  auto fixtureRoot = std::filesystem::path(__FILE__)
+                         .parent_path().parent_path().parent_path() /
+                     "tests" / "fixtures";
+  auto mlirPath = fixtureRoot / "ncs_core_evt_log_if_arc.mlir";
+  ASSERT_TRUE(std::filesystem::exists(mlirPath)) << mlirPath.string();
+  std::ifstream ifs(mlirPath);
+  std::string content((std::istreambuf_iterator<char>(ifs)),
+                      std::istreambuf_iterator<char>());
+  auto module = parseInline(content);
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("ncs_core_evt_log_if");
+  ASSERT_TRUE(hwModule);
+
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_evtlog_rst");
+  ASSERT_TRUE(ok) << "GenModel::emit failed for ncs_core_evt_log_if";
+
+  std::ifstream cpp_ifs("/tmp/hirct_genmodel_evtlog_rst/cmodel/ncs_core_evt_log_if.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  // arc.state @ncs_core_evt_log_if_arc_2 has reset %0#0 (XOR of RESET_N_I ^ true)
+  // step() must contain conditional reset logic for the state register
+  bool hasResetLogic = cpp_content.find("if (") != std::string::npos &&
+                       cpp_content.find("reg_") != std::string::npos;
+  EXPECT_TRUE(hasResetLogic)
+      << "step() must contain conditional reset logic for arc.state with reset";
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_evtlog_rst/cmodel "
+      "/tmp/hirct_genmodel_evtlog_rst/cmodel/ncs_core_evt_log_if.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "ncs_core_evt_log_if must compile with reset logic";
+
+  std::system("rm -rf /tmp/hirct_genmodel_evtlog_rst");
+}
+
+// ---------------------------------------------------------------------------
+// Real RTL regressions: simple_demux, simple_mux, ncs_core_evt_log_if
+// These are the baseline guards -- must never break.
+// ---------------------------------------------------------------------------
+
+TEST_F(CModelEmitterFixture, RealRtl_simple_demux_Baseline) {
+  auto fixtureRoot = std::filesystem::path(__FILE__)
+                         .parent_path().parent_path().parent_path() /
+                     "tests" / "fixtures";
+  auto mlirPath = fixtureRoot / "simple_demux_arc.mlir";
+  ASSERT_TRUE(std::filesystem::exists(mlirPath)) << mlirPath.string();
+  std::ifstream ifs(mlirPath);
+  std::string content((std::istreambuf_iterator<char>(ifs)),
+                      std::istreambuf_iterator<char>());
+  auto module = parseInline(content);
+  ASSERT_TRUE(module);
+
+  auto hwModule = module->lookupSymbol<circt::hw::HWModuleOp>("simple_demux");
+  ASSERT_TRUE(hwModule);
+
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_baseline_demux");
+  ASSERT_TRUE(ok) << "simple_demux GenModel must succeed";
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_baseline_demux/cmodel "
+      "/tmp/hirct_baseline_demux/cmodel/simple_demux.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "simple_demux must compile";
+
+  std::system("rm -rf /tmp/hirct_baseline_demux");
+}
+
+TEST_F(CModelEmitterFixture, RealRtl_simple_mux_Baseline) {
+  auto fixtureRoot = std::filesystem::path(__FILE__)
+                         .parent_path().parent_path().parent_path() /
+                     "tests" / "fixtures";
+  auto mlirPath = fixtureRoot / "simple_mux_arc.mlir";
+  ASSERT_TRUE(std::filesystem::exists(mlirPath)) << mlirPath.string();
+  std::ifstream ifs(mlirPath);
+  std::string content((std::istreambuf_iterator<char>(ifs)),
+                      std::istreambuf_iterator<char>());
+  auto module = parseInline(content);
+  ASSERT_TRUE(module);
+
+  auto hwModule = module->lookupSymbol<circt::hw::HWModuleOp>("simple_mux");
+  ASSERT_TRUE(hwModule);
+
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_baseline_mux");
+  ASSERT_TRUE(ok) << "simple_mux GenModel must succeed";
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_baseline_mux/cmodel "
+      "/tmp/hirct_baseline_mux/cmodel/simple_mux.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "simple_mux must compile";
+
+  std::system("rm -rf /tmp/hirct_baseline_mux");
+}
+
+TEST_F(CModelEmitterFixture, RealRtl_ncs_core_evt_log_if_Baseline) {
+  auto fixtureRoot = std::filesystem::path(__FILE__)
+                         .parent_path().parent_path().parent_path() /
+                     "tests" / "fixtures";
+  auto mlirPath = fixtureRoot / "ncs_core_evt_log_if_arc.mlir";
+  ASSERT_TRUE(std::filesystem::exists(mlirPath)) << mlirPath.string();
+  std::ifstream ifs(mlirPath);
+  std::string content((std::istreambuf_iterator<char>(ifs)),
+                      std::istreambuf_iterator<char>());
+  auto module = parseInline(content);
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("ncs_core_evt_log_if");
+  ASSERT_TRUE(hwModule);
+
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_baseline_evtlog");
+  ASSERT_TRUE(ok) << "ncs_core_evt_log_if GenModel must succeed";
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_baseline_evtlog/cmodel "
+      "/tmp/hirct_baseline_evtlog/cmodel/ncs_core_evt_log_if.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "ncs_core_evt_log_if must compile";
+
+  std::system("rm -rf /tmp/hirct_baseline_evtlog");
+}
+
+// ---------------------------------------------------------------------------
 // multi-result arc.call + arc.state combined pattern
 // ---------------------------------------------------------------------------
 
@@ -2675,6 +3007,879 @@ TEST_F(CModelEmitterFixture, GenModel_MultiResultCall_PlusState_Runtime) {
   EXPECT_EQ(rc, 0) << "CallPlusState must compile";
 
   std::system("rm -rf /tmp/hirct_genmodel_callstate");
+}
+
+// ---------------------------------------------------------------------------
+// multi-clock domain step + arc.state + reset/enable hardening
+// ---------------------------------------------------------------------------
+
+TEST_F(CModelEmitterFixture, GenModel_MultiClock_ArcState_Reset_DomainStep) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @inc_arc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      arc.define @clk_arc(%arg0: i1) -> !seq.clock {
+        %0 = seq.to_clock %arg0
+        arc.output %0 : !seq.clock
+      }
+      hw.module @DualClkRst(in %clk_a : i1, in %clk_b : i1, in %rst : i1,
+                            out cnt_a : i8, out cnt_b : i8) {
+        %ca = arc.call @clk_arc(%clk_a) : (i1) -> !seq.clock
+        %cb = arc.call @clk_arc(%clk_b) : (i1) -> !seq.clock
+        %a = arc.state @inc_arc(%a) clock %ca reset %rst latency 1 {names = ["cnt_a"]} : (i8) -> i8
+        %b = arc.state @inc_arc(%b) clock %cb reset %rst latency 1 {names = ["cnt_b"]} : (i8) -> i8
+        hw.output %a, %b : i8, i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule = module->lookupSymbol<circt::hw::HWModuleOp>("DualClkRst");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_dualclkrst");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_dualclkrst");
+  ASSERT_TRUE(ok) << "GenModel::emit failed for DualClkRst";
+
+  std::ifstream cpp_ifs("/tmp/hirct_genmodel_dualclkrst/cmodel/DualClkRst.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  EXPECT_NE(cpp_content.find("step_clk_a"), std::string::npos)
+      << "multi-clock module must emit step_clk_a";
+  EXPECT_NE(cpp_content.find("step_clk_b"), std::string::npos)
+      << "multi-clock module must emit step_clk_b";
+
+  auto inFunction = [&](const std::string &src, const std::string &fn,
+                        const std::string &needle) -> bool {
+    auto pos = src.find(fn);
+    if (pos == std::string::npos) return false;
+    auto end = src.find("\n}\n", pos);
+    if (end == std::string::npos) end = src.size();
+    return src.substr(pos, end - pos).find(needle) != std::string::npos;
+  };
+
+  EXPECT_TRUE(inFunction(cpp_content, "step_clk_a", "if (rst)") ||
+              inFunction(cpp_content, "step_clk_a", "if (arc_rst_"))
+      << "step_clk_a must guard cnt_a with reset; generated:\n" << cpp_content;
+
+  EXPECT_TRUE(inFunction(cpp_content, "step_clk_b", "if (rst)") ||
+              inFunction(cpp_content, "step_clk_b", "if (arc_rst_"))
+      << "step_clk_b must guard cnt_b with reset; generated:\n" << cpp_content;
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_dualclkrst/cmodel "
+      "/tmp/hirct_genmodel_dualclkrst/cmodel/DualClkRst.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "DualClkRst must compile";
+
+  std::system("rm -rf /tmp/hirct_genmodel_dualclkrst");
+}
+
+TEST_F(CModelEmitterFixture, GenModel_MultiClock_ArcState_Enable_DomainStep) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @inc_arc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      arc.define @clk_arc(%arg0: i1) -> !seq.clock {
+        %0 = seq.to_clock %arg0
+        arc.output %0 : !seq.clock
+      }
+      hw.module @DualClkEn(in %clk_a : i1, in %clk_b : i1, in %en : i1,
+                           out cnt_a : i8, out cnt_b : i8) {
+        %ca = arc.call @clk_arc(%clk_a) : (i1) -> !seq.clock
+        %cb = arc.call @clk_arc(%clk_b) : (i1) -> !seq.clock
+        %a = arc.state @inc_arc(%a) clock %ca enable %en latency 1 {names = ["cnt_a"]} : (i8) -> i8
+        %b = arc.state @inc_arc(%b) clock %cb enable %en latency 1 {names = ["cnt_b"]} : (i8) -> i8
+        hw.output %a, %b : i8, i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule = module->lookupSymbol<circt::hw::HWModuleOp>("DualClkEn");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_dualclken");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_dualclken");
+  ASSERT_TRUE(ok) << "GenModel::emit failed for DualClkEn";
+
+  std::ifstream cpp_ifs("/tmp/hirct_genmodel_dualclken/cmodel/DualClkEn.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  EXPECT_NE(cpp_content.find("step_clk_a"), std::string::npos)
+      << "multi-clock module must emit step_clk_a";
+  EXPECT_NE(cpp_content.find("step_clk_b"), std::string::npos)
+      << "multi-clock module must emit step_clk_b";
+
+  auto inFnEn = [&](const std::string &src, const std::string &fn,
+                     const std::string &needle) -> bool {
+    auto pos = src.find(fn);
+    if (pos == std::string::npos) return false;
+    auto end = src.find("\n}\n", pos);
+    if (end == std::string::npos) end = src.size();
+    return src.substr(pos, end - pos).find(needle) != std::string::npos;
+  };
+
+  EXPECT_TRUE(inFnEn(cpp_content, "step_clk_a", "if (en)") ||
+              inFnEn(cpp_content, "step_clk_a", "if (arc_en_"))
+      << "step_clk_a must guard cnt_a with enable; generated:\n" << cpp_content;
+
+  EXPECT_TRUE(inFnEn(cpp_content, "step_clk_b", "if (en)") ||
+              inFnEn(cpp_content, "step_clk_b", "if (arc_en_"))
+      << "step_clk_b must guard cnt_b with enable; generated:\n" << cpp_content;
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_dualclken/cmodel "
+      "/tmp/hirct_genmodel_dualclken/cmodel/DualClkEn.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "DualClkEn must compile";
+
+  std::system("rm -rf /tmp/hirct_genmodel_dualclken");
+}
+
+TEST_F(CModelEmitterFixture, GenModel_MultiClock_ArcState_EnableReset_DomainStep) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @inc_arc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      arc.define @clk_arc(%arg0: i1) -> !seq.clock {
+        %0 = seq.to_clock %arg0
+        arc.output %0 : !seq.clock
+      }
+      hw.module @DualClkEnRst(in %clk_a : i1, in %clk_b : i1,
+                              in %en : i1, in %rst : i1,
+                              out cnt_a : i8, out cnt_b : i8) {
+        %ca = arc.call @clk_arc(%clk_a) : (i1) -> !seq.clock
+        %cb = arc.call @clk_arc(%clk_b) : (i1) -> !seq.clock
+        %a = arc.state @inc_arc(%a) clock %ca enable %en reset %rst latency 1 {names = ["cnt_a"]} : (i8) -> i8
+        %b = arc.state @inc_arc(%b) clock %cb enable %en reset %rst latency 1 {names = ["cnt_b"]} : (i8) -> i8
+        hw.output %a, %b : i8, i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule = module->lookupSymbol<circt::hw::HWModuleOp>("DualClkEnRst");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_dualclkenrst");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_dualclkenrst");
+  ASSERT_TRUE(ok) << "GenModel::emit failed for DualClkEnRst";
+
+  std::ifstream cpp_ifs("/tmp/hirct_genmodel_dualclkenrst/cmodel/DualClkEnRst.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  EXPECT_NE(cpp_content.find("step_clk_a"), std::string::npos);
+  EXPECT_NE(cpp_content.find("step_clk_b"), std::string::npos);
+
+  auto inFnER = [&](const std::string &src, const std::string &fn,
+                     const std::string &needle) -> bool {
+    auto pos = src.find(fn);
+    if (pos == std::string::npos) return false;
+    auto end = src.find("\n}\n", pos);
+    if (end == std::string::npos) end = src.size();
+    return src.substr(pos, end - pos).find(needle) != std::string::npos;
+  };
+
+  EXPECT_TRUE(inFnER(cpp_content, "step_clk_a", "if (rst)") ||
+              inFnER(cpp_content, "step_clk_a", "if (arc_rst_"))
+      << "step_clk_a must handle reset+enable for cnt_a; generated:\n" << cpp_content;
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_dualclkenrst/cmodel "
+      "/tmp/hirct_genmodel_dualclkenrst/cmodel/DualClkEnRst.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "DualClkEnRst must compile";
+
+  std::system("rm -rf /tmp/hirct_genmodel_dualclkenrst");
+}
+
+TEST_F(CModelEmitterFixture, GenModel_MultiClock_ArcState_ResetFromArcCall_DomainStep) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @inc_arc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      arc.define @ctrl_arc(%arg0: i1, %arg1: i1, %arg2: i1) -> (i1, i1, !seq.clock) {
+        %0 = comb.xor %arg0, %arg1 : i1
+        %1 = seq.to_clock %arg2
+        arc.output %arg0, %0, %1 : i1, i1, !seq.clock
+      }
+      arc.define @clk_arc(%arg0: i1) -> !seq.clock {
+        %0 = seq.to_clock %arg0
+        arc.output %0 : !seq.clock
+      }
+      hw.module @DualClkCallRst(in %clk_a : i1, in %clk_b : i1,
+                                in %rst_n : i1, in %en : i1,
+                                out cnt_a : i8, out cnt_b : i8) {
+        %ctrl:3 = arc.call @ctrl_arc(%rst_n, %en, %clk_a) : (i1, i1, i1) -> (i1, i1, !seq.clock)
+        %cb = arc.call @clk_arc(%clk_b) : (i1) -> !seq.clock
+        %a = arc.state @inc_arc(%a) clock %ctrl#2 enable %ctrl#0 reset %ctrl#1 latency 1 {names = ["cnt_a"]} : (i8) -> i8
+        %b = arc.state @inc_arc(%b) clock %cb reset %rst_n latency 1 {names = ["cnt_b"]} : (i8) -> i8
+        hw.output %a, %b : i8, i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule = module->lookupSymbol<circt::hw::HWModuleOp>("DualClkCallRst");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_dualclkcallrst");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_dualclkcallrst");
+  ASSERT_TRUE(ok) << "GenModel::emit failed for DualClkCallRst";
+
+  std::ifstream cpp_ifs("/tmp/hirct_genmodel_dualclkcallrst/cmodel/DualClkCallRst.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  EXPECT_NE(cpp_content.find("step_clk_a"), std::string::npos);
+  EXPECT_NE(cpp_content.find("step_clk_b"), std::string::npos);
+
+  auto inFnCall = [&](const std::string &src, const std::string &fn,
+                       const std::string &needle) -> bool {
+    auto pos = src.find(fn);
+    if (pos == std::string::npos) return false;
+    auto end = src.find("\n}\n", pos);
+    if (end == std::string::npos) end = src.size();
+    return src.substr(pos, end - pos).find(needle) != std::string::npos;
+  };
+
+  EXPECT_TRUE(inFnCall(cpp_content, "step_clk_a", "arc_rst_"))
+      << "cnt_a reset from arc.call must appear in domain step; generated:\n" << cpp_content;
+  EXPECT_TRUE(inFnCall(cpp_content, "step_clk_a", "arc_en_"))
+      << "cnt_a enable from arc.call must appear in domain step; generated:\n" << cpp_content;
+
+  EXPECT_TRUE(inFnCall(cpp_content, "step_clk_b", "if (rst_n)") ||
+              inFnCall(cpp_content, "step_clk_b", "if (arc_rst_"))
+      << "cnt_b reset from port must appear in domain step; generated:\n" << cpp_content;
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_dualclkcallrst/cmodel "
+      "/tmp/hirct_genmodel_dualclkcallrst/cmodel/DualClkCallRst.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "DualClkCallRst must compile";
+
+  std::system("rm -rf /tmp/hirct_genmodel_dualclkcallrst");
+}
+
+TEST_F(CModelEmitterFixture, GenModel_NestedArcCallChain_MultiClock_DomainStep) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @inner_clk(%arg0: i1) -> !seq.clock {
+        %0 = seq.to_clock %arg0
+        arc.output %0 : !seq.clock
+      }
+      arc.define @outer_clk(%arg0: i1) -> !seq.clock {
+        %0 = arc.call @inner_clk(%arg0) : (i1) -> !seq.clock
+        arc.output %0 : !seq.clock
+      }
+      arc.define @inc_arc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @NestedDualClkGen(in %clk_a : i1, in %clk_b : i1,
+                                   in %rst : i1,
+                                   out cnt_a : i8, out cnt_b : i8) {
+        %ca = arc.call @outer_clk(%clk_a) : (i1) -> !seq.clock
+        %cb = arc.call @outer_clk(%clk_b) : (i1) -> !seq.clock
+        %a = arc.state @inc_arc(%a) clock %ca reset %rst latency 1 {names = ["cnt_a"]} : (i8) -> i8
+        %b = arc.state @inc_arc(%b) clock %cb reset %rst latency 1 {names = ["cnt_b"]} : (i8) -> i8
+        hw.output %a, %b : i8, i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule = module->lookupSymbol<circt::hw::HWModuleOp>("NestedDualClkGen");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_nesteddualclk");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_nesteddualclk");
+  ASSERT_TRUE(ok) << "GenModel::emit failed for NestedDualClkGen";
+
+  std::ifstream cpp_ifs("/tmp/hirct_genmodel_nesteddualclk/cmodel/NestedDualClkGen.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  EXPECT_NE(cpp_content.find("step_clk_a"), std::string::npos)
+      << "nested 2-depth arc.call chain must still produce step_clk_a; got:\n" << cpp_content;
+  EXPECT_NE(cpp_content.find("step_clk_b"), std::string::npos)
+      << "nested 2-depth arc.call chain must still produce step_clk_b; got:\n" << cpp_content;
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_nesteddualclk/cmodel "
+      "/tmp/hirct_genmodel_nesteddualclk/cmodel/NestedDualClkGen.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "NestedDualClkGen must compile";
+
+  std::system("rm -rf /tmp/hirct_genmodel_nesteddualclk");
+}
+
+TEST_F(CModelEmitterFixture, GenModel_NestedMultiResult_ClockChain_Codegen) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @inner_multi(%arg0: i1, %arg1: i1) -> (i1, !seq.clock) {
+        %0 = seq.to_clock %arg1
+        arc.output %arg0, %0 : i1, !seq.clock
+      }
+      arc.define @outer_wrap(%arg0: i1, %arg1: i1) -> (i1, !seq.clock) {
+        %r:2 = arc.call @inner_multi(%arg0, %arg1) : (i1, i1) -> (i1, !seq.clock)
+        arc.output %r#0, %r#1 : i1, !seq.clock
+      }
+      arc.define @inc_arc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @NestedMultiResGen(in %clk_a : i1, in %clk_b : i1,
+                                    in %rst_n : i1,
+                                    out cnt_a : i8, out cnt_b : i8) {
+        %ctrla:2 = arc.call @outer_wrap(%rst_n, %clk_a) : (i1, i1) -> (i1, !seq.clock)
+        %ctrlb:2 = arc.call @outer_wrap(%rst_n, %clk_b) : (i1, i1) -> (i1, !seq.clock)
+        %a = arc.state @inc_arc(%a) clock %ctrla#1 reset %ctrla#0 latency 1 {names = ["cnt_a"]} : (i8) -> i8
+        %b = arc.state @inc_arc(%b) clock %ctrlb#1 reset %ctrlb#0 latency 1 {names = ["cnt_b"]} : (i8) -> i8
+        hw.output %a, %b : i8, i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule = module->lookupSymbol<circt::hw::HWModuleOp>("NestedMultiResGen");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_nestedmultires");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_nestedmultires");
+  ASSERT_TRUE(ok) << "GenModel::emit failed for NestedMultiResGen";
+
+  std::ifstream cpp_ifs("/tmp/hirct_genmodel_nestedmultires/cmodel/NestedMultiResGen.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  EXPECT_NE(cpp_content.find("step_clk_a"), std::string::npos)
+      << "nested multi-result arc.call chain must produce step_clk_a; got:\n" << cpp_content;
+  EXPECT_NE(cpp_content.find("step_clk_b"), std::string::npos)
+      << "nested multi-result arc.call chain must produce step_clk_b; got:\n" << cpp_content;
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_nestedmultires/cmodel "
+      "/tmp/hirct_genmodel_nestedmultires/cmodel/NestedMultiResGen.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "NestedMultiResGen must compile";
+
+  std::system("rm -rf /tmp/hirct_genmodel_nestedmultires");
+}
+
+TEST_F(CModelEmitterFixture, GenModel_CombMuxClockSelection) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @mux_clk(%sel: i1, %a: i1, %b: i1) -> !seq.clock {
+        %m = comb.mux %sel, %a, %b : i1
+        %c = seq.to_clock %m
+        arc.output %c : !seq.clock
+      }
+      arc.define @pass_clk(%arg0: i1) -> !seq.clock {
+        %c = seq.to_clock %arg0
+        arc.output %c : !seq.clock
+      }
+      arc.define @inc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @MuxClkGen(in %sel : i1, in %clk_a : i1, in %clk_b : i1,
+                            out q_mux : i8, out q_b : i8) {
+        %cm = arc.call @mux_clk(%sel, %clk_a, %clk_b) : (i1, i1, i1) -> !seq.clock
+        %cb = arc.call @pass_clk(%clk_b) : (i1) -> !seq.clock
+        %0 = arc.state @inc(%0) clock %cm latency 1 {names = ["cnt_mux"]} : (i8) -> i8
+        %1 = arc.state @inc(%1) clock %cb latency 1 {names = ["cnt_b"]} : (i8) -> i8
+        hw.output %0, %1 : i8, i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule = module->lookupSymbol<circt::hw::HWModuleOp>("MuxClkGen");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_muxclk");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_muxclk");
+  ASSERT_TRUE(ok);
+
+  auto readFile = [](const std::string &path) -> std::string {
+    std::ifstream f(path);
+    return {std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>()};
+  };
+  std::string cpp_content = readFile("/tmp/hirct_genmodel_muxclk/cmodel/MuxClkGen.cpp");
+
+  EXPECT_NE(cpp_content.find("step_clk_a"), std::string::npos)
+      << "mux-selected clock must resolve to the true-side domain clk_a; got:\n"
+      << cpp_content;
+  EXPECT_NE(cpp_content.find("step_clk_b"), std::string::npos)
+      << "direct clk_b state must keep clk_b domain; got:\n" << cpp_content;
+  EXPECT_EQ(cpp_content.find("step_sel"), std::string::npos)
+      << "selector must never become an invented clock domain; got:\n"
+      << cpp_content;
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_muxclk/cmodel "
+      "/tmp/hirct_genmodel_muxclk/cmodel/MuxClkGen.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "MuxClkGen must compile";
+
+  std::system("rm -rf /tmp/hirct_genmodel_muxclk");
+}
+
+TEST_F(CModelEmitterFixture,
+       GenModel_MultiResultNestedMuxChain_UsesTrueSideClockDomain) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @multi_mux_chain(%sel0: i1, %sel1: i1, %a: i1, %b: i1,
+                                  %c: i1) -> (i1, !seq.clock) {
+        %inner = comb.mux %sel1, %a, %b : i1
+        %outer = comb.mux %sel0, %inner, %c : i1
+        %clk = seq.to_clock %outer
+        arc.output %sel0, %clk : i1, !seq.clock
+      }
+      arc.define @pass_clk(%arg0: i1) -> !seq.clock {
+        %clk = seq.to_clock %arg0
+        arc.output %clk : !seq.clock
+      }
+      arc.define @inc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @MultiResMuxChainGen(in %sel0 : i1, in %sel1 : i1,
+                                     in %clk_a : i1, in %clk_b : i1,
+                                     in %clk_c : i1,
+                                     out q_mux : i8, out q_c : i8) {
+        %ctrl:2 = arc.call @multi_mux_chain(%sel0, %sel1, %clk_a, %clk_b, %clk_c)
+                  : (i1, i1, i1, i1, i1) -> (i1, !seq.clock)
+        %cc = arc.call @pass_clk(%clk_c) : (i1) -> !seq.clock
+        %0 = arc.state @inc(%0) clock %ctrl#1 latency 1 {names = ["cnt_mux"]} : (i8) -> i8
+        %1 = arc.state @inc(%1) clock %cc latency 1 {names = ["cnt_c"]} : (i8) -> i8
+        hw.output %0, %1 : i8, i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("MultiResMuxChainGen");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_multires_muxchain");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_multires_muxchain");
+  ASSERT_TRUE(ok);
+
+  std::ifstream cpp_ifs(
+      "/tmp/hirct_genmodel_multires_muxchain/cmodel/MultiResMuxChainGen.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  EXPECT_NE(cpp_content.find("step_clk_a"), std::string::npos)
+      << "multi-result + nested mux chain must use true-side clk_a domain; got:\n"
+      << cpp_content;
+  EXPECT_NE(cpp_content.find("step_clk_c"), std::string::npos)
+      << "direct clk_c state must keep clk_c domain; got:\n" << cpp_content;
+  EXPECT_EQ(cpp_content.find("step_sel"), std::string::npos)
+      << "selector must not appear as a synthetic step domain; got:\n"
+      << cpp_content;
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_multires_muxchain/cmodel "
+      "/tmp/hirct_genmodel_multires_muxchain/cmodel/MultiResMuxChainGen.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "MultiResMuxChainGen must compile";
+
+  std::system("rm -rf /tmp/hirct_genmodel_multires_muxchain");
+}
+
+TEST_F(CModelEmitterFixture,
+       GenModel_UnsupportedTrueArmDoesNotInventClockDomain) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @bad_mux_chain(%sel0: i1, %sel1: i1, %clk_a: i1,
+                                %clk_b: i1) -> !seq.clock {
+        %bad = comb.xor %sel0, %sel1 : i1
+        %inner = comb.mux %sel1, %clk_a, %clk_b : i1
+        %outer = comb.mux %sel0, %bad, %inner : i1
+        %clk = seq.to_clock %outer
+        arc.output %clk : !seq.clock
+      }
+      arc.define @pass_clk(%arg0: i1) -> !seq.clock {
+        %clk = seq.to_clock %arg0
+        arc.output %clk : !seq.clock
+      }
+      arc.define @inc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @BadMuxChainGen(in %sel0 : i1, in %sel1 : i1,
+                                in %clk_a : i1, in %clk_b : i1,
+                                out q_bad : i8, out q_b : i8) {
+        %cbad = arc.call @bad_mux_chain(%sel0, %sel1, %clk_a, %clk_b)
+                : (i1, i1, i1, i1) -> !seq.clock
+        %cb = arc.call @pass_clk(%clk_b) : (i1) -> !seq.clock
+        %0 = arc.state @inc(%0) clock %cbad latency 1 {names = ["cnt_bad"]} : (i8) -> i8
+        %1 = arc.state @inc(%1) clock %cb latency 1 {names = ["cnt_b"]} : (i8) -> i8
+        hw.output %0, %1 : i8, i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule = module->lookupSymbol<circt::hw::HWModuleOp>("BadMuxChainGen");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_badmuxchain");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_badmuxchain");
+  ASSERT_TRUE(ok);
+
+  std::ifstream cpp_ifs(
+      "/tmp/hirct_genmodel_badmuxchain/cmodel/BadMuxChainGen.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  EXPECT_EQ(cpp_content.find("step_sel0"), std::string::npos)
+      << "unsupported true-arm expression must not invent selector clock domain; got:\n"
+      << cpp_content;
+  EXPECT_EQ(cpp_content.find("step_sel1"), std::string::npos)
+      << "unsupported true-arm expression must not invent selector clock domain; got:\n"
+      << cpp_content;
+  EXPECT_EQ(cpp_content.find("step_clk_b"), std::string::npos)
+      << "once an unsupported mux-chain arm appears, codegen must fall back to a single step() boundary; got:\n"
+      << cpp_content;
+  EXPECT_NE(cpp_content.find("void BadMuxChainGen::step()"), std::string::npos)
+      << "unsupported mux-chain boundary must still emit generic step(); got:\n"
+      << cpp_content;
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_badmuxchain/cmodel "
+      "/tmp/hirct_genmodel_badmuxchain/cmodel/BadMuxChainGen.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "BadMuxChainGen must compile";
+
+  std::system("rm -rf /tmp/hirct_genmodel_badmuxchain");
+}
+
+TEST_F(CModelEmitterFixture, GenModel_UnsupportedCombOrClockBoundary) {
+  auto module = parseInline(R"mlir(
+    module {
+      hw.module @CombOrRegBoundary(in %clk_a : i1, in %clk_b : i1, in %d : i8,
+                                   out q_bad : i8, out q_b : i8) {
+        %bad_i1 = comb.or %clk_a, %clk_b : i1
+        %bad_clk = seq.to_clock %bad_i1
+        %clk_b_only = seq.to_clock %clk_b
+        %reg_bad = seq.compreg %d, %bad_clk : i8
+        %reg_b = seq.compreg %d, %clk_b_only : i8
+        hw.output %reg_bad, %reg_b : i8, i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("CombOrRegBoundary");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_combor_boundary");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_combor_boundary");
+  ASSERT_TRUE(ok);
+
+  std::ifstream cpp_ifs(
+      "/tmp/hirct_genmodel_combor_boundary/cmodel/CombOrRegBoundary.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  EXPECT_EQ(cpp_content.find("void CombOrRegBoundary::step_clk_a()"),
+            std::string::npos)
+      << "unsupported comb.or clock must not fall back to operand-0 domain; got:\n"
+      << cpp_content;
+  EXPECT_EQ(cpp_content.find("void CombOrRegBoundary::step_clk_b()"),
+            std::string::npos)
+      << "unsupported comb.or clock must force generic boundary instead of per-domain step; got:\n"
+      << cpp_content;
+  EXPECT_EQ(cpp_content.find("void CombOrRegBoundary::step_()"),
+            std::string::npos)
+      << "unsupported comb.or clock must not create empty-name step domain; got:\n"
+      << cpp_content;
+  EXPECT_NE(cpp_content.find("void CombOrRegBoundary::step()"),
+            std::string::npos)
+      << "unsupported comb.or clock must still emit generic step(); got:\n"
+      << cpp_content;
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_combor_boundary/cmodel "
+      "/tmp/hirct_genmodel_combor_boundary/cmodel/CombOrRegBoundary.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "CombOrRegBoundary must compile";
+
+  std::system("rm -rf /tmp/hirct_genmodel_combor_boundary");
+}
+
+TEST_F(CModelEmitterFixture, GenModel_UnsupportedCombAndClockBoundary) {
+  auto module = parseInline(R"mlir(
+    module {
+      hw.module @CombAndRegBoundary(in %clk_a : i1, in %clk_b : i1, in %d : i8,
+                                    out q_bad : i8, out q_b : i8) {
+        %bad_i1 = comb.and %clk_a, %clk_b : i1
+        %bad_clk = seq.to_clock %bad_i1
+        %clk_b_only = seq.to_clock %clk_b
+        %reg_bad = seq.compreg %d, %bad_clk : i8
+        %reg_b = seq.compreg %d, %clk_b_only : i8
+        hw.output %reg_bad, %reg_b : i8, i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("CombAndRegBoundary");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_comband_boundary");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_comband_boundary");
+  ASSERT_TRUE(ok);
+
+  std::ifstream cpp_ifs(
+      "/tmp/hirct_genmodel_comband_boundary/cmodel/CombAndRegBoundary.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  EXPECT_EQ(cpp_content.find("void CombAndRegBoundary::step_clk_a()"),
+            std::string::npos)
+      << "unsupported comb.and clock must not fall back to operand-0 domain; got:\n"
+      << cpp_content;
+  EXPECT_EQ(cpp_content.find("void CombAndRegBoundary::step_clk_b()"),
+            std::string::npos)
+      << "unsupported comb.and clock must force generic boundary instead of per-domain step; got:\n"
+      << cpp_content;
+  EXPECT_EQ(cpp_content.find("void CombAndRegBoundary::step_()"),
+            std::string::npos)
+      << "unsupported comb.and clock must not create empty-name step domain; got:\n"
+      << cpp_content;
+  EXPECT_NE(cpp_content.find("void CombAndRegBoundary::step()"),
+            std::string::npos)
+      << "unsupported comb.and clock must still emit generic step(); got:\n"
+      << cpp_content;
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_comband_boundary/cmodel "
+      "/tmp/hirct_genmodel_comband_boundary/cmodel/CombAndRegBoundary.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "CombAndRegBoundary must compile";
+
+  std::system("rm -rf /tmp/hirct_genmodel_comband_boundary");
+}
+
+TEST_F(CModelEmitterFixture, GenModel_UnsupportedCombXorClockBoundary) {
+  auto module = parseInline(R"mlir(
+    module {
+      hw.module @CombXorRegBoundary(in %clk_a : i1, in %clk_b : i1, in %d : i8,
+                                    out q_bad : i8, out q_b : i8) {
+        %bad_i1 = comb.xor %clk_a, %clk_b : i1
+        %bad_clk = seq.to_clock %bad_i1
+        %clk_b_only = seq.to_clock %clk_b
+        %reg_bad = seq.compreg %d, %bad_clk : i8
+        %reg_b = seq.compreg %d, %clk_b_only : i8
+        hw.output %reg_bad, %reg_b : i8, i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("CombXorRegBoundary");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_combxor_boundary");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_combxor_boundary");
+  ASSERT_TRUE(ok);
+
+  std::ifstream cpp_ifs(
+      "/tmp/hirct_genmodel_combxor_boundary/cmodel/CombXorRegBoundary.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  EXPECT_EQ(cpp_content.find("void CombXorRegBoundary::step_clk_a()"),
+            std::string::npos)
+      << "unsupported comb.xor clock must not fall back to operand-0 domain; got:\n"
+      << cpp_content;
+  EXPECT_EQ(cpp_content.find("void CombXorRegBoundary::step_clk_b()"),
+            std::string::npos)
+      << "unsupported comb.xor clock must force generic boundary instead of per-domain step; got:\n"
+      << cpp_content;
+  EXPECT_EQ(cpp_content.find("void CombXorRegBoundary::step_()"),
+            std::string::npos)
+      << "unsupported comb.xor clock must not create empty-name step domain; got:\n"
+      << cpp_content;
+  EXPECT_NE(cpp_content.find("void CombXorRegBoundary::step()"),
+            std::string::npos)
+      << "unsupported comb.xor clock must still emit generic step(); got:\n"
+      << cpp_content;
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_combxor_boundary/cmodel "
+      "/tmp/hirct_genmodel_combxor_boundary/cmodel/CombXorRegBoundary.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "CombXorRegBoundary must compile";
+
+  std::system("rm -rf /tmp/hirct_genmodel_combxor_boundary");
+}
+
+TEST_F(CModelEmitterFixture, GenModel_MultiClock_ArcState_RuntimeBehavior) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @inc_arc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      arc.define @clk_arc(%arg0: i1) -> !seq.clock {
+        %0 = seq.to_clock %arg0
+        arc.output %0 : !seq.clock
+      }
+      hw.module @DualClkRstRun(in %clk_a : i1, in %clk_b : i1, in %rst : i1,
+                               out cnt_a : i8, out cnt_b : i8) {
+        %ca = arc.call @clk_arc(%clk_a) : (i1) -> !seq.clock
+        %cb = arc.call @clk_arc(%clk_b) : (i1) -> !seq.clock
+        %a = arc.state @inc_arc(%a) clock %ca reset %rst latency 1 {names = ["cnt_a"]} : (i8) -> i8
+        %b = arc.state @inc_arc(%b) clock %cb reset %rst latency 1 {names = ["cnt_b"]} : (i8) -> i8
+        hw.output %a, %b : i8, i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule = module->lookupSymbol<circt::hw::HWModuleOp>("DualClkRstRun");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_dualclkrstrun");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_dualclkrstrun");
+  ASSERT_TRUE(ok);
+
+  std::string driver = R"(
+#include "DualClkRstRun.h"
+#include <cassert>
+int main() {
+  DualClkRstRun dut;
+  dut.do_reset();
+
+  // rst=0, step domain A 3 times
+  dut.rst = 0;
+  dut.step_clk_a(); dut.step_clk_a(); dut.step_clk_a();
+  assert(dut.cnt_a == 3 && "cnt_a should be 3 after 3 clk_a steps");
+
+  // step domain B twice
+  dut.step_clk_b(); dut.step_clk_b();
+  assert(dut.cnt_b == 2 && "cnt_b should be 2 after 2 clk_b steps");
+
+  // assert rst -> cnt_a back to 0
+  dut.rst = 1;
+  dut.step_clk_a();
+  assert(dut.cnt_a == 0 && "cnt_a must be 0 after reset");
+
+  // cnt_b should also reset when stepping its domain
+  dut.step_clk_b();
+  assert(dut.cnt_b == 0 && "cnt_b must be 0 after reset on clk_b step");
+
+  // release reset and count again
+  dut.rst = 0;
+  dut.step_clk_a();
+  assert(dut.cnt_a == 1 && "cnt_a should resume counting");
+  dut.step_clk_b();
+  assert(dut.cnt_b == 1 && "cnt_b should resume counting");
+
+  return 0;
+}
+)";
+  {
+    std::ofstream drv("/tmp/hirct_genmodel_dualclkrstrun/driver.cpp");
+    drv << driver;
+  }
+
+  int rc = std::system(
+      "c++ -std=c++17 -o /tmp/hirct_genmodel_dualclkrstrun/test "
+      "-I/tmp/hirct_genmodel_dualclkrstrun/cmodel "
+      "/tmp/hirct_genmodel_dualclkrstrun/cmodel/DualClkRstRun.cpp "
+      "/tmp/hirct_genmodel_dualclkrstrun/driver.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "DualClkRstRun must compile with driver";
+
+  if (rc == 0) {
+    int run_rc = std::system("/tmp/hirct_genmodel_dualclkrstrun/test");
+    EXPECT_EQ(run_rc, 0) << "DualClkRstRun runtime assertions failed";
+  }
+
+  std::system("rm -rf /tmp/hirct_genmodel_dualclkrstrun");
+}
+
+TEST_F(CModelEmitterFixture, GenModel_BoundaryCommentEmittedForCombOr) {
+  auto module = parseInline(R"mlir(
+    module {
+      hw.module @BoundaryCommentOr(in %clk_a : i1, in %clk_b : i1, in %d : i8,
+                                   out q : i8) {
+        %bad_i1 = comb.or %clk_a, %clk_b : i1
+        %bad_clk = seq.to_clock %bad_i1
+        %reg = seq.compreg %d, %bad_clk : i8
+        hw.output %reg : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("BoundaryCommentOr");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_boundary_comment");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_boundary_comment");
+  ASSERT_TRUE(ok);
+
+  std::ifstream cpp_ifs(
+      "/tmp/hirct_genmodel_boundary_comment/cmodel/BoundaryCommentOr.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  EXPECT_NE(cpp_content.find("BOUNDARY"), std::string::npos)
+      << "unsupported comb-clock boundary must emit BOUNDARY comment; got:\n"
+      << cpp_content;
+  EXPECT_NE(cpp_content.find("generic step()"), std::string::npos)
+      << "boundary comment must mention generic step(); got:\n"
+      << cpp_content;
+
+  std::system("rm -rf /tmp/hirct_genmodel_boundary_comment");
 }
 
 } // namespace

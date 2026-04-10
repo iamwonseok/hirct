@@ -91,6 +91,24 @@ llvm::StringRef stringifyRejectCode(RejectCode code) {
   llvm_unreachable("covered switch");
 }
 
+llvm::StringRef stringifyClockBoundaryKind(ClockBoundaryKind kind) {
+  switch (kind) {
+  case ClockBoundaryKind::CombOr:
+    return "comb.or";
+  case ClockBoundaryKind::CombAnd:
+    return "comb.and";
+  case ClockBoundaryKind::CombXor:
+    return "comb.xor";
+  case ClockBoundaryKind::CombOther:
+    return "comb.other";
+  case ClockBoundaryKind::ClockGate:
+    return "seq.clock_gate";
+  case ClockBoundaryKind::MuxTrueUnresolved:
+    return "comb.mux";
+  }
+  llvm_unreachable("covered switch");
+}
+
 llvm::StringRef stringifyUpdateStyle(UpdateStyle style) {
   switch (style) {
   case UpdateStyle::FullReplace:

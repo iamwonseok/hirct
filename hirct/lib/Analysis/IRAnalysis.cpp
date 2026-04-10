@@ -1,4 +1,6 @@
 #include "hirct/Analysis/IRAnalysis.h"
+#include "circt/Dialect/Arc/ArcOps.h"
+#include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/HW/HWOps.h"
 #include "circt/Dialect/HW/HWTypes.h"
 #include "circt/Dialect/Seq/SeqOps.h"
@@ -169,25 +171,201 @@ std::vector<RegisterView> collect_registers(circt::hw::HWModuleOp module) {
 // B-4: Clock domain analysis — trace clock to port
 namespace {
 
-unsigned trace_clock_to_port(mlir::Value clk) {
-  mlir::Value current = clk;
-  while (current) {
-    if (auto arg = mlir::dyn_cast<mlir::BlockArgument>(current))
-      return arg.getArgNumber();
-    auto *def_op = current.getDefiningOp();
-    if (!def_op)
-      break;
-    if (auto to_clk = mlir::dyn_cast<circt::seq::ToClockOp>(def_op)) {
-      current = to_clk.getInput();
-      continue;
-    }
-    if (def_op->getNumOperands() > 0) {
-      current = def_op->getOperand(0);
-      continue;
-    }
-    break;
+struct ClockTracePathGuard {
+  llvm::SmallPtrSetImpl<mlir::Operation *> &path;
+  mlir::Operation *op;
+  bool active;
+
+  ClockTracePathGuard(llvm::SmallPtrSetImpl<mlir::Operation *> &path,
+                      mlir::Operation *op)
+      : path(path), op(op), active(op && path.insert(op).second) {}
+
+  ~ClockTracePathGuard() {
+    if (active)
+      path.erase(op);
   }
-  return ~0u;
+};
+
+static ClockTraceResult traceClockValueToPort(
+    mlir::Value val, circt::hw::HWModuleOp module, mlir::ModuleOp mlir_module,
+    const std::vector<PortView> &input_ports,
+    llvm::SmallPtrSetImpl<mlir::Operation *> &path, unsigned depth);
+
+struct ResolvedClockExpr {
+  mlir::Value value;
+  bool hit_boundary = false;
+  std::string boundary_op_name;
+};
+
+static ResolvedClockExpr resolveArcBodyValueInCallerContext(
+    mlir::Value val, circt::arc::CallOp caller,
+    llvm::SmallPtrSetImpl<mlir::Operation *> &path, unsigned depth);
+
+static ClockTraceResult makeBoundaryResult(llvm::StringRef opName = "") {
+  ClockTraceResult result;
+  result.hit_boundary = true;
+  result.boundary_op_name = opName.str();
+  return result;
+}
+
+static bool isUnsupportedClockBoundaryOp(mlir::Operation *op) {
+  if (!op)
+    return false;
+  if (mlir::isa<circt::seq::ToClockOp, circt::comb::MuxOp,
+                circt::arc::CallOp>(op))
+    return false;
+  if (op->getName().getStringRef() == "seq.clock_gate")
+    return true;
+  auto *dialect = op->getDialect();
+  return dialect && dialect->getNamespace() == "comb";
+}
+
+static ResolvedClockExpr resolveArcOutputToCallerInput(
+    circt::arc::CallOp call, unsigned res_idx,
+    llvm::SmallPtrSetImpl<mlir::Operation *> &path, unsigned depth) {
+  constexpr unsigned kMaxDepth = 16;
+  if (depth > kMaxDepth)
+    return ResolvedClockExpr{};
+  auto *sym = mlir::SymbolTable::lookupNearestSymbolFrom(
+      call, call.getArcAttr().getAttr());
+  auto defOp = mlir::dyn_cast_or_null<circt::arc::DefineOp>(sym);
+  if (!defOp || defOp.getBody().empty())
+    return ResolvedClockExpr{};
+  auto outOp = mlir::dyn_cast<circt::arc::OutputOp>(
+      defOp.getBody().front().getTerminator());
+  if (!outOp || res_idx >= outOp.getOutputs().size())
+    return ResolvedClockExpr{};
+  return resolveArcBodyValueInCallerContext(outOp.getOutputs()[res_idx], call,
+                                            path, depth);
+}
+
+static ResolvedClockExpr resolveArcBodyValueInCallerContext(
+    mlir::Value val, circt::arc::CallOp caller,
+    llvm::SmallPtrSetImpl<mlir::Operation *> &path, unsigned depth) {
+  constexpr unsigned kMaxDepth = 16;
+  if (depth > kMaxDepth)
+    return ResolvedClockExpr{};
+
+  if (auto arg = mlir::dyn_cast<mlir::BlockArgument>(val)) {
+    unsigned argIdx = arg.getArgNumber();
+    if (argIdx < caller.getInputs().size())
+      return {caller.getInputs()[argIdx], false};
+    return ResolvedClockExpr{};
+  }
+
+  auto *defOp = val.getDefiningOp();
+  if (!defOp)
+    return ResolvedClockExpr{};
+  ClockTracePathGuard guard(path, defOp);
+  if (!guard.active)
+    return ResolvedClockExpr{};
+
+  if (auto toClk = mlir::dyn_cast<circt::seq::ToClockOp>(defOp))
+    return resolveArcBodyValueInCallerContext(toClk.getInput(), caller, path,
+                                              depth + 1);
+
+  if (auto mux = mlir::dyn_cast<circt::comb::MuxOp>(defOp)) {
+    auto trueTrace = resolveArcBodyValueInCallerContext(mux.getTrueValue(),
+                                                        caller, path,
+                                                        depth + 1);
+    if (trueTrace.value)
+      return trueTrace;
+    auto falseTrace = resolveArcBodyValueInCallerContext(mux.getFalseValue(),
+                                                         caller, path,
+                                                         depth + 1);
+    if (trueTrace.hit_boundary || falseTrace.hit_boundary ||
+        falseTrace.value) {
+      std::string reason = "comb.mux";
+      if (trueTrace.hit_boundary && !trueTrace.boundary_op_name.empty())
+        reason = trueTrace.boundary_op_name;
+      return {{}, true, reason};
+    }
+    return ResolvedClockExpr{};
+  }
+
+  if (auto innerCall = mlir::dyn_cast<circt::arc::CallOp>(defOp)) {
+    unsigned innerResIdx =
+        mlir::cast<mlir::OpResult>(val).getResultNumber();
+    auto resolved =
+        resolveArcOutputToCallerInput(innerCall, innerResIdx, path, depth + 1);
+    if (resolved.value)
+      return resolveArcBodyValueInCallerContext(resolved.value, caller, path,
+                                                depth + 1);
+    return resolved;
+  }
+
+  if (isUnsupportedClockBoundaryOp(defOp))
+    return {{}, true, defOp->getName().getStringRef().str()};
+
+  return ResolvedClockExpr{};
+}
+
+static ClockTraceResult traceClockValueToPort(
+    mlir::Value val, circt::hw::HWModuleOp module, mlir::ModuleOp mlir_module,
+    const std::vector<PortView> &input_ports,
+    llvm::SmallPtrSetImpl<mlir::Operation *> &path, unsigned depth) {
+  constexpr unsigned kMaxDepth = 16;
+  if (depth > kMaxDepth)
+    return ClockTraceResult{};
+
+  if (auto arg = mlir::dyn_cast<mlir::BlockArgument>(val)) {
+    if (arg.getOwner() == module.getBodyBlock() &&
+        arg.getArgNumber() < input_ports.size()) {
+      ClockTraceResult result;
+      result.port_index = arg.getArgNumber();
+      result.clock_port_name = input_ports[result.port_index].name;
+      return result;
+    }
+    return ClockTraceResult{};
+  }
+
+  auto *defOp = val.getDefiningOp();
+  if (!defOp)
+    return ClockTraceResult{};
+  ClockTracePathGuard guard(path, defOp);
+  if (!guard.active)
+    return ClockTraceResult{};
+
+  if (auto toClk = mlir::dyn_cast<circt::seq::ToClockOp>(defOp))
+    return traceClockValueToPort(toClk.getInput(), module, mlir_module,
+                                 input_ports, path, depth + 1);
+
+  if (auto mux = mlir::dyn_cast<circt::comb::MuxOp>(defOp)) {
+    auto trueTrace = traceClockValueToPort(mux.getTrueValue(), module,
+                                           mlir_module, input_ports, path,
+                                           depth + 1);
+    if (trueTrace.isResolved())
+      return trueTrace;
+    auto falseTrace = traceClockValueToPort(mux.getFalseValue(), module,
+                                            mlir_module, input_ports, path,
+                                            depth + 1);
+    if (trueTrace.hit_boundary || falseTrace.hit_boundary ||
+        falseTrace.isResolved()) {
+      std::string reason = "comb.mux";
+      if (trueTrace.hit_boundary && !trueTrace.boundary_op_name.empty())
+        reason = trueTrace.boundary_op_name;
+      return makeBoundaryResult(reason);
+    }
+    return ClockTraceResult{};
+  }
+
+  if (auto call = mlir::dyn_cast<circt::arc::CallOp>(defOp)) {
+    unsigned resIdx = mlir::cast<mlir::OpResult>(val).getResultNumber();
+    auto resolved =
+        resolveArcOutputToCallerInput(call, resIdx, path, depth + 1);
+    if (resolved.value)
+      return traceClockValueToPort(resolved.value, module, mlir_module,
+                                   input_ports, path, depth + 1);
+    if (resolved.hit_boundary) {
+      return makeBoundaryResult(resolved.boundary_op_name);
+    }
+    return ClockTraceResult{};
+  }
+
+  if (isUnsupportedClockBoundaryOp(defOp))
+    return makeBoundaryResult(defOp->getName().getStringRef());
+
+  return ClockTraceResult{};
 }
 
 // 특정 모듈의 port_idx번째 입력이 clock으로 구동하는 레지스터 수를 재귀 탐색으로 계산.
@@ -241,6 +419,14 @@ static unsigned count_clock_registers_through_instances(
 
 } // namespace
 
+ClockTraceResult trace_clock_result(mlir::Value clk, circt::hw::HWModuleOp module,
+                                    mlir::ModuleOp mlir_module) {
+  auto input_ports = get_input_ports(module);
+  llvm::SmallPtrSet<mlir::Operation *, 16> path;
+  return traceClockValueToPort(clk, module, mlir_module, input_ports, path,
+                               /*depth=*/0);
+}
+
 ClockDomainMapView build_clock_domain_map(circt::hw::HWModuleOp module,
                                           mlir::ModuleOp mlir_module) {
   ClockDomainMapView result;
@@ -250,10 +436,15 @@ ClockDomainMapView build_clock_domain_map(circt::hw::HWModuleOp module,
   // Step A: 현재 모듈 내 레지스터 기반 분석 (기존 방식 유지)
   std::map<unsigned, ClockDomainView> domain_map;
   for (auto &reg : registers) {
-    unsigned port_idx = trace_clock_to_port(reg.clock);
+    auto trace = trace_clock_result(reg.clock, module, mlir_module);
+    if (!trace.isResolved()) {
+      result.has_unsupported_clock_boundary |= trace.hit_boundary;
+      continue;
+    }
+    unsigned port_idx = trace.port_index;
     auto &domain = domain_map[port_idx];
-    if (domain.clock_port_name.empty() && port_idx < input_ports.size()) {
-      domain.clock_port_name = input_ports[port_idx].name;
+    if (domain.clock_port_name.empty()) {
+      domain.clock_port_name = trace.clock_port_name;
       domain.clock_port_index = port_idx;
     }
     domain.reg_count++;
@@ -286,7 +477,12 @@ ClockDomainMapView build_clock_domain_map(circt::hw::HWModuleOp module,
   module.walk([&](circt::hw::InstanceOp inst) {
     std::set<unsigned> matched_domains;
     for (auto operand : inst.getOperands()) {
-      unsigned port_idx = trace_clock_to_port(operand);
+      auto trace = trace_clock_result(operand, module, mlir_module);
+      if (!trace.isResolved()) {
+        result.has_unsupported_clock_boundary |= trace.hit_boundary;
+        continue;
+      }
+      unsigned port_idx = trace.port_index;
       if (port_idx != ~0u && domain_map.count(port_idx) &&
           matched_domains.insert(port_idx).second) {
         domain_map[port_idx].instances.push_back(inst);
@@ -294,18 +490,41 @@ ClockDomainMapView build_clock_domain_map(circt::hw::HWModuleOp module,
     }
   });
 
+  // arc::StateOp를 클록 도메인별로 수집 (도메인이 없으면 생성)
+  module.walk([&](circt::arc::StateOp state) {
+    mlir::Value clk = state.getClock();
+    if (!clk)
+      return;
+    auto trace = trace_clock_result(clk, module, mlir_module);
+    if (!trace.isResolved()) {
+      result.has_unsupported_clock_boundary |= trace.hit_boundary;
+      return;
+    }
+    unsigned port_idx = trace.port_index;
+    auto &domain = domain_map[port_idx];
+    if (domain.clock_port_name.empty()) {
+      domain.clock_port_name = trace.clock_port_name;
+      domain.clock_port_index = port_idx;
+    }
+    domain.arc_states.push_back(state);
+  });
+
   // reg_count 내림차순 정렬 → primary clock(레지스터 수 많은 것)이 domains[0]
   std::vector<std::pair<unsigned, ClockDomainView>> sorted;
   sorted.reserve(domain_map.size());
-  for (auto &[idx, domain] : domain_map)
-    sorted.push_back({domain.reg_count, std::move(domain)});
+  for (auto &[idx, domain] : domain_map) {
+    unsigned weight = domain.reg_count +
+                      static_cast<unsigned>(domain.arc_states.size());
+    sorted.push_back({weight, std::move(domain)});
+  }
   std::sort(sorted.begin(), sorted.end(),
             [](const auto &a, const auto &b) { return a.first > b.first; });
 
   for (auto &[cnt, domain] : sorted)
     result.domains.push_back(std::move(domain));
 
-  result.is_multi_clock = result.domains.size() > 1;
+  result.is_multi_clock =
+      !result.has_unsupported_clock_boundary && result.domains.size() > 1;
   return result;
 }
 

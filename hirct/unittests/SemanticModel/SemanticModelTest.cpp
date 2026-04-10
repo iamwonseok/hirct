@@ -1193,4 +1193,859 @@ TEST_F(SemanticModelFixture, WideInternalStateStillRejected) {
   EXPECT_TRUE(hasWidthReject) << "internal state >64-bit must still be rejected";
 }
 
+// ---------------------------------------------------------------------------
+// Async reset-like arc.state: reset from arc.call result
+// ---------------------------------------------------------------------------
+
+TEST_F(SemanticModelFixture, ArcStateResetFromArcCallResult) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @split_arc(%arg0: i1, %arg1: i1, %arg2: i1) -> (i1, !seq.clock) {
+        %0 = comb.xor %arg0, %arg1 : i1
+        %1 = seq.to_clock %arg2
+        arc.output %0, %1 : i1, !seq.clock
+      }
+      arc.define @inc_arc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @RstFromCall(in %rst_n : i1, in %clk : i1,
+                             out cnt : i8) {
+        %true = hw.constant true
+        %cr:2 = arc.call @split_arc(%rst_n, %true, %clk) : (i1, i1, i1) -> (i1, !seq.clock)
+        %0 = arc.state @inc_arc(%0) clock %cr#1 reset %cr#0 latency 1 {names = ["cnt_reg"]} : (i8) -> i8
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "RstFromCall");
+  ASSERT_TRUE(succeeded(model));
+
+  ASSERT_EQ(model->stateVars.size(), 1u);
+  auto &sv = model->stateVars[0];
+  EXPECT_EQ(sv.stableName, "cnt_reg");
+  EXPECT_TRUE(sv.hasReset)
+      << "arc.state with reset attr must report hasReset";
+  EXPECT_TRUE(sv.resetRef.has_value())
+      << "reset ref must be populated even when reset comes from arc.call";
+}
+
+TEST_F(SemanticModelFixture, ArcStateEnableResetFromMultiResultCall) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @ctrl_arc(%arg0: i1, %arg1: i1, %arg2: i1) -> (i1, i1, !seq.clock) {
+        %0 = comb.xor %arg0, %arg1 : i1
+        %1 = seq.to_clock %arg2
+        arc.output %arg1, %0, %1 : i1, i1, !seq.clock
+      }
+      arc.define @inc_arc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @EnRstMulti(in %rst_n : i1, in %en : i1, in %clk : i1,
+                            out cnt : i8) {
+        %ctrl:3 = arc.call @ctrl_arc(%rst_n, %en, %clk) : (i1, i1, i1) -> (i1, i1, !seq.clock)
+        %0 = arc.state @inc_arc(%0) clock %ctrl#2 enable %ctrl#0 reset %ctrl#1 latency 1 {names = ["cnt_reg"]} : (i8) -> i8
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "EnRstMulti");
+  ASSERT_TRUE(succeeded(model));
+
+  ASSERT_EQ(model->stateVars.size(), 1u);
+  auto &sv = model->stateVars[0];
+  EXPECT_EQ(sv.stableName, "cnt_reg");
+  EXPECT_TRUE(sv.hasEnable)
+      << "arc.state with enable from arc.call result must report hasEnable";
+  EXPECT_TRUE(sv.hasReset)
+      << "arc.state with reset from arc.call result must report hasReset";
+  EXPECT_TRUE(sv.enableRef.has_value());
+  EXPECT_TRUE(sv.resetRef.has_value());
+  EXPECT_FALSE(sv.enableRef->isBlockArg())
+      << "enable from arc.call result is not a block arg";
+  EXPECT_FALSE(sv.resetRef->isBlockArg())
+      << "reset from arc.call result is not a block arg";
+}
+
+// ---------------------------------------------------------------------------
+// Nested arc.call chain clock tracing regression
+// ---------------------------------------------------------------------------
+
+TEST_F(SemanticModelFixture, NestedArcCallChainClockTracing) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @inner_clk(%arg0: i1) -> !seq.clock {
+        %0 = seq.to_clock %arg0
+        arc.output %0 : !seq.clock
+      }
+      arc.define @outer_clk(%arg0: i1) -> !seq.clock {
+        %0 = arc.call @inner_clk(%arg0) : (i1) -> !seq.clock
+        arc.output %0 : !seq.clock
+      }
+      arc.define @inc_arc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @NestedClk2(in %clk : i1, in %d : i8, out q : i8) {
+        %c = arc.call @outer_clk(%clk) : (i1) -> !seq.clock
+        %0 = arc.state @inc_arc(%0) clock %c latency 1 {names = ["cnt_reg"]} : (i8) -> i8
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "NestedClk2");
+  ASSERT_TRUE(succeeded(model));
+
+  ASSERT_EQ(model->clockDomains.size(), 1u);
+  EXPECT_EQ(model->clockDomains[0], "clk")
+      << "2-depth nested arc.call chain must trace clock back to port 'clk'";
+  ASSERT_EQ(model->stateVars.size(), 1u);
+  EXPECT_EQ(model->stateVars[0].clockDomain, "clk");
+}
+
+TEST_F(SemanticModelFixture, NestedArcCallMultiClockDomainAssignment) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @inner_clk(%arg0: i1) -> !seq.clock {
+        %0 = seq.to_clock %arg0
+        arc.output %0 : !seq.clock
+      }
+      arc.define @outer_clk(%arg0: i1) -> !seq.clock {
+        %0 = arc.call @inner_clk(%arg0) : (i1) -> !seq.clock
+        arc.output %0 : !seq.clock
+      }
+      arc.define @inc_arc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @NestedDualClk(in %clk_a : i1, in %clk_b : i1, in %d : i8,
+                                out qa : i8, out qb : i8) {
+        %ca = arc.call @outer_clk(%clk_a) : (i1) -> !seq.clock
+        %cb = arc.call @outer_clk(%clk_b) : (i1) -> !seq.clock
+        %a = arc.state @inc_arc(%a) clock %ca latency 1 {names = ["reg_a"]} : (i8) -> i8
+        %b = arc.state @inc_arc(%b) clock %cb latency 1 {names = ["reg_b"]} : (i8) -> i8
+        hw.output %a, %b : i8, i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "NestedDualClk");
+  ASSERT_TRUE(succeeded(model));
+
+  ASSERT_EQ(model->clockDomains.size(), 2u)
+      << "nested arc.call chain must still detect 2 distinct clock domains";
+
+  bool has_clk_a = false, has_clk_b = false;
+  for (const auto &d : model->clockDomains) {
+    if (d == "clk_a") has_clk_a = true;
+    if (d == "clk_b") has_clk_b = true;
+  }
+  EXPECT_TRUE(has_clk_a) << "domain for clk_a must exist";
+  EXPECT_TRUE(has_clk_b) << "domain for clk_b must exist";
+
+  for (const auto &sv : model->stateVars) {
+    if (sv.stableName == "reg_a")
+      EXPECT_EQ(sv.clockDomain, "clk_a") << "reg_a must be in clk_a domain";
+    if (sv.stableName == "reg_b")
+      EXPECT_EQ(sv.clockDomain, "clk_b") << "reg_b must be in clk_b domain";
+  }
+}
+
+TEST_F(SemanticModelFixture, TripleNestedArcCallChainClockTracing) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @level0(%arg0: i1) -> !seq.clock {
+        %0 = seq.to_clock %arg0
+        arc.output %0 : !seq.clock
+      }
+      arc.define @level1(%arg0: i1) -> !seq.clock {
+        %0 = arc.call @level0(%arg0) : (i1) -> !seq.clock
+        arc.output %0 : !seq.clock
+      }
+      arc.define @level2(%arg0: i1) -> !seq.clock {
+        %0 = arc.call @level1(%arg0) : (i1) -> !seq.clock
+        arc.output %0 : !seq.clock
+      }
+      arc.define @inc_arc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @TripleNested(in %clk : i1, out q : i8) {
+        %c = arc.call @level2(%clk) : (i1) -> !seq.clock
+        %0 = arc.state @inc_arc(%0) clock %c latency 1 {names = ["cnt"]} : (i8) -> i8
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "TripleNested");
+  ASSERT_TRUE(succeeded(model));
+
+  ASSERT_EQ(model->clockDomains.size(), 1u);
+  EXPECT_EQ(model->clockDomains[0], "clk")
+      << "3-depth nested arc.call chain must trace back to 'clk'";
+}
+
+TEST_F(SemanticModelFixture, NestedMultiResultArcCallClockTracing) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @inner_multi(%arg0: i1, %arg1: i1) -> (i1, !seq.clock) {
+        %0 = seq.to_clock %arg1
+        arc.output %arg0, %0 : i1, !seq.clock
+      }
+      arc.define @outer_wrap(%arg0: i1, %arg1: i1) -> (i1, !seq.clock) {
+        %r:2 = arc.call @inner_multi(%arg0, %arg1) : (i1, i1) -> (i1, !seq.clock)
+        arc.output %r#0, %r#1 : i1, !seq.clock
+      }
+      arc.define @inc_arc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @NestedMultiRes(in %rst_n : i1, in %clk : i1, out q : i8) {
+        %ctrl:2 = arc.call @outer_wrap(%rst_n, %clk) : (i1, i1) -> (i1, !seq.clock)
+        %0 = arc.state @inc_arc(%0) clock %ctrl#1 reset %ctrl#0 latency 1 {names = ["cnt"]} : (i8) -> i8
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "NestedMultiRes");
+  ASSERT_TRUE(succeeded(model));
+
+  ASSERT_EQ(model->clockDomains.size(), 1u);
+  EXPECT_EQ(model->clockDomains[0], "clk")
+      << "nested multi-result arc.call must trace clock#1 back to port 'clk'";
+  ASSERT_EQ(model->stateVars.size(), 1u);
+  EXPECT_EQ(model->stateVars[0].clockDomain, "clk");
+}
+
+// ---------------------------------------------------------------------------
+// Comb-based clock selection boundary tests
+// ---------------------------------------------------------------------------
+
+TEST_F(SemanticModelFixture, CombMuxClockSelection_SingleDomain) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @mux_clk(%sel: i1, %a: i1, %b: i1) -> !seq.clock {
+        %m = comb.mux %sel, %a, %b : i1
+        %c = seq.to_clock %m
+        arc.output %c : !seq.clock
+      }
+      arc.define @inc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @MuxClkSingle(in %sel : i1, in %clk_a : i1, in %clk_b : i1,
+                               out q : i8) {
+        %c = arc.call @mux_clk(%sel, %clk_a, %clk_b) : (i1, i1, i1) -> !seq.clock
+        %0 = arc.state @inc(%0) clock %c latency 1 {names = ["cnt"]} : (i8) -> i8
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "MuxClkSingle");
+  ASSERT_TRUE(succeeded(model));
+
+  ASSERT_EQ(model->stateVars.size(), 1u);
+  EXPECT_FALSE(model->stateVars[0].clockDomain.empty())
+      << "comb.mux clock selection must resolve to a non-empty clock domain";
+  EXPECT_TRUE(model->stateVars[0].clockDomain == "clk_a" ||
+              model->stateVars[0].clockDomain == "clk_b")
+      << "comb.mux clock should resolve to one of the mux input ports (clk_a or clk_b), "
+         "not the selector; got: " << model->stateVars[0].clockDomain;
+}
+
+TEST_F(SemanticModelFixture, CombMuxClockSelection_MultiClock) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @mux_clk(%sel: i1, %a: i1, %b: i1) -> !seq.clock {
+        %m = comb.mux %sel, %a, %b : i1
+        %c = seq.to_clock %m
+        arc.output %c : !seq.clock
+      }
+      arc.define @pass_clk(%arg0: i1) -> !seq.clock {
+        %c = seq.to_clock %arg0
+        arc.output %c : !seq.clock
+      }
+      arc.define @inc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @MuxClkMulti(in %sel : i1, in %clk_a : i1, in %clk_b : i1,
+                              out q_mux : i8, out q_b : i8) {
+        %cm = arc.call @mux_clk(%sel, %clk_a, %clk_b) : (i1, i1, i1) -> !seq.clock
+        %cb = arc.call @pass_clk(%clk_b) : (i1) -> !seq.clock
+        %0 = arc.state @inc(%0) clock %cm latency 1 {names = ["cnt_mux"]} : (i8) -> i8
+        %1 = arc.state @inc(%1) clock %cb latency 1 {names = ["cnt_b"]} : (i8) -> i8
+        hw.output %0, %1 : i8, i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "MuxClkMulti");
+  ASSERT_TRUE(succeeded(model));
+
+  ASSERT_EQ(model->stateVars.size(), 2u);
+  EXPECT_TRUE(model->stateVars[0].clockDomain == "clk_a" ||
+              model->stateVars[0].clockDomain == "clk_b")
+      << "mux-selected clock must resolve to clk_a or clk_b (true-side fallback); got: "
+      << model->stateVars[0].clockDomain;
+  EXPECT_EQ(model->stateVars[1].clockDomain, "clk_b")
+      << "direct pass-through clock must still resolve";
+  EXPECT_EQ(model->clockDomains.size(), 2u)
+      << "should have two distinct clock domains";
+}
+
+TEST_F(SemanticModelFixture, CombMuxClockSelection_NestedCallPlusMux) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @inner_mux(%sel: i1, %a: i1, %b: i1) -> i1 {
+        %m = comb.mux %sel, %a, %b : i1
+        arc.output %m : i1
+      }
+      arc.define @outer_clk(%sel: i1, %a: i1, %b: i1) -> !seq.clock {
+        %m = arc.call @inner_mux(%sel, %a, %b) : (i1, i1, i1) -> i1
+        %c = seq.to_clock %m
+        arc.output %c : !seq.clock
+      }
+      arc.define @inc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @NestedMuxClk(in %sel : i1, in %clk_a : i1, in %clk_b : i1,
+                               out q : i8) {
+        %c = arc.call @outer_clk(%sel, %clk_a, %clk_b) : (i1, i1, i1) -> !seq.clock
+        %0 = arc.state @inc(%0) clock %c latency 1 {names = ["cnt"]} : (i8) -> i8
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "NestedMuxClk");
+  ASSERT_TRUE(succeeded(model));
+
+  ASSERT_EQ(model->stateVars.size(), 1u);
+  EXPECT_TRUE(model->stateVars[0].clockDomain == "clk_a" ||
+              model->stateVars[0].clockDomain == "clk_b")
+      << "nested arc.call + comb.mux must trace through to clk_a or clk_b; got: "
+      << model->stateVars[0].clockDomain;
+}
+
+TEST_F(SemanticModelFixture, CombMuxClockSelection_MultiResultWithMux) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @multi_mux(%sel: i1, %a: i1, %b: i1) -> (i1, !seq.clock) {
+        %m = comb.mux %sel, %a, %b : i1
+        %c = seq.to_clock %m
+        arc.output %sel, %c : i1, !seq.clock
+      }
+      arc.define @inc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @MultiResMux(in %sel : i1, in %clk_a : i1, in %clk_b : i1,
+                              out q : i8) {
+        %r:2 = arc.call @multi_mux(%sel, %clk_a, %clk_b) : (i1, i1, i1) -> (i1, !seq.clock)
+        %0 = arc.state @inc(%0) clock %r#1 latency 1 {names = ["cnt"]} : (i8) -> i8
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "MultiResMux");
+  ASSERT_TRUE(succeeded(model));
+
+  ASSERT_EQ(model->stateVars.size(), 1u);
+  EXPECT_TRUE(model->stateVars[0].clockDomain == "clk_a" ||
+              model->stateVars[0].clockDomain == "clk_b")
+      << "multi-result arc.call with comb.mux clock must resolve to clk_a or clk_b; got: "
+      << model->stateVars[0].clockDomain;
+}
+
+TEST_F(SemanticModelFixture, CombMuxClockSelection_NestedMuxChainPrefersTrueSide) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @mux_chain_clk(%sel0: i1, %sel1: i1, %a: i1, %b: i1,
+                                %c: i1) -> !seq.clock {
+        %inner = comb.mux %sel1, %a, %b : i1
+        %outer = comb.mux %sel0, %inner, %c : i1
+        %clk = seq.to_clock %outer
+        arc.output %clk : !seq.clock
+      }
+      arc.define @inc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @NestedMuxChainClk(in %sel0 : i1, in %sel1 : i1,
+                                   in %clk_a : i1, in %clk_b : i1,
+                                   in %clk_c : i1, out q : i8) {
+        %c = arc.call @mux_chain_clk(%sel0, %sel1, %clk_a, %clk_b, %clk_c)
+             : (i1, i1, i1, i1, i1) -> !seq.clock
+        %0 = arc.state @inc(%0) clock %c latency 1 {names = ["cnt"]} : (i8) -> i8
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "NestedMuxChainClk");
+  ASSERT_TRUE(succeeded(model));
+
+  ASSERT_EQ(model->stateVars.size(), 1u);
+  EXPECT_EQ(model->stateVars[0].clockDomain, "clk_a")
+      << "nested comb.mux chain must recursively prefer the true-side clock path";
+  ASSERT_EQ(model->clockDomains.size(), 1u);
+  EXPECT_EQ(model->clockDomains[0], "clk_a");
+}
+
+TEST_F(SemanticModelFixture,
+       CombMuxClockSelection_MultiResultNestedMuxChainPrefersTrueSide) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @multi_mux_chain(%sel0: i1, %sel1: i1, %a: i1, %b: i1,
+                                  %c: i1) -> (i1, !seq.clock) {
+        %inner = comb.mux %sel1, %a, %b : i1
+        %outer = comb.mux %sel0, %inner, %c : i1
+        %clk = seq.to_clock %outer
+        arc.output %sel0, %clk : i1, !seq.clock
+      }
+      arc.define @inc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @MultiResultNestedMuxChain(in %sel0 : i1, in %sel1 : i1,
+                                           in %clk_a : i1, in %clk_b : i1,
+                                           in %clk_c : i1, out q : i8) {
+        %ctrl:2 = arc.call @multi_mux_chain(%sel0, %sel1, %clk_a, %clk_b, %clk_c)
+                  : (i1, i1, i1, i1, i1) -> (i1, !seq.clock)
+        %0 = arc.state @inc(%0) clock %ctrl#1 latency 1 {names = ["cnt"]} : (i8) -> i8
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto model =
+      hirct::semantic::buildModuleModel(*module, "MultiResultNestedMuxChain");
+  ASSERT_TRUE(succeeded(model));
+
+  ASSERT_EQ(model->stateVars.size(), 1u);
+  EXPECT_EQ(model->stateVars[0].clockDomain, "clk_a")
+      << "multi-result arc.call + nested comb.mux chain must keep true-side policy";
+  ASSERT_EQ(model->clockDomains.size(), 1u);
+  EXPECT_EQ(model->clockDomains[0], "clk_a");
+}
+
+TEST_F(SemanticModelFixture, UnsupportedCombOrClockExpressionUsesNoDomain) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @or_clk(%a: i1, %b: i1) -> !seq.clock {
+        %or = comb.or %a, %b : i1
+        %clk = seq.to_clock %or
+        arc.output %clk : !seq.clock
+      }
+      arc.define @pass_clk(%arg0: i1) -> !seq.clock {
+        %clk = seq.to_clock %arg0
+        arc.output %clk : !seq.clock
+      }
+      arc.define @inc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @OrClkBoundary(in %clk_a : i1, in %clk_b : i1,
+                               out q_bad : i8, out q_b : i8) {
+        %cbad = arc.call @or_clk(%clk_a, %clk_b) : (i1, i1) -> !seq.clock
+        %cb = arc.call @pass_clk(%clk_b) : (i1) -> !seq.clock
+        %0 = arc.state @inc(%0) clock %cbad latency 1 {names = ["cnt_bad"]} : (i8) -> i8
+        %1 = arc.state @inc(%1) clock %cb latency 1 {names = ["cnt_b"]} : (i8) -> i8
+        hw.output %0, %1 : i8, i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "OrClkBoundary");
+  ASSERT_TRUE(succeeded(model));
+
+  ASSERT_EQ(model->stateVars.size(), 2u);
+  EXPECT_TRUE(model->stateVars[0].clockDomain.empty())
+      << "comb.or-based clock must become deterministic no-domain boundary";
+  EXPECT_EQ(model->stateVars[1].clockDomain, "clk_b");
+  ASSERT_EQ(model->clockDomains.size(), 1u);
+  EXPECT_EQ(model->clockDomains[0], "clk_b");
+}
+
+TEST_F(SemanticModelFixture, UnsupportedCombAndClockExpressionUsesNoDomain) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @and_clk(%a: i1, %b: i1) -> !seq.clock {
+        %and = comb.and %a, %b : i1
+        %clk = seq.to_clock %and
+        arc.output %clk : !seq.clock
+      }
+      arc.define @pass_clk(%arg0: i1) -> !seq.clock {
+        %clk = seq.to_clock %arg0
+        arc.output %clk : !seq.clock
+      }
+      arc.define @inc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @AndClkBoundary(in %clk_a : i1, in %clk_b : i1,
+                                out q_bad : i8, out q_b : i8) {
+        %cbad = arc.call @and_clk(%clk_a, %clk_b) : (i1, i1) -> !seq.clock
+        %cb = arc.call @pass_clk(%clk_b) : (i1) -> !seq.clock
+        %0 = arc.state @inc(%0) clock %cbad latency 1 {names = ["cnt_bad"]} : (i8) -> i8
+        %1 = arc.state @inc(%1) clock %cb latency 1 {names = ["cnt_b"]} : (i8) -> i8
+        hw.output %0, %1 : i8, i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "AndClkBoundary");
+  ASSERT_TRUE(succeeded(model));
+
+  ASSERT_EQ(model->stateVars.size(), 2u);
+  EXPECT_TRUE(model->stateVars[0].clockDomain.empty())
+      << "comb.and-based clock must become deterministic no-domain boundary";
+  EXPECT_EQ(model->stateVars[1].clockDomain, "clk_b");
+  ASSERT_EQ(model->clockDomains.size(), 1u);
+  EXPECT_EQ(model->clockDomains[0], "clk_b");
+}
+
+TEST_F(SemanticModelFixture, UnsupportedCombXorClockExpressionUsesNoDomain) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @xor_clk(%a: i1, %b: i1) -> !seq.clock {
+        %xor = comb.xor %a, %b : i1
+        %clk = seq.to_clock %xor
+        arc.output %clk : !seq.clock
+      }
+      arc.define @pass_clk(%arg0: i1) -> !seq.clock {
+        %clk = seq.to_clock %arg0
+        arc.output %clk : !seq.clock
+      }
+      arc.define @inc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @XorClkBoundary(in %clk_a : i1, in %clk_b : i1,
+                                out q_bad : i8, out q_b : i8) {
+        %cbad = arc.call @xor_clk(%clk_a, %clk_b) : (i1, i1) -> !seq.clock
+        %cb = arc.call @pass_clk(%clk_b) : (i1) -> !seq.clock
+        %0 = arc.state @inc(%0) clock %cbad latency 1 {names = ["cnt_bad"]} : (i8) -> i8
+        %1 = arc.state @inc(%1) clock %cb latency 1 {names = ["cnt_b"]} : (i8) -> i8
+        hw.output %0, %1 : i8, i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "XorClkBoundary");
+  ASSERT_TRUE(succeeded(model));
+
+  ASSERT_EQ(model->stateVars.size(), 2u);
+  EXPECT_TRUE(model->stateVars[0].clockDomain.empty())
+      << "comb.xor-based clock must become deterministic no-domain boundary";
+  EXPECT_EQ(model->stateVars[1].clockDomain, "clk_b");
+  ASSERT_EQ(model->clockDomains.size(), 1u);
+  EXPECT_EQ(model->clockDomains[0], "clk_b");
+}
+
+TEST_F(SemanticModelFixture, CombMuxClockSelection_UnsupportedTrueArmUsesBoundary) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @bad_mux_clk(%sel0: i1, %sel1: i1, %clk_b: i1) -> !seq.clock {
+        %bad = comb.xor %sel0, %sel1 : i1
+        %mux = comb.mux %sel0, %bad, %clk_b : i1
+        %clk = seq.to_clock %mux
+        arc.output %clk : !seq.clock
+      }
+      arc.define @pass_clk(%arg0: i1) -> !seq.clock {
+        %clk = seq.to_clock %arg0
+        arc.output %clk : !seq.clock
+      }
+      arc.define @inc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @BadMuxBoundary(in %sel0 : i1, in %sel1 : i1, in %clk_b : i1,
+                                out q_bad : i8, out q_b : i8) {
+        %cbad = arc.call @bad_mux_clk(%sel0, %sel1, %clk_b)
+                : (i1, i1, i1) -> !seq.clock
+        %cb = arc.call @pass_clk(%clk_b) : (i1) -> !seq.clock
+        %0 = arc.state @inc(%0) clock %cbad latency 1 {names = ["cnt_bad"]} : (i8) -> i8
+        %1 = arc.state @inc(%1) clock %cb latency 1 {names = ["cnt_b"]} : (i8) -> i8
+        hw.output %0, %1 : i8, i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "BadMuxBoundary");
+  ASSERT_TRUE(succeeded(model));
+
+  ASSERT_EQ(model->stateVars.size(), 2u);
+  EXPECT_TRUE(model->stateVars[0].clockDomain.empty())
+      << "unsupported true-arm must not fall back to false-side clock";
+  EXPECT_EQ(model->stateVars[1].clockDomain, "clk_b");
+  ASSERT_EQ(model->clockDomains.size(), 1u);
+  EXPECT_EQ(model->clockDomains[0], "clk_b");
+}
+
+TEST_F(SemanticModelFixture, CombMuxClockSelection_AmbiguousArmsPreferTrueSide) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @mux_clk(%sel: i1, %clk_a: i1, %clk_b: i1) -> !seq.clock {
+        %mux = comb.mux %sel, %clk_a, %clk_b : i1
+        %clk = seq.to_clock %mux
+        arc.output %clk : !seq.clock
+      }
+      arc.define @inc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @MuxAmbiguous(in %sel : i1, in %clk_a : i1, in %clk_b : i1,
+                              out q : i8) {
+        %c = arc.call @mux_clk(%sel, %clk_a, %clk_b) : (i1, i1, i1) -> !seq.clock
+        %0 = arc.state @inc(%0) clock %c latency 1 {names = ["cnt"]} : (i8) -> i8
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "MuxAmbiguous");
+  ASSERT_TRUE(succeeded(model));
+
+  ASSERT_EQ(model->stateVars.size(), 1u);
+  EXPECT_EQ(model->stateVars[0].clockDomain, "clk_a")
+      << "ambiguous mux clock arms must deterministically prefer the true side";
+  ASSERT_EQ(model->clockDomains.size(), 1u);
+  EXPECT_EQ(model->clockDomains[0], "clk_a");
+}
+
+// ---------------------------------------------------------------------------
+// Batch: Unsupported comb-clock expression boundary diagnostics
+// ---------------------------------------------------------------------------
+
+TEST_F(SemanticModelFixture, BoundaryReason_CombOr) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @or_clk(%a: i1, %b: i1) -> !seq.clock {
+        %or = comb.or %a, %b : i1
+        %clk = seq.to_clock %or
+        arc.output %clk : !seq.clock
+      }
+      arc.define @inc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @OrBoundaryDiag(in %clk_a : i1, in %clk_b : i1, out q : i8) {
+        %c = arc.call @or_clk(%clk_a, %clk_b) : (i1, i1) -> !seq.clock
+        %0 = arc.state @inc(%0) clock %c latency 1 {names = ["cnt"]} : (i8) -> i8
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+  auto model = hirct::semantic::buildModuleModel(*module, "OrBoundaryDiag");
+  ASSERT_TRUE(succeeded(model));
+
+  ASSERT_FALSE(model->boundaryReasons.empty())
+      << "comb.or clock must produce explicit boundary reason";
+  EXPECT_EQ(model->boundaryReasons[0].kind,
+            hirct::semantic::ClockBoundaryKind::CombOr);
+  EXPECT_EQ(model->boundaryReasons[0].affectedState, "cnt");
+}
+
+TEST_F(SemanticModelFixture, BoundaryReason_CombAnd) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @and_clk(%a: i1, %b: i1) -> !seq.clock {
+        %and = comb.and %a, %b : i1
+        %clk = seq.to_clock %and
+        arc.output %clk : !seq.clock
+      }
+      arc.define @inc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @AndBoundaryDiag(in %clk_a : i1, in %clk_b : i1, out q : i8) {
+        %c = arc.call @and_clk(%clk_a, %clk_b) : (i1, i1) -> !seq.clock
+        %0 = arc.state @inc(%0) clock %c latency 1 {names = ["cnt"]} : (i8) -> i8
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+  auto model = hirct::semantic::buildModuleModel(*module, "AndBoundaryDiag");
+  ASSERT_TRUE(succeeded(model));
+
+  ASSERT_FALSE(model->boundaryReasons.empty())
+      << "comb.and clock must produce explicit boundary reason";
+  EXPECT_EQ(model->boundaryReasons[0].kind,
+            hirct::semantic::ClockBoundaryKind::CombAnd);
+  EXPECT_EQ(model->boundaryReasons[0].affectedState, "cnt");
+}
+
+TEST_F(SemanticModelFixture, BoundaryReason_CombXor) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @xor_clk(%a: i1, %b: i1) -> !seq.clock {
+        %xor = comb.xor %a, %b : i1
+        %clk = seq.to_clock %xor
+        arc.output %clk : !seq.clock
+      }
+      arc.define @inc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @XorBoundaryDiag(in %clk_a : i1, in %clk_b : i1, out q : i8) {
+        %c = arc.call @xor_clk(%clk_a, %clk_b) : (i1, i1) -> !seq.clock
+        %0 = arc.state @inc(%0) clock %c latency 1 {names = ["cnt"]} : (i8) -> i8
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+  auto model = hirct::semantic::buildModuleModel(*module, "XorBoundaryDiag");
+  ASSERT_TRUE(succeeded(model));
+
+  ASSERT_FALSE(model->boundaryReasons.empty())
+      << "comb.xor clock must produce explicit boundary reason";
+  EXPECT_EQ(model->boundaryReasons[0].kind,
+            hirct::semantic::ClockBoundaryKind::CombXor);
+  EXPECT_EQ(model->boundaryReasons[0].affectedState, "cnt");
+}
+
+TEST_F(SemanticModelFixture, BoundaryReason_MuxTrueUnresolved) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @bad_mux_clk(%sel: i1, %a: i1, %b: i1) -> !seq.clock {
+        %bad = comb.xor %sel, %a : i1
+        %mux = comb.mux %sel, %bad, %b : i1
+        %clk = seq.to_clock %mux
+        arc.output %clk : !seq.clock
+      }
+      arc.define @inc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @MuxBadDiag(in %sel : i1, in %clk_a : i1, in %clk_b : i1,
+                            out q : i8) {
+        %c = arc.call @bad_mux_clk(%sel, %clk_a, %clk_b) : (i1, i1, i1) -> !seq.clock
+        %0 = arc.state @inc(%0) clock %c latency 1 {names = ["cnt"]} : (i8) -> i8
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+  auto model = hirct::semantic::buildModuleModel(*module, "MuxBadDiag");
+  ASSERT_TRUE(succeeded(model));
+
+  ASSERT_FALSE(model->boundaryReasons.empty())
+      << "comb.mux with unsupported true arm must produce boundary reason";
+  EXPECT_TRUE(model->boundaryReasons[0].kind ==
+                  hirct::semantic::ClockBoundaryKind::MuxTrueUnresolved ||
+              model->boundaryReasons[0].kind ==
+                  hirct::semantic::ClockBoundaryKind::CombXor)
+      << "boundary kind should be mux-true-unresolved or the underlying xor";
+  EXPECT_EQ(model->boundaryReasons[0].affectedState, "cnt");
+}
+
+TEST_F(SemanticModelFixture, BoundaryReason_Stringification) {
+  using BK = hirct::semantic::ClockBoundaryKind;
+  EXPECT_EQ(hirct::semantic::stringifyClockBoundaryKind(BK::CombOr), "comb.or");
+  EXPECT_EQ(hirct::semantic::stringifyClockBoundaryKind(BK::CombAnd), "comb.and");
+  EXPECT_EQ(hirct::semantic::stringifyClockBoundaryKind(BK::CombXor), "comb.xor");
+  EXPECT_EQ(hirct::semantic::stringifyClockBoundaryKind(BK::ClockGate), "seq.clock_gate");
+  EXPECT_EQ(hirct::semantic::stringifyClockBoundaryKind(BK::MuxTrueUnresolved), "comb.mux");
+  EXPECT_EQ(hirct::semantic::stringifyClockBoundaryKind(BK::CombOther), "comb.other");
+}
+
+TEST_F(SemanticModelFixture, BoundaryReason_NoBoundaryWhenResolved) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @pass_clk(%arg0: i1) -> !seq.clock {
+        %clk = seq.to_clock %arg0
+        arc.output %clk : !seq.clock
+      }
+      arc.define @inc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @NoBoundary(in %clk : i1, out q : i8) {
+        %c = arc.call @pass_clk(%clk) : (i1) -> !seq.clock
+        %0 = arc.state @inc(%0) clock %c latency 1 {names = ["cnt"]} : (i8) -> i8
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+  auto model = hirct::semantic::buildModuleModel(*module, "NoBoundary");
+  ASSERT_TRUE(succeeded(model));
+
+  EXPECT_TRUE(model->boundaryReasons.empty())
+      << "resolved clock must not produce boundary reasons";
+}
+
+TEST_F(SemanticModelFixture, EvtLogIfStateHasReset) {
+  auto fixtureRoot = getFixtureRoot();
+  auto path = fixtureRoot / "ncs_core_evt_log_if_arc.mlir";
+  if (!std::filesystem::exists(path)) {
+    GTEST_SKIP() << "fixture not found";
+  }
+  auto module = mlir::parseSourceString<mlir::ModuleOp>(
+      readFixture(path), &ctx_);
+  ASSERT_TRUE(module);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "ncs_core_evt_log_if");
+  ASSERT_TRUE(succeeded(model));
+
+  ASSERT_EQ(model->stateVars.size(), 1u);
+  auto &sv = model->stateVars[0];
+  EXPECT_EQ(sv.stableName, "r_current_state");
+  EXPECT_TRUE(sv.hasReset)
+      << "ncs_core_evt_log_if arc.state has reset %0#0 from arc.call";
+}
+
 } // namespace

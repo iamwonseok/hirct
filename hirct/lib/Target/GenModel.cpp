@@ -262,6 +262,10 @@ bool GenModel::emit_header(const std::string &dir) {
       std::string ctype = cpp_type_for_width(w);
       ofs << "  " << ctype << " reg_" << ident << ";\n";
       ofs << "  " << ctype << " next_" << ident << ";\n";
+      if (stateOp.getReset())
+        ofs << "  bool arc_rst_" << ident << ";\n";
+      if (stateOp.getEnable())
+        ofs << "  bool arc_en_" << ident << ";\n";
     }
 
     for (const auto &mem : mems) {
@@ -380,6 +384,10 @@ bool GenModel::emit_impl(const std::string &dir) {
   emit_save_old_ssa(ofs, name);
 
   auto cdm = hirct::build_clock_domain_map(hw_module_, mlir_module_);
+  if (cdm.has_unsupported_clock_boundary) {
+    ofs << "// BOUNDARY: unsupported comb-clock expression detected; "
+           "using generic step() boundary\n";
+  }
   if (cdm.is_multi_clock) {
     for (const auto &domain : cdm.domains)
       emit_domain_step(ofs, name, domain);
@@ -484,6 +492,10 @@ void GenModel::emit_reset(std::ofstream &ofs, const std::string &name) {
     std::string ctype = cpp_type_for_width(w);
     ofs << "  reg_" << ident << " = static_cast<" << ctype << ">(0);\n";
     ofs << "  next_" << ident << " = static_cast<" << ctype << ">(0);\n";
+    if (stateOp.getReset())
+      ofs << "  arc_rst_" << ident << " = false;\n";
+    if (stateOp.getEnable())
+      ofs << "  arc_en_" << ident << " = false;\n";
   }
 
   for (const auto &mem : mems) {
@@ -1139,6 +1151,18 @@ void GenModel::emit_eval_comb(std::ofstream &ofs,
               << cpp_type_for_width(w) << ">((" << next_e << ") & "
               << width_mask_expr(w) << ");\n";
       }
+
+      // Store reset/enable signals into class members so step() can use them.
+      if (state.getReset()) {
+        std::string rst_e = expr(state.getReset());
+        if (!rst_e.empty())
+          ofs << "  arc_rst_" << ri << " = ((" << rst_e << ") & 1ULL) != 0;\n";
+      }
+      if (state.getEnable()) {
+        std::string en_e = expr(state.getEnable());
+        if (!en_e.empty())
+          ofs << "  arc_en_" << ri << " = ((" << en_e << ") & 1ULL) != 0;\n";
+      }
     }
   }
 
@@ -1612,10 +1636,16 @@ void GenModel::emit_step(std::ofstream &ofs, const std::string &name) {
     bool hasReset = !!stateOp.getReset();
     bool hasEnable = !!stateOp.getEnable();
     std::string rstSig, enSig;
-    if (hasReset)
+    if (hasReset) {
       rstSig = resolvePortName(stateOp.getReset());
-    if (hasEnable)
+      if (rstSig.empty())
+        rstSig = "arc_rst_" + ident;
+    }
+    if (hasEnable) {
       enSig = resolvePortName(stateOp.getEnable());
+      if (enSig.empty())
+        enSig = "arc_en_" + ident;
+    }
 
     if (hasReset && !rstSig.empty()) {
       ofs << "  if (" << rstSig << ")\n";
@@ -1763,6 +1793,59 @@ void GenModel::emit_domain_step(std::ofstream &ofs,
       }
     }
     ofs << "  reg_" << reg_ident << " = next_" << reg_ident << ";\n";
+  }
+
+  auto resolvePortName = [&](mlir::Value v) -> std::string {
+    if (auto arg = mlir::dyn_cast<mlir::BlockArgument>(v)) {
+      auto pl = hw_module_.getPortList();
+      unsigned idx = arg.getArgNumber();
+      if (idx < pl.size())
+        return pl[idx].getName().str();
+    }
+    return {};
+  };
+
+  for (auto stateOp : domain.arc_states) {
+    std::string sname;
+    if (auto names = stateOp->getAttrOfType<mlir::ArrayAttr>("names")) {
+      if (!names.empty())
+        if (auto sa = mlir::dyn_cast<mlir::StringAttr>(names[0]))
+          sname = sa.getValue().str();
+    }
+    if (sname.empty())
+      sname = "arc_state";
+    std::string ident = ssa_to_ident("%" + sname);
+
+    bool hasReset = !!stateOp.getReset();
+    bool hasEnable = !!stateOp.getEnable();
+    std::string rstSig, enSig;
+    if (hasReset) {
+      rstSig = resolvePortName(stateOp.getReset());
+      if (rstSig.empty())
+        rstSig = "arc_rst_" + ident;
+    }
+    if (hasEnable) {
+      enSig = resolvePortName(stateOp.getEnable());
+      if (enSig.empty())
+        enSig = "arc_en_" + ident;
+    }
+
+    if (hasReset && !rstSig.empty()) {
+      ofs << "  if (" << rstSig << ")\n";
+      ofs << "    reg_" << ident << " = 0;\n";
+      if (hasEnable && !enSig.empty()) {
+        ofs << "  else if (" << enSig << ")\n";
+        ofs << "    reg_" << ident << " = next_" << ident << ";\n";
+      } else {
+        ofs << "  else\n";
+        ofs << "    reg_" << ident << " = next_" << ident << ";\n";
+      }
+    } else if (hasEnable && !enSig.empty()) {
+      ofs << "  if (" << enSig << ")\n";
+      ofs << "    reg_" << ident << " = next_" << ident << ";\n";
+    } else {
+      ofs << "  reg_" << ident << " = next_" << ident << ";\n";
+    }
   }
 
   ofs << "  eval_comb();\n";

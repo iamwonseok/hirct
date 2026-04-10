@@ -42,6 +42,23 @@ enum class RejectCode {
   WidthUnsupported,
 };
 
+enum class ClockBoundaryKind {
+  CombOr,
+  CombAnd,
+  CombXor,
+  CombOther,
+  ClockGate,
+  MuxTrueUnresolved,
+};
+
+struct ClockBoundaryReason {
+  ClockBoundaryKind kind;
+  std::string affectedState;
+  std::string opDescription;
+};
+
+llvm::StringRef stringifyClockBoundaryKind(ClockBoundaryKind kind);
+
 struct PortInfo {
   std::string name;
   bool isInput = false;
@@ -124,6 +141,7 @@ struct ModuleModel {
   llvm::SmallVector<AggregateStateVar> aggregateStateVars;
   llvm::SmallVector<MemoryVar> memoryVars;
   llvm::SmallVector<OutputBinding> outputs;
+  llvm::SmallVector<ClockBoundaryReason> boundaryReasons;
 };
 
 llvm::StringRef stringifyOutputVisibility(OutputVisibility visibility);

@@ -1,6 +1,7 @@
 #ifndef HIRCT_ANALYSIS_IRANALYSIS_H
 #define HIRCT_ANALYSIS_IRANALYSIS_H
 
+#include "circt/Dialect/Arc/ArcOps.h"
 #include "circt/Dialect/HW/HWOps.h"
 #include "circt/Dialect/Seq/SeqOps.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -44,15 +45,30 @@ std::vector<RegisterView> collect_registers(circt::hw::HWModuleOp module);
 struct ClockDomainView {
   std::string clock_port_name;
   unsigned clock_port_index = 0;
-  unsigned reg_count = 0; // 이 clock이 구동하는 레지스터 수 (primary 선택 기준)
+  unsigned reg_count = 0;
   std::vector<RegisterView> registers;
   std::vector<circt::hw::InstanceOp> instances;
+  llvm::SmallVector<circt::arc::StateOp> arc_states;
+};
+
+struct ClockTraceResult {
+  unsigned port_index = ~0u;
+  std::string clock_port_name;
+  bool hit_boundary = false;
+  std::string boundary_op_name;
+
+  bool isResolved() const { return port_index != ~0u; }
 };
 
 struct ClockDomainMapView {
   std::vector<ClockDomainView> domains;
-  bool is_multi_clock;
+  bool is_multi_clock = false;
+  bool has_unsupported_clock_boundary = false;
 };
+
+ClockTraceResult trace_clock_result(mlir::Value clk,
+                                    circt::hw::HWModuleOp module,
+                                    mlir::ModuleOp mlir_module);
 
 ClockDomainMapView build_clock_domain_map(circt::hw::HWModuleOp module,
                                           mlir::ModuleOp mlir_module);

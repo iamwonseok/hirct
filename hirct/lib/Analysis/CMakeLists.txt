@@ -1,6 +1,7 @@
 add_library(hirctAnalysis IRAnalysis.cpp FSMAnalysis.cpp)
 target_link_libraries(hirctAnalysis PUBLIC
     hirctSupport
+    CIRCTArc
     CIRCTHW
     CIRCTComb
     CIRCTSeq
