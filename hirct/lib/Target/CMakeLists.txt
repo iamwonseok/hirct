@@ -2,6 +2,7 @@ add_library(hirctTarget EmitExpr.cpp GenFuncModel.cpp GenModel.cpp GenMakefile.c
 target_link_libraries(hirctTarget PUBLIC
     hirctAnalysis
     hirctSupport
+    CIRCTArc
     CIRCTTransforms
     CIRCTSeqTransforms
 )

@@ -9,9 +9,10 @@ add_test(NAME GenFuncModelTest COMMAND GenFuncModelTest)
 add_executable(CModelEmitterTest CModelEmitterTest.cpp)
 target_link_libraries(CModelEmitterTest PRIVATE
     hirctCModelEmitter
+    hirctTarget hirctAnalysis
     hirctSemanticModel
-    CIRCTArc CIRCTComb CIRCTSeq CIRCTHW
-    MLIRFuncDialect
+    CIRCTArc CIRCTComb CIRCTSeq CIRCTHW CIRCTLLHD
+    MLIRFuncDialect MLIRControlFlowDialect
     MLIRParser
     GTest::gtest_main)
 add_test(NAME CModelEmitterTest COMMAND CModelEmitterTest)

@@ -1,9 +1,13 @@
 #include "hirct/Target/EmitExpr.h"
 #include "hirct/Analysis/IRAnalysis.h"
+#include "circt/Dialect/Arc/ArcOps.h"
 #include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/HW/HWOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/SymbolTable.h"
 
+#include <functional>
+#include <iostream>
 #include <limits>
 #include <sstream>
 
@@ -411,11 +415,393 @@ std::string emit_op_expr(
     ofs << "};\n";
     val[result] = rn;
     return "";
+  } else if (op.getName().getStringRef() == "arc.call") {
+    unsigned numResults = op.getNumResults();
+    if (numResults == 0)
+      return "";
+    unsigned resultW = w_of(result);
+    if (resultW > 64) {
+      std::string rn = next_tmp();
+      unsigned numWords = (resultW + 63) / 64;
+      ofs << "  uint64_t " << rn << "[" << numWords << "];\n";
+      for (unsigned ri = 0; ri < numWords; ++ri) {
+        unsigned bitsForWord = std::min(64u, resultW - ri * 64);
+        std::string re =
+            inline_arc_call(op, 0, val, ofs, tmp_cnt, 0,
+                            ri, bitsForWord);
+        ofs << "  " << rn << "[" << ri << "] = static_cast<uint64_t>("
+            << re << ") & " << width_mask_expr(bitsForWord) << ";\n";
+      }
+      val[result] = rn;
+      return "";
+    }
+    e = inline_arc_call(op, 0, val, ofs, tmp_cnt, 0);
   } else {
     return "\x01";
   }
 
   return e;
+}
+
+static constexpr unsigned kMaxInlineDepth = 8;
+
+static std::string render_callee_expr(
+    mlir::Operation *def,
+    mlir::Value val,
+    llvm::DenseMap<mlir::Value, std::string> &argMap,
+    llvm::DenseMap<mlir::Value, std::string> &outerVal,
+    std::ofstream &ofs, int &tmp_cnt, unsigned depth,
+    unsigned wordIdx, unsigned wordBits) {
+  auto renderOp = [&](mlir::Value v) -> std::string {
+    return render_in_callee_body(v, argMap, outerVal, ofs, tmp_cnt, depth,
+                                 0, 0);
+  };
+  auto renderVariadic = [&](const char *cOp) -> std::string {
+    std::string acc = renderOp(def->getOperand(0));
+    for (unsigned i = 1; i < def->getNumOperands(); ++i)
+      acc = "(" + acc + " " + cOp + " " + renderOp(def->getOperand(i)) + ")";
+    return acc;
+  };
+
+  llvm::StringRef opName = def->getName().getStringRef();
+
+  if (opName == "hw.constant") {
+    if (auto attr = def->getAttrOfType<mlir::IntegerAttr>("value")) {
+      uint64_t uv = attr.getValue().zextOrTrunc(64).getZExtValue();
+      unsigned w = attr.getValue().getBitWidth();
+      std::string ctype = hirct::cpp_type_for_width(w);
+      std::string vs = std::to_string(uv);
+      if (uv > static_cast<uint64_t>(std::numeric_limits<long long>::max()))
+        vs += "ULL";
+      return "static_cast<" + ctype + ">(" + vs + ")";
+    }
+    return "0";
+  }
+
+  if (opName == "comb.add" && def->getNumOperands() >= 2)
+    return renderVariadic("+");
+  if (opName == "comb.mul" && def->getNumOperands() >= 2)
+    return renderVariadic("*");
+  if (opName == "comb.and" && def->getNumOperands() >= 2)
+    return renderVariadic("&");
+  if (opName == "comb.or" && def->getNumOperands() >= 2)
+    return renderVariadic("|");
+  if (opName == "comb.xor" && def->getNumOperands() >= 2)
+    return renderVariadic("^");
+  if (opName == "comb.sub" && def->getNumOperands() == 2)
+    return "(" + renderOp(def->getOperand(0)) + " - " +
+           renderOp(def->getOperand(1)) + ")";
+  if (opName == "comb.shl" && def->getNumOperands() == 2)
+    return "(static_cast<uint64_t>(" + renderOp(def->getOperand(0)) +
+           ") << (static_cast<uint64_t>(" + renderOp(def->getOperand(1)) +
+           ") & 63ULL))";
+  if (opName == "comb.shru" && def->getNumOperands() == 2)
+    return "(static_cast<uint64_t>(" + renderOp(def->getOperand(0)) +
+           ") >> (static_cast<uint64_t>(" + renderOp(def->getOperand(1)) +
+           ") & 63ULL))";
+  if (opName == "comb.shrs" && def->getNumOperands() == 2)
+    return "(static_cast<int64_t>(" + renderOp(def->getOperand(0)) +
+           ") >> (static_cast<uint64_t>(" + renderOp(def->getOperand(1)) +
+           ") & 63ULL))";
+
+  if (opName == "comb.mux" && def->getNumOperands() == 3) {
+    if (auto arrTy =
+            mlir::dyn_cast<circt::hw::ArrayType>(val.getType())) {
+      unsigned arrDepth = arrTy.getNumElements();
+      unsigned elemW = hirct::get_type_width(arrTy.getElementType());
+      if (elemW == 0) elemW = 1;
+      std::string etype = hirct::cpp_type_for_width(elemW);
+      std::string tn = "t" + std::to_string(tmp_cnt++);
+      ofs << "  " << etype << " " << tn << "[" << arrDepth << "];\n";
+      ofs << "  for (int __i = 0; __i < " << arrDepth << "; ++__i) "
+          << tn << "[__i] = (" << renderOp(def->getOperand(0)) << ") ? "
+          << renderOp(def->getOperand(1)) << "[__i] : "
+          << renderOp(def->getOperand(2)) << "[__i];\n";
+      argMap[val] = tn;
+      return tn;
+    }
+    return "(" + renderOp(def->getOperand(0)) + " ? " +
+           renderOp(def->getOperand(1)) + " : " +
+           renderOp(def->getOperand(2)) + ")";
+  }
+
+  if (opName == "comb.icmp") {
+    auto predAttr = def->getAttrOfType<mlir::IntegerAttr>("predicate");
+    if (predAttr && def->getNumOperands() == 2) {
+      std::string cOp;
+      using P = circt::comb::ICmpPredicate;
+      switch (static_cast<P>(predAttr.getInt())) {
+      case P::eq: case P::ceq: case P::weq: cOp = "=="; break;
+      case P::ne: case P::cne: case P::wne: cOp = "!="; break;
+      case P::ult: cOp = "<"; break;
+      case P::ule: cOp = "<="; break;
+      case P::ugt: cOp = ">"; break;
+      case P::uge: cOp = ">="; break;
+      case P::slt: cOp = "<"; break;
+      case P::sle: cOp = "<="; break;
+      case P::sgt: cOp = ">"; break;
+      case P::sge: cOp = ">="; break;
+      }
+      unsigned cw = 0;
+      if (auto intTy =
+              mlir::dyn_cast<mlir::IntegerType>(def->getOperand(0).getType()))
+        cw = intTy.getWidth();
+      std::string lhs = renderOp(def->getOperand(0));
+      std::string rhs = renderOp(def->getOperand(1));
+      if (cw > 0 && cw < 64 &&
+          (static_cast<P>(predAttr.getInt()) == P::eq ||
+           static_cast<P>(predAttr.getInt()) == P::ceq ||
+           static_cast<P>(predAttr.getInt()) == P::weq ||
+           static_cast<P>(predAttr.getInt()) == P::ne ||
+           static_cast<P>(predAttr.getInt()) == P::cne ||
+           static_cast<P>(predAttr.getInt()) == P::wne)) {
+        std::string mask = width_mask_expr(cw);
+        return "(((" + lhs + ") & " + mask + ") " + cOp + " ((" + rhs +
+               ") & " + mask + "))";
+      }
+      return "((" + lhs + ") " + cOp + " (" + rhs + "))";
+    }
+    return "0";
+  }
+
+  if (opName == "comb.concat") {
+    unsigned totalW = 0;
+    if (auto ty = mlir::dyn_cast<mlir::IntegerType>(val.getType()))
+      totalW = ty.getWidth();
+
+    unsigned wLo = wordIdx * 64;
+    unsigned wHi = wLo + (wordBits > 0 ? wordBits : 64);
+    if (wordBits == 0 && totalW <= 64) {
+      wLo = 0;
+      wHi = totalW;
+    }
+
+    struct Slice { unsigned lo; unsigned ow; unsigned opIdx; };
+    llvm::SmallVector<Slice> slices;
+    {
+      unsigned cursor = totalW;
+      for (unsigned i = 0; i < def->getNumOperands(); ++i) {
+        unsigned ow = 0;
+        if (auto ty = mlir::dyn_cast<mlir::IntegerType>(
+                def->getOperand(i).getType()))
+          ow = ty.getWidth();
+        cursor -= ow;
+        slices.push_back({cursor, ow, i});
+      }
+    }
+
+    std::string acc = "0ULL";
+    for (auto &s : slices) {
+      unsigned sHi = s.lo + s.ow;
+      if (sHi <= wLo || s.lo >= wHi)
+        continue;
+      unsigned overlapLo = std::max(s.lo, wLo);
+      unsigned overlapHi = std::min(sHi, wHi);
+      unsigned usable = overlapHi - overlapLo;
+      unsigned srcShift = overlapLo - s.lo;
+      unsigned dstShift = overlapLo - wLo;
+
+      std::string part = renderOp(def->getOperand(s.opIdx));
+      std::string shifted = part;
+      if (srcShift > 0)
+        shifted = "(static_cast<uint64_t>(" + shifted + ") >> " +
+                  std::to_string(srcShift) + ")";
+      std::string masked = "(static_cast<uint64_t>(" + shifted + ") & " +
+                           width_mask_expr(usable) + ")";
+      if (dstShift == 0)
+        acc = "(" + acc + " | " + masked + ")";
+      else
+        acc = "(" + acc + " | (" + masked + " << " +
+              std::to_string(dstShift) + "))";
+    }
+    return "(" + acc + ")";
+  }
+
+  if (opName == "comb.extract") {
+    auto lowBitAttr = def->getAttrOfType<mlir::IntegerAttr>("lowBit");
+    unsigned from = lowBitAttr ? lowBitAttr.getInt() : 0;
+    unsigned resultW = 0;
+    if (auto ty = mlir::dyn_cast<mlir::IntegerType>(val.getType()))
+      resultW = ty.getWidth();
+    unsigned srcW = 0;
+    if (auto ty = mlir::dyn_cast<mlir::IntegerType>(
+            def->getOperand(0).getType()))
+      srcW = ty.getWidth();
+    if (srcW > 64) {
+      unsigned wIdx = from / 64;
+      unsigned bitInWord = from % 64;
+      std::string srcE = render_in_callee_body(
+          def->getOperand(0), argMap, outerVal, ofs, tmp_cnt, depth,
+          wIdx, 64);
+      if (bitInWord == 0)
+        return "(static_cast<uint64_t>(" + srcE + ") & " +
+               width_mask_expr(resultW) + ")";
+      return "((static_cast<uint64_t>(" + srcE + ") >> " +
+             std::to_string(bitInWord) + ") & " +
+             width_mask_expr(resultW) + ")";
+    }
+    if (from >= 64)
+      return "0ULL";
+    return "((static_cast<uint64_t>(" + renderOp(def->getOperand(0)) +
+           ") >> " + std::to_string(from) + ") & " +
+           width_mask_expr(resultW) + ")";
+  }
+
+  if (opName == "comb.replicate") {
+    unsigned srcW = 0;
+    if (auto ty = mlir::dyn_cast<mlir::IntegerType>(
+            def->getOperand(0).getType()))
+      srcW = ty.getWidth();
+    unsigned w = 0;
+    if (auto ty = mlir::dyn_cast<mlir::IntegerType>(val.getType()))
+      w = ty.getWidth();
+    int cnt = (srcW > 0) ? w / srcW : 0;
+    std::ostringstream oss;
+    oss << "(";
+    bool first = true;
+    for (int i = 0; i < cnt; ++i) {
+      unsigned shift = static_cast<unsigned>(i) * srcW;
+      if (shift >= 64) break;
+      if (!first) oss << " | ";
+      first = false;
+      oss << "(static_cast<uint64_t>(" << renderOp(def->getOperand(0))
+          << ") << " << shift << ")";
+    }
+    if (first) oss << "0ULL";
+    oss << ")";
+    return oss.str();
+  }
+
+  if (auto ac = mlir::dyn_cast<circt::hw::ArrayCreateOp>(def)) {
+    unsigned elemW = 0;
+    if (auto arrTy = mlir::dyn_cast<circt::hw::ArrayType>(val.getType()))
+      elemW = hirct::get_type_width(arrTy.getElementType());
+    if (elemW == 0) elemW = 1;
+    std::string etype = hirct::cpp_type_for_width(elemW);
+    std::string rn = "t" + std::to_string(tmp_cnt++);
+    auto operands = ac.getOperands();
+    ofs << "  const " << etype << " " << rn << "[] = {";
+    for (int i = static_cast<int>(operands.size()) - 1; i >= 0; --i) {
+      if (i < static_cast<int>(operands.size()) - 1) ofs << ", ";
+      ofs << "static_cast<" << etype << ">(" << renderOp(operands[i]) << ")";
+    }
+    ofs << "};\n";
+    argMap[val] = rn;
+    return rn;
+  }
+
+  if (auto ag = mlir::dyn_cast<circt::hw::ArrayGetOp>(def)) {
+    std::string arrE = renderOp(ag.getInput());
+    std::string idxE = renderOp(ag.getIndex());
+    auto arrTy =
+        mlir::dyn_cast<circt::hw::ArrayType>(ag.getInput().getType());
+    unsigned sz = arrTy ? arrTy.getNumElements() : 0;
+    if (sz > 0)
+      return "(static_cast<size_t>(" + idxE + ") < " +
+             std::to_string(sz) + " ? " + arrE +
+             "[static_cast<size_t>(" + idxE + ")] : 0)";
+    return "0";
+  }
+
+  if (opName == "hw.bitcast") {
+    return "static_cast<uint64_t>(" + renderOp(def->getOperand(0)) + ")";
+  }
+
+  if (opName == "comb.parity") {
+    return "static_cast<bool>(__builtin_parityll(static_cast<uint64_t>(" +
+           renderOp(def->getOperand(0)) + ")))";
+  }
+
+  if (opName == "arc.call") {
+    unsigned ri = 0;
+    if (auto opResult = mlir::dyn_cast<mlir::OpResult>(val))
+      ri = opResult.getResultNumber();
+    return inline_arc_call(*def, ri, outerVal, ofs, tmp_cnt, depth + 1,
+                           wordIdx, wordBits);
+  }
+
+  std::cerr << "GenModel: unsupported op (in arc.call body) '"
+            << opName.str() << "'\n";
+  return "0";
+}
+
+std::string render_in_callee_body(
+    mlir::Value val,
+    llvm::DenseMap<mlir::Value, std::string> &argMap,
+    llvm::DenseMap<mlir::Value, std::string> &outerVal,
+    std::ofstream &ofs, int &tmp_cnt, unsigned depth,
+    unsigned wordIdx, unsigned wordBits) {
+  if (wordIdx == 0 && wordBits == 0) {
+    auto it = argMap.find(val);
+    if (it != argMap.end())
+      return it->second;
+  }
+
+  mlir::Operation *def = val.getDefiningOp();
+  if (!def) {
+    auto it = argMap.find(val);
+    if (it == argMap.end())
+      return "0";
+    unsigned valW = 0;
+    if (auto ty = mlir::dyn_cast<mlir::IntegerType>(val.getType()))
+      valW = ty.getWidth();
+    if (valW > 64 && (wordIdx > 0 || wordBits > 0))
+      return it->second + "[" + std::to_string(wordIdx) + "]";
+    return it->second;
+  }
+
+  std::string result = render_callee_expr(
+      def, val, argMap, outerVal, ofs, tmp_cnt, depth, wordIdx, wordBits);
+  if (wordIdx == 0 && wordBits == 0)
+    argMap[val] = result;
+  return result;
+}
+
+std::string inline_arc_call(
+    mlir::Operation &callOp, unsigned resultIdx,
+    llvm::DenseMap<mlir::Value, std::string> &outerVal,
+    std::ofstream &ofs, int &tmp_cnt, unsigned depth,
+    unsigned wordIdx, unsigned wordBits) {
+  if (depth >= kMaxInlineDepth) {
+    std::cerr << "GenModel: arc.call inline depth limit reached\n";
+    return "0";
+  }
+
+  auto callSymRef =
+      callOp.getAttrOfType<mlir::FlatSymbolRefAttr>("arc");
+  if (!callSymRef)
+    return "0";
+
+  auto parentModule = callOp.getParentOfType<mlir::ModuleOp>();
+  if (!parentModule)
+    return "0";
+
+  auto *calleeSym = parentModule.lookupSymbol(callSymRef.getValue());
+  auto calleeDef =
+      mlir::dyn_cast_or_null<circt::arc::DefineOp>(calleeSym);
+  if (!calleeDef || calleeDef.getBody().empty())
+    return "0";
+
+  mlir::Block &body = calleeDef.getBody().front();
+  auto outputOp =
+      mlir::dyn_cast<circt::arc::OutputOp>(body.getTerminator());
+  if (!outputOp || outputOp.getOutputs().empty())
+    return "0";
+
+  if (resultIdx >= outputOp.getOutputs().size())
+    resultIdx = 0;
+
+  llvm::DenseMap<mlir::Value, std::string> argMap;
+  for (unsigned i = 0;
+       i < callOp.getNumOperands() && i < body.getNumArguments(); ++i) {
+    mlir::Value callOperand = callOp.getOperand(i);
+    auto it = outerVal.find(callOperand);
+    argMap[body.getArgument(i)] = (it != outerVal.end()) ? it->second : "0";
+  }
+
+  mlir::Value outVal = outputOp.getOutputs()[resultIdx];
+  return render_in_callee_body(outVal, argMap, outerVal, ofs, tmp_cnt, depth,
+                               wordIdx, wordBits);
 }
 
 } // namespace hirct

@@ -1,0 +1,23 @@
+// Test GenModel: arc.call is inlined from arc.define callee body
+//
+// --- simple_demux ---
+// RUN: %hirct-gen %S/../../../tests/fixtures/simple_demux_arc.mlir -o %t_demux --only model 2>&1 | %FileCheck %s --check-prefix=CHECK-DEMUX-ERR --allow-empty
+// RUN: cat %t_demux/cmodel/simple_demux.cpp | %FileCheck %s --check-prefix=CHECK-DEMUX
+//
+// The arc.call must NOT produce an unsupported-op warning:
+// CHECK-DEMUX-ERR-NOT: unsupported op 'arc.call'
+//
+// The generated eval_comb must contain non-trivial expressions:
+// CHECK-DEMUX: void simple_demux::eval_comb()
+// CHECK-DEMUX: SEL_I
+// CHECK-DEMUX: DIN_I
+//
+// --- simple_mux ---
+// RUN: %hirct-gen %S/../../../tests/fixtures/simple_mux_arc.mlir -o %t_mux --only model 2>&1 | %FileCheck %s --check-prefix=CHECK-MUX-ERR --allow-empty
+// RUN: cat %t_mux/cmodel/simple_mux.cpp | %FileCheck %s --check-prefix=CHECK-MUX
+//
+// CHECK-MUX-ERR-NOT: unsupported op 'arc.call'
+//
+// CHECK-MUX: void simple_mux::eval_comb()
+// CHECK-MUX: SEL_I
+// CHECK-MUX: DIN_I

@@ -1,6 +1,7 @@
 #include "hirct/Target/GenModel.h"
 #include "hirct/Target/EmitExpr.h"
 #include "hirct/Analysis/IRAnalysis.h"
+#include "circt/Dialect/Arc/ArcOps.h"
 #include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/LLHD/LLHDOps.h"
 #include "circt/Dialect/Seq/SeqOps.h"
@@ -162,6 +163,9 @@ bool GenModel::emit_header(const std::string &dir) {
   auto read_ports = hirct::collect_memory_read_ports(hw_module_);
   auto cdm = hirct::build_clock_domain_map(hw_module_, mlir_module_);
 
+  llvm::SmallVector<circt::arc::StateOp> arc_states;
+  hw_module_.walk([&](circt::arc::StateOp s) { arc_states.push_back(s); });
+
   llvm::SmallVector<circt::hw::InstanceOp> instances;
   hw_module_.walk([&](circt::hw::InstanceOp inst) {
     instances.push_back(inst);
@@ -225,6 +229,23 @@ bool GenModel::emit_header(const std::string &dir) {
         ofs << "  " << ctype << " reg_" << reg_ident << ";\n";
         ofs << "  " << ctype << " next_" << reg_ident << ";\n";
       }
+    }
+
+    for (auto stateOp : arc_states) {
+      std::string sname;
+      if (auto names = stateOp->getAttrOfType<mlir::ArrayAttr>("names")) {
+        if (!names.empty())
+          if (auto sa = mlir::dyn_cast<mlir::StringAttr>(names[0]))
+            sname = sa.getValue().str();
+      }
+      if (sname.empty())
+        sname = "arc_state";
+      std::string ident = ssa_to_ident("%" + sname);
+      unsigned w = hirct::get_type_width(stateOp.getResult(0).getType());
+      if (w == 0) w = 1;
+      std::string ctype = cpp_type_for_width(w);
+      ofs << "  " << ctype << " reg_" << ident << ";\n";
+      ofs << "  " << ctype << " next_" << ident << ";\n";
     }
 
     for (const auto &mem : mems) {
@@ -369,6 +390,9 @@ void GenModel::emit_reset(std::ofstream &ofs, const std::string &name) {
   auto write_ports = hirct::collect_memory_write_ports(hw_module_);
   auto read_ports = hirct::collect_memory_read_ports(hw_module_);
 
+  llvm::SmallVector<circt::arc::StateOp> arc_states;
+  hw_module_.walk([&](circt::arc::StateOp s) { arc_states.push_back(s); });
+
   llvm::SmallVector<circt::hw::InstanceOp> instances;
   hw_module_.walk([&](circt::hw::InstanceOp inst) {
     instances.push_back(inst);
@@ -427,6 +451,23 @@ void GenModel::emit_reset(std::ofstream &ofs, const std::string &name) {
       ofs << "  next_" << reg_ident << " = static_cast<" << ctype << ">("
           << reset_val << ");\n";
     }
+  }
+
+  for (auto stateOp : arc_states) {
+    std::string sname;
+    if (auto names = stateOp->getAttrOfType<mlir::ArrayAttr>("names")) {
+      if (!names.empty())
+        if (auto sa = mlir::dyn_cast<mlir::StringAttr>(names[0]))
+          sname = sa.getValue().str();
+    }
+    if (sname.empty())
+      sname = "arc_state";
+    std::string ident = ssa_to_ident("%" + sname);
+    unsigned w = hirct::get_type_width(stateOp.getResult(0).getType());
+    if (w == 0) w = 1;
+    std::string ctype = cpp_type_for_width(w);
+    ofs << "  reg_" << ident << " = static_cast<" << ctype << ">(0);\n";
+    ofs << "  next_" << ident << " = static_cast<" << ctype << ">(0);\n";
   }
 
   for (const auto &mem : mems) {
@@ -531,8 +572,8 @@ void GenModel::emit_eval_comb(std::ofstream &ofs,
     }
   }
 
-  // Pre-register val entries for registers and memories using the same
-  // name-deduplication logic as collect_registers to ensure consistency.
+  // Pre-register val entries for registers, arc.state, and memories using the
+  // same name-deduplication logic as collect_registers to ensure consistency.
   {
     std::map<std::string, unsigned> reg_name_cnt;
     auto unique_reg_ident = [&](const std::string &base_name) -> std::string {
@@ -547,7 +588,17 @@ void GenModel::emit_eval_comb(std::ofstream &ofs,
       else if (auto reg = mlir::dyn_cast<circt::seq::CompRegOp>(op))
         val[reg.getResult()] =
             unique_reg_ident(reg.getName().value_or("").str());
-      else if (auto mem = mlir::dyn_cast<circt::seq::FirMemOp>(op))
+      else if (auto state = mlir::dyn_cast<circt::arc::StateOp>(op)) {
+        std::string sname;
+        if (auto names = state->getAttrOfType<mlir::ArrayAttr>("names")) {
+          if (!names.empty())
+            if (auto sa = mlir::dyn_cast<mlir::StringAttr>(names[0]))
+              sname = sa.getValue().str();
+        }
+        if (sname.empty())
+          sname = "arc_state";
+        val[state.getResult(0)] = unique_reg_ident(sname);
+      } else if (auto mem = mlir::dyn_cast<circt::seq::FirMemOp>(op))
         val[mem.getResult()] =
             "mem_" + ssa_to_ident("%" + mem.getName().value_or("").str());
     }
@@ -677,6 +728,30 @@ void GenModel::emit_eval_comb(std::ofstream &ofs,
 #endif
     std::string e = emit_op_expr(op, val, ofs, tmp_cnt);
     if (e.empty()) {
+      // For multi-result arc.call where emit_op_expr set val[result(0)]
+      // via the wide-port path, also bind secondary results.
+      if (op.getName().getStringRef() == "arc.call" && op.getNumResults() > 1) {
+        for (unsigned ri = 1; ri < op.getNumResults(); ++ri) {
+          mlir::Value sec = op.getResult(ri);
+          if (val.count(sec))
+            continue;
+          unsigned sw = w_of(sec);
+          if (mlir::isa<circt::seq::ClockType>(sec.getType()))
+            continue;
+          std::string se = inline_arc_call(op, ri, val, ofs, tmp_cnt, 0);
+          std::string srn = next_tmp();
+          if (sw == 0) sw = 1;
+          if (sw == 1)
+            ofs << "  bool " << srn << " = ((" << se << ") & 1ULL) != 0;\n";
+          else if (sw > 64)
+            ofs << "  uint64_t " << srn << " = static_cast<uint64_t>(" << se << ");\n";
+          else
+            ofs << "  " << cpp_type_for_width(sw) << " " << srn
+                << " = static_cast<" << cpp_type_for_width(sw) << ">((" << se
+                << ") & " << width_mask_expr(sw) << ");\n";
+          val[sec] = srn;
+        }
+      }
       try_emit_instances();
       return;
     }
@@ -695,9 +770,6 @@ void GenModel::emit_eval_comb(std::ofstream &ofs,
     }
     mlir::Value result = op.getResult(0);
     if (mlir::isa<circt::hw::ArrayType>(result.getType())) {
-      // Array-typed results are emitted inline by emit_op_expr (e.g.
-      // ArrayInjectOp writes the temp array and sets val[] itself, returning
-      // ""). If val[] was already set, just record and move on.
       if (!val.count(result))
         val[result] = e.empty() ? "0" : e;
       try_emit_instances();
@@ -705,8 +777,6 @@ void GenModel::emit_eval_comb(std::ofstream &ofs,
     }
     unsigned w = w_of(result);
     if (w > 64) {
-      // Wide result: store as uint64_t (lower 64 bits only).
-      // The expression from emit_op_expr already returns a uint64_t-safe string.
       std::string rn = next_tmp();
       ofs << "  uint64_t " << rn << " = static_cast<uint64_t>(" << e << ");\n";
       val[result] = rn;
@@ -721,6 +791,30 @@ void GenModel::emit_eval_comb(std::ofstream &ofs,
       ofs << "  " << ctype << " " << rn << " = static_cast<" << ctype
           << ">((" << e << ") & " << width_mask_expr(w) << ");\n";
     val[result] = rn;
+
+    // For multi-result arc.call: bind secondary results (#1, #2, ...)
+    if (op.getName().getStringRef() == "arc.call" && op.getNumResults() > 1) {
+      for (unsigned ri = 1; ri < op.getNumResults(); ++ri) {
+        mlir::Value sec = op.getResult(ri);
+        if (val.count(sec))
+          continue;
+        unsigned sw = w_of(sec);
+        if (mlir::isa<circt::seq::ClockType>(sec.getType()))
+          continue;
+        std::string se = inline_arc_call(op, ri, val, ofs, tmp_cnt, 0);
+        std::string srn = next_tmp();
+        if (sw == 0) sw = 1;
+        if (sw == 1)
+          ofs << "  bool " << srn << " = ((" << se << ") & 1ULL) != 0;\n";
+        else if (sw > 64)
+          ofs << "  uint64_t " << srn << " = static_cast<uint64_t>(" << se << ");\n";
+        else
+          ofs << "  " << cpp_type_for_width(sw) << " " << srn
+              << " = static_cast<" << cpp_type_for_width(sw) << ">((" << se
+              << ") & " << width_mask_expr(sw) << ");\n";
+        val[sec] = srn;
+      }
+    }
     try_emit_instances();
   };
 
@@ -748,13 +842,16 @@ void GenModel::emit_eval_comb(std::ofstream &ofs,
       continue;
 
     if (mlir::isa<circt::seq::FirRegOp>(op)) {
-      // val already pre-registered; defer next-value emit until all
-      // combinational ops are resolved (feedback-path support).
       deferred_regs.push_back(&op);
       try_emit_instances();
       continue;
     }
     if (mlir::isa<circt::seq::CompRegOp>(op)) {
+      deferred_regs.push_back(&op);
+      try_emit_instances();
+      continue;
+    }
+    if (mlir::isa<circt::arc::StateOp>(op)) {
       deferred_regs.push_back(&op);
       try_emit_instances();
       continue;
@@ -977,6 +1074,54 @@ void GenModel::emit_eval_comb(std::ofstream &ofs,
                 << cpp_type_for_width(w) << ">((" << data_e << ") & "
                 << width_mask_expr(w) << ");\n";
         }
+      }
+    } else if (auto state = mlir::dyn_cast<circt::arc::StateOp>(op_ptr)) {
+      std::string ri = reg_ident_from_val(state.getResult(0));
+      if (ri.empty())
+        continue;
+      if (state.getInputs().empty())
+        continue;
+
+      // Inline the arc body to compute next-state value.
+      auto arcSymRef = state.getArcAttr().getRootReference();
+      auto *calleeSym = symbol_table_->lookup(arcSymRef);
+      auto calleeDef =
+          mlir::dyn_cast_or_null<circt::arc::DefineOp>(calleeSym);
+
+      std::string next_e;
+      if (calleeDef && !calleeDef.getBody().empty()) {
+        mlir::Block &arcBody = calleeDef.getBody().front();
+        auto outputOp =
+            mlir::dyn_cast<circt::arc::OutputOp>(arcBody.getTerminator());
+        if (outputOp && !outputOp.getOutputs().empty()) {
+          llvm::DenseMap<mlir::Value, std::string> argMap;
+          auto dataInputs = state.getInputs();
+          for (unsigned i = 0;
+               i < dataInputs.size() && i < arcBody.getNumArguments(); ++i) {
+            auto it = val.find(dataInputs[i]);
+            argMap[arcBody.getArgument(i)] =
+                (it != val.end()) ? it->second : "0";
+          }
+          mlir::Value outVal = outputOp.getOutputs()[0];
+          next_e = render_in_callee_body(outVal, argMap, val, ofs,
+                                         tmp_cnt, 0, 0, 0);
+        }
+      }
+
+      if (next_e.empty()) {
+        // Fallback: use first input directly (identity arc or missing callee).
+        next_e = expr(state.getInputs()[0]);
+      }
+
+      if (!next_e.empty()) {
+        unsigned w = w_of(state.getResult(0));
+        if (w == 1)
+          ofs << "  next_" << ri << " = ((" << next_e
+              << ") & 1ULL) != 0;\n";
+        else
+          ofs << "  next_" << ri << " = static_cast<"
+              << cpp_type_for_width(w) << ">((" << next_e << ") & "
+              << width_mask_expr(w) << ");\n";
       }
     }
   }
@@ -1351,6 +1496,9 @@ void GenModel::emit_step(std::ofstream &ofs, const std::string &name) {
   auto write_ports = hirct::collect_memory_write_ports(hw_module_);
   auto topo = hirct::sort_instances_topologically(hw_module_);
 
+  llvm::SmallVector<circt::arc::StateOp> arc_states;
+  hw_module_.walk([&](circt::arc::StateOp s) { arc_states.push_back(s); });
+
   llvm::SmallVector<circt::seq::FirMemReadOp> clk_reads;
   for (auto &op : hw_module_.getBodyBlock()->getOperations()) {
     if (auto rp = mlir::dyn_cast<circt::seq::FirMemReadOp>(op))
@@ -1421,6 +1569,53 @@ void GenModel::emit_step(std::ofstream &ofs, const std::string &name) {
         }
       }
       ofs << "  reg_" << reg_ident << " = next_" << reg_ident << ";\n";
+    }
+  }
+
+  auto resolvePortName = [&](mlir::Value v) -> std::string {
+    if (auto arg = mlir::dyn_cast<mlir::BlockArgument>(v)) {
+      auto pl = hw_module_.getPortList();
+      unsigned idx = arg.getArgNumber();
+      if (idx < pl.size())
+        return pl[idx].getName().str();
+    }
+    return {};
+  };
+
+  for (auto stateOp : arc_states) {
+    std::string sname;
+    if (auto names = stateOp->getAttrOfType<mlir::ArrayAttr>("names")) {
+      if (!names.empty())
+        if (auto sa = mlir::dyn_cast<mlir::StringAttr>(names[0]))
+          sname = sa.getValue().str();
+    }
+    if (sname.empty())
+      sname = "arc_state";
+    std::string ident = ssa_to_ident("%" + sname);
+
+    bool hasReset = !!stateOp.getReset();
+    bool hasEnable = !!stateOp.getEnable();
+    std::string rstSig, enSig;
+    if (hasReset)
+      rstSig = resolvePortName(stateOp.getReset());
+    if (hasEnable)
+      enSig = resolvePortName(stateOp.getEnable());
+
+    if (hasReset && !rstSig.empty()) {
+      ofs << "  if (" << rstSig << ")\n";
+      ofs << "    reg_" << ident << " = 0;\n";
+      if (hasEnable && !enSig.empty()) {
+        ofs << "  else if (" << enSig << ")\n";
+        ofs << "    reg_" << ident << " = next_" << ident << ";\n";
+      } else {
+        ofs << "  else\n";
+        ofs << "    reg_" << ident << " = next_" << ident << ";\n";
+      }
+    } else if (hasEnable && !enSig.empty()) {
+      ofs << "  if (" << enSig << ")\n";
+      ofs << "    reg_" << ident << " = next_" << ident << ";\n";
+    } else {
+      ofs << "  reg_" << ident << " = next_" << ident << ";\n";
     }
   }
 

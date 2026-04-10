@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "hirct/Target/CModelEmitter.h"
+#include "hirct/Target/GenModel.h"
 #include "hirct/SemanticModel/Builder.h"
 #include "hirct/SemanticModel/Validation.h"
 
@@ -2237,6 +2238,443 @@ TEST_F(CModelEmitterFixture, WidePort_EvalCombBoundary) {
   EXPECT_NE(artifact.implContent.find("eval_comb"), std::string::npos);
   EXPECT_EQ(artifact.implContent.find("unsupported:comb.extract"), std::string::npos)
       << "comb.extract on wide port must be supported";
+}
+
+// ---------------------------------------------------------------------------
+// GenModel arc.state + multi-result arc.call hardening
+// ---------------------------------------------------------------------------
+
+TEST_F(CModelEmitterFixture, GenModel_ArcState_MultiResultCall_EvtLogIf) {
+  auto fixtureRoot = std::filesystem::path(__FILE__)
+                         .parent_path().parent_path().parent_path() /
+                     "tests" / "fixtures";
+  auto mlirPath = fixtureRoot / "ncs_core_evt_log_if_arc.mlir";
+  ASSERT_TRUE(std::filesystem::exists(mlirPath)) << mlirPath.string();
+  std::ifstream ifs(mlirPath);
+  std::string content((std::istreambuf_iterator<char>(ifs)),
+                      std::istreambuf_iterator<char>());
+  auto module = parseInline(content);
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("ncs_core_evt_log_if");
+  ASSERT_TRUE(hwModule);
+
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_evtlog");
+  ASSERT_TRUE(ok) << "GenModel::emit failed for ncs_core_evt_log_if";
+
+  std::ifstream cpp_ifs("/tmp/hirct_genmodel_evtlog/cmodel/ncs_core_evt_log_if.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  // r_current_state must be declared as a register and used in step()
+  std::ifstream h_ifs("/tmp/hirct_genmodel_evtlog/cmodel/ncs_core_evt_log_if.h");
+  std::string h_content((std::istreambuf_iterator<char>(h_ifs)),
+                        std::istreambuf_iterator<char>());
+  EXPECT_NE(h_content.find("reg_"), std::string::npos)
+      << "arc.state register must appear in header";
+  EXPECT_NE(h_content.find("next_"), std::string::npos)
+      << "arc.state next-value must appear in header";
+
+  // Outputs derived from multi-result arc.call must not be constant 0
+  EXPECT_EQ(cpp_content.find("RD_MPM_RD_REQ_READY_O = ((0) &"), std::string::npos)
+      << "RD_MPM_RD_REQ_READY_O must not be hardcoded 0";
+  EXPECT_EQ(cpp_content.find("WR_LOG_REQ_VALID_O = ((0) &"), std::string::npos)
+      << "WR_LOG_REQ_VALID_O must not be hardcoded 0";
+  EXPECT_EQ(cpp_content.find("WR_LOG_REQ_64B_ADDR_O = static_cast<uint32_t>((0)"), std::string::npos)
+      << "WR_LOG_REQ_64B_ADDR_O must not be hardcoded 0";
+
+  // DBG_EVT_LOG_IF_O is driven by arc.state — must reference register
+  EXPECT_EQ(cpp_content.find("DBG_EVT_LOG_IF_O = ((0) &"), std::string::npos)
+      << "DBG_EVT_LOG_IF_O (from arc.state) must not be hardcoded 0";
+
+  // step() must contain reg_ = next_ update
+  EXPECT_NE(cpp_content.find("next_"), std::string::npos)
+      << "step() must contain next-state assignment for arc.state register";
+
+  // Compile check
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_evtlog/cmodel "
+      "/tmp/hirct_genmodel_evtlog/cmodel/ncs_core_evt_log_if.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "generated code must compile";
+}
+
+// ---------------------------------------------------------------------------
+// arc.state reset/enable boundary tests (GenModel path)
+// ---------------------------------------------------------------------------
+
+TEST_F(CModelEmitterFixture, GenModel_ArcState_SyncResetRuntime) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @inc_arc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      arc.define @clk_arc(%arg0: i1) -> !seq.clock {
+        %0 = seq.to_clock %arg0
+        arc.output %0 : !seq.clock
+      }
+      hw.module @SyncRst(in %clk : i1, in %rst : i1,
+                         out count : i8) {
+        %clock = arc.call @clk_arc(%clk) : (i1) -> !seq.clock
+        %0 = arc.state @inc_arc(%0) clock %clock reset %rst latency 1 {names = ["cnt"]} : (i8) -> i8
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule = module->lookupSymbol<circt::hw::HWModuleOp>("SyncRst");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_syncrst");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_syncrst");
+  ASSERT_TRUE(ok) << "GenModel::emit failed for SyncRst";
+
+  std::ifstream cpp_ifs("/tmp/hirct_genmodel_syncrst/cmodel/SyncRst.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_syncrst/cmodel "
+      "/tmp/hirct_genmodel_syncrst/cmodel/SyncRst.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "SyncRst must compile";
+
+  // Build a driver to verify reset behavior at runtime
+  std::string driverSrc = R"(
+#include "SyncRst.h"
+#include <cassert>
+int main() {
+  SyncRst s;
+  s.do_reset();
+  assert(s.count == 0);
+
+  // tick without reset: should increment
+  s.rst = 0;
+  s.step();
+  assert(s.count == 1);
+
+  s.step();
+  assert(s.count == 2);
+
+  // assert reset: state must go to 0
+  s.rst = 1;
+  s.step();
+  assert(s.count == 0);
+
+  // release reset and tick: should start incrementing from 0 again
+  s.rst = 0;
+  s.step();
+  assert(s.count == 1);
+
+  return 0;
+}
+)";
+
+  {
+    std::ofstream df("/tmp/hirct_genmodel_syncrst/cmodel/driver.cpp");
+    df << driverSrc;
+  }
+
+  int compileRc = std::system(
+      "c++ -std=c++17 -O0 -Werror "
+      "-I/tmp/hirct_genmodel_syncrst/cmodel "
+      "/tmp/hirct_genmodel_syncrst/cmodel/SyncRst.cpp "
+      "/tmp/hirct_genmodel_syncrst/cmodel/driver.cpp "
+      "-o /tmp/hirct_genmodel_syncrst/driver 2>&1");
+  ASSERT_EQ(compileRc, 0) << "SyncRst driver must compile";
+
+  int runRc = std::system("/tmp/hirct_genmodel_syncrst/driver");
+  EXPECT_EQ(runRc, 0)
+      << "arc.state with sync reset: rst=1 must zero state, rst=0 must allow update";
+
+  std::system("rm -rf /tmp/hirct_genmodel_syncrst");
+}
+
+TEST_F(CModelEmitterFixture, GenModel_ArcState_EnableGatingRuntime) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @inc_arc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      arc.define @clk_arc(%arg0: i1) -> !seq.clock {
+        %0 = seq.to_clock %arg0
+        arc.output %0 : !seq.clock
+      }
+      hw.module @EnGate(in %clk : i1, in %en : i1,
+                        out count : i8) {
+        %clock = arc.call @clk_arc(%clk) : (i1) -> !seq.clock
+        %0 = arc.state @inc_arc(%0) clock %clock enable %en latency 1 {names = ["cnt"]} : (i8) -> i8
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule = module->lookupSymbol<circt::hw::HWModuleOp>("EnGate");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_engate");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_engate");
+  ASSERT_TRUE(ok) << "GenModel::emit failed for EnGate";
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_engate/cmodel "
+      "/tmp/hirct_genmodel_engate/cmodel/EnGate.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "EnGate must compile";
+
+  std::string driverSrc = R"(
+#include "EnGate.h"
+#include <cassert>
+int main() {
+  EnGate s;
+  s.do_reset();
+  assert(s.count == 0);
+
+  // enable=1: should increment
+  s.en = 1;
+  s.step();
+  assert(s.count == 1);
+
+  s.step();
+  assert(s.count == 2);
+
+  // enable=0: state must hold
+  s.en = 0;
+  s.step();
+  assert(s.count == 2);
+
+  s.step();
+  assert(s.count == 2);
+
+  // re-enable
+  s.en = 1;
+  s.step();
+  assert(s.count == 3);
+
+  return 0;
+}
+)";
+
+  {
+    std::ofstream df("/tmp/hirct_genmodel_engate/cmodel/driver.cpp");
+    df << driverSrc;
+  }
+
+  int compileRc = std::system(
+      "c++ -std=c++17 -O0 -Werror "
+      "-I/tmp/hirct_genmodel_engate/cmodel "
+      "/tmp/hirct_genmodel_engate/cmodel/EnGate.cpp "
+      "/tmp/hirct_genmodel_engate/cmodel/driver.cpp "
+      "-o /tmp/hirct_genmodel_engate/driver 2>&1");
+  ASSERT_EQ(compileRc, 0) << "EnGate driver must compile";
+
+  int runRc = std::system("/tmp/hirct_genmodel_engate/driver");
+  EXPECT_EQ(runRc, 0)
+      << "arc.state with enable: en=1 must update, en=0 must hold";
+
+  std::system("rm -rf /tmp/hirct_genmodel_engate");
+}
+
+TEST_F(CModelEmitterFixture, GenModel_ArcState_EnableResetCombined) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @inc_arc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      arc.define @clk_arc(%arg0: i1) -> !seq.clock {
+        %0 = seq.to_clock %arg0
+        arc.output %0 : !seq.clock
+      }
+      hw.module @EnRst(in %clk : i1, in %en : i1, in %rst : i1,
+                       out count : i8) {
+        %clock = arc.call @clk_arc(%clk) : (i1) -> !seq.clock
+        %0 = arc.state @inc_arc(%0) clock %clock enable %en reset %rst latency 1 {names = ["cnt"]} : (i8) -> i8
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule = module->lookupSymbol<circt::hw::HWModuleOp>("EnRst");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_enrst");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_enrst");
+  ASSERT_TRUE(ok) << "GenModel::emit failed for EnRst";
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_enrst/cmodel "
+      "/tmp/hirct_genmodel_enrst/cmodel/EnRst.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "EnRst must compile";
+
+  std::string driverSrc = R"(
+#include "EnRst.h"
+#include <cassert>
+int main() {
+  EnRst s;
+  s.do_reset();
+  assert(s.count == 0);
+
+  // en=1, rst=0: increment
+  s.en = 1; s.rst = 0;
+  s.step();
+  assert(s.count == 1);
+
+  s.step();
+  assert(s.count == 2);
+
+  // en=0, rst=0: hold
+  s.en = 0; s.rst = 0;
+  s.step();
+  assert(s.count == 2);
+
+  // en=1, rst=1: reset takes priority
+  s.en = 1; s.rst = 1;
+  s.step();
+  assert(s.count == 0);
+
+  // en=0, rst=1: reset still takes priority (even with enable=0)
+  s.en = 0; s.rst = 1;
+  s.step();
+  assert(s.count == 0);
+
+  // en=1, rst=0: resume from 0
+  s.en = 1; s.rst = 0;
+  s.step();
+  assert(s.count == 1);
+
+  return 0;
+}
+)";
+
+  {
+    std::ofstream df("/tmp/hirct_genmodel_enrst/cmodel/driver.cpp");
+    df << driverSrc;
+  }
+
+  int compileRc = std::system(
+      "c++ -std=c++17 -O0 -Werror "
+      "-I/tmp/hirct_genmodel_enrst/cmodel "
+      "/tmp/hirct_genmodel_enrst/cmodel/EnRst.cpp "
+      "/tmp/hirct_genmodel_enrst/cmodel/driver.cpp "
+      "-o /tmp/hirct_genmodel_enrst/driver 2>&1");
+  ASSERT_EQ(compileRc, 0) << "EnRst driver must compile";
+
+  int runRc = std::system("/tmp/hirct_genmodel_enrst/driver");
+  EXPECT_EQ(runRc, 0)
+      << "arc.state with enable+reset: correct priority and gating";
+
+  std::system("rm -rf /tmp/hirct_genmodel_enrst");
+}
+
+TEST_F(CModelEmitterFixture, GenModel_MultiResultArcCall_AllResultsBound) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @multi3(%arg0: i8, %arg1: i8) -> (i8, i8, i8) {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        %1 = comb.xor %arg0, %arg1 : i8
+        %2 = comb.and %arg0, %arg1 : i8
+        arc.output %0, %1, %2 : i8, i8, i8
+      }
+      hw.module @MultiOut(in %a : i8, in %b : i8,
+                          out x : i8, out y : i8, out z : i8) {
+        %0:3 = arc.call @multi3(%a, %b) : (i8, i8) -> (i8, i8, i8)
+        hw.output %0#0, %0#1, %0#2 : i8, i8, i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule = module->lookupSymbol<circt::hw::HWModuleOp>("MultiOut");
+  ASSERT_TRUE(hwModule);
+
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_multiout");
+  ASSERT_TRUE(ok) << "GenModel::emit failed for MultiOut";
+
+  std::ifstream cpp_ifs("/tmp/hirct_genmodel_multiout/cmodel/MultiOut.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  // All three outputs must have non-zero expressions
+  EXPECT_EQ(cpp_content.find("x = ((0) &"), std::string::npos)
+      << "output x (result#0) must not be hardcoded 0";
+  EXPECT_EQ(cpp_content.find("y = ((0) &"), std::string::npos)
+      << "output y (result#1) must not be hardcoded 0";
+  EXPECT_EQ(cpp_content.find("z = ((0) &"), std::string::npos)
+      << "output z (result#2) must not be hardcoded 0";
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_multiout/cmodel "
+      "/tmp/hirct_genmodel_multiout/cmodel/MultiOut.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "generated code must compile";
+}
+
+// ---------------------------------------------------------------------------
+// multi-result arc.call + arc.state combined pattern
+// ---------------------------------------------------------------------------
+
+TEST_F(CModelEmitterFixture, GenModel_MultiResultCall_PlusState_Runtime) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @split_arc(%arg0: i1, %arg1: i1) -> (i1, !seq.clock) {
+        %0 = comb.xor %arg0, %arg1 : i1
+        %1 = seq.to_clock %arg1
+        arc.output %0, %1 : i1, !seq.clock
+      }
+      arc.define @counter_arc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @CallPlusState(in %rst_n : i1, in %clk_i : i1,
+                               out cnt : i8, out xor_out : i1) {
+        %xor_val:2 = arc.call @split_arc(%rst_n, %clk_i) : (i1, i1) -> (i1, !seq.clock)
+        %cnt = arc.state @counter_arc(%cnt) clock %xor_val#1 latency 1 {names = ["cnt_reg"]} : (i8) -> i8
+        hw.output %cnt, %xor_val#0 : i8, i1
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule = module->lookupSymbol<circt::hw::HWModuleOp>("CallPlusState");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_callstate");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_callstate");
+  ASSERT_TRUE(ok) << "GenModel::emit failed for CallPlusState";
+
+  std::ifstream cpp_ifs("/tmp/hirct_genmodel_callstate/cmodel/CallPlusState.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  EXPECT_EQ(cpp_content.find("xor_out = ((0) &"), std::string::npos)
+      << "xor_out from multi-result arc.call must not be hardcoded 0";
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_callstate/cmodel "
+      "/tmp/hirct_genmodel_callstate/cmodel/CallPlusState.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "CallPlusState must compile";
+
+  std::system("rm -rf /tmp/hirct_genmodel_callstate");
 }
 
 } // namespace

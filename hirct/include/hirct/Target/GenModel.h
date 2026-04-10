@@ -2,6 +2,7 @@
 #define HIRCT_TARGET_GENMODEL_H
 
 #include "hirct/Analysis/IRAnalysis.h"
+#include "circt/Dialect/Arc/ArcOps.h"
 #include "circt/Dialect/HW/HWOps.h"
 #include "circt/Dialect/LLHD/LLHDOps.h"
 #include "mlir/IR/BuiltinOps.h"
