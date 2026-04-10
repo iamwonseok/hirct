@@ -694,8 +694,16 @@ void GenModel::emit_eval_comb(std::ofstream &ofs,
     unsigned oi = 0;
     for (auto &p : ref_ports) {
       if (p.isInput() && oi < inst.getNumOperands()) {
-        ofs << "  inst_" << safe << "." << p.getName().str() << " = "
-            << expr(inst.getOperand(oi)) << ";\n";
+        std::string pn = p.getName().str();
+        std::string oe = expr(inst.getOperand(oi));
+        if (auto arr_ty = mlir::dyn_cast<circt::hw::ArrayType>(p.type)) {
+          unsigned depth = arr_ty.getNumElements();
+          ofs << "  for (unsigned __k = 0; __k < " << depth
+              << "; ++__k) inst_" << safe << "." << pn
+              << "[__k] = " << oe << "[__k];\n";
+        } else {
+          ofs << "  inst_" << safe << "." << pn << " = " << oe << ";\n";
+        }
         ++oi;
       }
     }

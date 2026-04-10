@@ -4243,6 +4243,291 @@ TEST_F(CModelEmitterFixture, GenModel_AggregateOutputDirectFromComb) {
   std::system("rm -rf /tmp/hirct_genmodel_aggout_comb");
 }
 
+// ---------------------------------------------------------------------------
+// Batch: Array input port handling in eval_comb (GenModel path)
+// ---------------------------------------------------------------------------
+
+TEST_F(CModelEmitterFixture, GenModel_ArrayInputDirectOutput) {
+  auto module = parseInline(R"mlir(
+    module {
+      hw.module @ArrInOut(in %inp : !hw.array<4xi8>, out q : !hw.array<4xi8>) {
+        hw.output %inp : !hw.array<4xi8>
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("ArrInOut");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_arrin_direct");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_arrin_direct");
+  ASSERT_TRUE(ok) << "emit must succeed";
+
+  std::ifstream h_ifs(
+      "/tmp/hirct_genmodel_arrin_direct/cmodel/ArrInOut.h");
+  std::string h_content((std::istreambuf_iterator<char>(h_ifs)),
+                        std::istreambuf_iterator<char>());
+  std::ifstream cpp_ifs(
+      "/tmp/hirct_genmodel_arrin_direct/cmodel/ArrInOut.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  EXPECT_NE(h_content.find("inp[4]"), std::string::npos)
+      << "array input port must be declared as C array; header:\n"
+      << h_content;
+  EXPECT_NE(h_content.find("q[4]"), std::string::npos)
+      << "array output port must be declared as C array; header:\n"
+      << h_content;
+
+  EXPECT_NE(cpp_content.find("q["), std::string::npos)
+      << "eval_comb must assign array output from array input; cpp:\n"
+      << cpp_content;
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_arrin_direct/cmodel "
+      "/tmp/hirct_genmodel_arrin_direct/cmodel/ArrInOut.cpp 2>&1");
+  EXPECT_EQ(rc, 0)
+      << "array input -> direct output must produce compilable C++";
+
+  std::system("rm -rf /tmp/hirct_genmodel_arrin_direct");
+}
+
+TEST_F(CModelEmitterFixture, GenModel_ArrayInputGetScalarOutput) {
+  auto module = parseInline(R"mlir(
+    module {
+      hw.module @ArrGetScalar(in %inp : !hw.array<4xi8>, out elem : i8) {
+        %idx = hw.constant 2 : i2
+        %0 = hw.array_get %inp[%idx] : !hw.array<4xi8>, i2
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("ArrGetScalar");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_arrget_scalar");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_arrget_scalar");
+  ASSERT_TRUE(ok) << "emit must succeed";
+
+  std::ifstream h_ifs(
+      "/tmp/hirct_genmodel_arrget_scalar/cmodel/ArrGetScalar.h");
+  std::string h_content((std::istreambuf_iterator<char>(h_ifs)),
+                        std::istreambuf_iterator<char>());
+  std::ifstream cpp_ifs(
+      "/tmp/hirct_genmodel_arrget_scalar/cmodel/ArrGetScalar.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  EXPECT_NE(h_content.find("inp[4]"), std::string::npos)
+      << "array input must be C array; header:\n" << h_content;
+
+  EXPECT_NE(cpp_content.find("elem"), std::string::npos)
+      << "eval_comb must assign scalar output; cpp:\n" << cpp_content;
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_arrget_scalar/cmodel "
+      "/tmp/hirct_genmodel_arrget_scalar/cmodel/ArrGetScalar.cpp 2>&1");
+  EXPECT_EQ(rc, 0)
+      << "array_get from array input must produce compilable C++";
+
+  std::system("rm -rf /tmp/hirct_genmodel_arrget_scalar");
+}
+
+TEST_F(CModelEmitterFixture, GenModel_ArrayInputViaArcCall) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @pass_arr(%arg0: !hw.array<4xi8>) -> !hw.array<4xi8> {
+        arc.output %arg0 : !hw.array<4xi8>
+      }
+      hw.module @ArrViaArc(in %inp : !hw.array<4xi8>, out q : !hw.array<4xi8>) {
+        %0 = arc.call @pass_arr(%inp) : (!hw.array<4xi8>) -> !hw.array<4xi8>
+        hw.output %0 : !hw.array<4xi8>
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("ArrViaArc");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_arrin_arccall");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_arrin_arccall");
+  ASSERT_TRUE(ok) << "emit must succeed";
+
+  std::ifstream cpp_ifs(
+      "/tmp/hirct_genmodel_arrin_arccall/cmodel/ArrViaArc.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  EXPECT_NE(cpp_content.find("q["), std::string::npos)
+      << "eval_comb must assign array output via arc.call; cpp:\n"
+      << cpp_content;
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_arrin_arccall/cmodel "
+      "/tmp/hirct_genmodel_arrin_arccall/cmodel/ArrViaArc.cpp 2>&1");
+  EXPECT_EQ(rc, 0)
+      << "array input via arc.call must produce compilable C++";
+
+  std::system("rm -rf /tmp/hirct_genmodel_arrin_arccall");
+}
+
+TEST_F(CModelEmitterFixture, GenModel_ArrayInputArcCallGetScalar) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @get_elem(%arg0: !hw.array<4xi8>, %arg1: i2) -> i8 {
+        %0 = hw.array_get %arg0[%arg1] : !hw.array<4xi8>, i2
+        arc.output %0 : i8
+      }
+      hw.module @ArrArcGet(in %inp : !hw.array<4xi8>, out elem : i8) {
+        %idx = hw.constant 1 : i2
+        %0 = arc.call @get_elem(%inp, %idx) : (!hw.array<4xi8>, i2) -> i8
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("ArrArcGet");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_arrin_arcget");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_arrin_arcget");
+  ASSERT_TRUE(ok) << "emit must succeed";
+
+  std::ifstream cpp_ifs(
+      "/tmp/hirct_genmodel_arrin_arcget/cmodel/ArrArcGet.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  EXPECT_NE(cpp_content.find("elem"), std::string::npos)
+      << "eval_comb must assign scalar output from arc.call; cpp:\n"
+      << cpp_content;
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_arrin_arcget/cmodel "
+      "/tmp/hirct_genmodel_arrin_arcget/cmodel/ArrArcGet.cpp 2>&1");
+  EXPECT_EQ(rc, 0)
+      << "array input -> arc.call(array_get) -> scalar output must compile";
+
+  std::system("rm -rf /tmp/hirct_genmodel_arrin_arcget");
+}
+
+TEST_F(CModelEmitterFixture, GenModel_ArrayInputMixedComb) {
+  auto module = parseInline(R"mlir(
+    module {
+      hw.module @ArrMixComb(in %inp : !hw.array<4xi8>, in %x : i8,
+                            out q : !hw.array<4xi8>) {
+        %arr = hw.array_create %x, %x, %x, %x : i8
+        %c0 = hw.constant 0 : i1
+        %out = comb.mux %c0, %inp, %arr : !hw.array<4xi8>
+        hw.output %out : !hw.array<4xi8>
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("ArrMixComb");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_arrmix");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_arrmix");
+  ASSERT_TRUE(ok) << "emit must succeed";
+
+  std::ifstream cpp_ifs(
+      "/tmp/hirct_genmodel_arrmix/cmodel/ArrMixComb.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  EXPECT_NE(cpp_content.find("q["), std::string::npos)
+      << "eval_comb must assign array output from mux; cpp:\n"
+      << cpp_content;
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_arrmix/cmodel "
+      "/tmp/hirct_genmodel_arrmix/cmodel/ArrMixComb.cpp 2>&1");
+  EXPECT_EQ(rc, 0)
+      << "array input + array_create mux must produce compilable C++";
+
+  std::system("rm -rf /tmp/hirct_genmodel_arrmix");
+}
+
+TEST_F(CModelEmitterFixture, GenModel_ArrayInputToInstance) {
+  auto module = parseInline(R"mlir(
+    module {
+      hw.module @ArrChild(in %inp : !hw.array<4xi8>, out q : !hw.array<4xi8>) {
+        hw.output %inp : !hw.array<4xi8>
+      }
+      hw.module @ArrParent(in %d : !hw.array<4xi8>, out q : !hw.array<4xi8>) {
+        %0 = hw.instance "child0" @ArrChild(inp: %d: !hw.array<4xi8>) -> (q: !hw.array<4xi8>)
+        hw.output %0 : !hw.array<4xi8>
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  std::system("rm -rf /tmp/hirct_genmodel_arrin_inst");
+  std::system("mkdir -p /tmp/hirct_genmodel_arrin_inst");
+
+  auto childMod =
+      module->lookupSymbol<circt::hw::HWModuleOp>("ArrChild");
+  ASSERT_TRUE(childMod);
+  {
+    hirct::GenModel genChild(childMod, *module);
+    bool cOk = genChild.emit("/tmp/hirct_genmodel_arrin_inst/ArrChild");
+    ASSERT_TRUE(cOk) << "child emit must succeed";
+  }
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("ArrParent");
+  ASSERT_TRUE(hwModule);
+  {
+    hirct::GenModel gen(hwModule, *module);
+    bool ok = gen.emit("/tmp/hirct_genmodel_arrin_inst/ArrParent");
+    ASSERT_TRUE(ok) << "parent emit must succeed";
+  }
+
+  // Place child header where parent include expects it (sibling dir layout).
+  std::system(
+      "mkdir -p /tmp/hirct_genmodel_arrin_inst/ArrParent/cmodel/../ArrChild/cmodel && "
+      "cp /tmp/hirct_genmodel_arrin_inst/ArrChild/cmodel/ArrChild.h "
+      "/tmp/hirct_genmodel_arrin_inst/ArrParent/ArrChild/cmodel/ArrChild.h");
+
+  std::ifstream cpp_ifs(
+      "/tmp/hirct_genmodel_arrin_inst/ArrParent/cmodel/ArrParent.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+  EXPECT_NE(cpp_content.find("q["), std::string::npos)
+      << "eval_comb must assign array output; cpp:\n" << cpp_content;
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_arrin_inst/ArrParent/cmodel "
+      "/tmp/hirct_genmodel_arrin_inst/ArrParent/cmodel/ArrParent.cpp 2>&1");
+  EXPECT_EQ(rc, 0)
+      << "array input forwarded to child instance must produce compilable C++";
+
+  std::system("rm -rf /tmp/hirct_genmodel_arrin_inst");
+}
+
 TEST_F(CModelEmitterFixture, GenModel_AggregateOutputConstant) {
   auto module = parseInline(R"mlir(
     module {
