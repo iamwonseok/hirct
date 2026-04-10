@@ -2028,6 +2028,64 @@ TEST_F(SemanticModelFixture, BoundaryReason_NoBoundaryWhenResolved) {
       << "resolved clock must not produce boundary reasons";
 }
 
+// ---------------------------------------------------------------------------
+// Batch: Nonzero reset / aggregate state + reset/enable hardening
+// ---------------------------------------------------------------------------
+
+TEST_F(SemanticModelFixture, NonzeroResetInitValue) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @inc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @NonzeroRst(in %clk : i1, in %rst : i1, out q : i8) {
+        %c = seq.to_clock %clk
+        %0 = arc.state @inc(%0) clock %c reset %rst latency 1
+              {names = ["cnt"], initial_value = 42 : i8} : (i8) -> i8
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+  auto model = hirct::semantic::buildModuleModel(*module, "NonzeroRst");
+  ASSERT_TRUE(succeeded(model));
+
+  ASSERT_EQ(model->stateVars.size(), 1u);
+  auto &sv = model->stateVars[0];
+  EXPECT_TRUE(sv.hasConstantInit) << "must detect initial_value attr";
+  EXPECT_EQ(sv.initValue, "42") << "must capture nonzero init value";
+  EXPECT_TRUE(sv.hasReset) << "must detect reset signal";
+}
+
+TEST_F(SemanticModelFixture, AggregateStateHasResetAndEnable) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @arr_inc(%arg0: !hw.array<4xi8>) -> !hw.array<4xi8> {
+        arc.output %arg0 : !hw.array<4xi8>
+      }
+      hw.module @AggRstEn(in %clk : i1, in %rst : i1, in %en : i1,
+                          out q : !hw.array<4xi8>) {
+        %c = seq.to_clock %clk
+        %0 = arc.state @arr_inc(%0) clock %c enable %en reset %rst latency 1
+              {names = ["arr"]} : (!hw.array<4xi8>) -> !hw.array<4xi8>
+        hw.output %0 : !hw.array<4xi8>
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+  auto model = hirct::semantic::buildModuleModel(*module, "AggRstEn");
+  ASSERT_TRUE(succeeded(model));
+
+  ASSERT_EQ(model->aggregateStateVars.size(), 1u);
+  auto &av = model->aggregateStateVars[0];
+  EXPECT_TRUE(av.hasReset) << "aggregate state must detect reset";
+  EXPECT_TRUE(av.hasEnable) << "aggregate state must detect enable";
+  EXPECT_EQ(av.numElements, 4u);
+  EXPECT_EQ(av.elementWidth, 8u);
+}
+
 TEST_F(SemanticModelFixture, EvtLogIfStateHasReset) {
   auto fixtureRoot = getFixtureRoot();
   auto path = fixtureRoot / "ncs_core_evt_log_if_arc.mlir";

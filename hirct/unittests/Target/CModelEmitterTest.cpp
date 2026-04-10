@@ -3844,6 +3844,264 @@ int main() {
   std::system("rm -rf /tmp/hirct_genmodel_dualclkrstrun");
 }
 
+// ---------------------------------------------------------------------------
+// Batch: Nonzero reset / aggregate state + reset/enable codegen hardening
+// ---------------------------------------------------------------------------
+
+TEST_F(CModelEmitterFixture, GenModel_NonzeroResetCodegen) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @inc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @NonzeroRstGen(in %clk : i1, in %rst : i1, out q : i8) {
+        %c = seq.to_clock %clk
+        %0 = arc.state @inc(%0) clock %c reset %rst latency 1
+              {names = ["cnt"], initial_value = 42 : i8} : (i8) -> i8
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("NonzeroRstGen");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_nonzero_rst");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_nonzero_rst");
+  ASSERT_TRUE(ok);
+
+  std::ifstream cpp_ifs(
+      "/tmp/hirct_genmodel_nonzero_rst/cmodel/NonzeroRstGen.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  EXPECT_NE(cpp_content.find("42"), std::string::npos)
+      << "nonzero reset value 42 must appear in generated code; got:\n"
+      << cpp_content;
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_nonzero_rst/cmodel "
+      "/tmp/hirct_genmodel_nonzero_rst/cmodel/NonzeroRstGen.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "NonzeroRstGen must compile";
+
+  std::system("rm -rf /tmp/hirct_genmodel_nonzero_rst");
+}
+
+TEST_F(CModelEmitterFixture, GenModel_NonzeroResetRuntime) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @inc(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      hw.module @NzRstRun(in %clk : i1, in %rst : i1, out q : i8) {
+        %c = seq.to_clock %clk
+        %0 = arc.state @inc(%0) clock %c reset %rst latency 1
+              {names = ["cnt"], initial_value = 42 : i8} : (i8) -> i8
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule = module->lookupSymbol<circt::hw::HWModuleOp>("NzRstRun");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_nzrstrun");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_nzrstrun");
+  ASSERT_TRUE(ok);
+
+  std::string driver = R"(
+#include "NzRstRun.h"
+#include <cassert>
+int main() {
+  NzRstRun dut;
+  dut.do_reset();
+  // After do_reset, initial value must be 42
+  assert(dut.q == 42 && "do_reset must set initial value 42");
+
+  // Step with rst=0 -> should count up from 42
+  dut.rst = 0;
+  dut.step();
+  assert(dut.q == 43 && "first step from 42 should give 43");
+  dut.step();
+  assert(dut.q == 44 && "second step should give 44");
+
+  // Assert rst=1 -> back to 42
+  dut.rst = 1;
+  dut.step();
+  assert(dut.q == 42 && "reset must restore to 42, not 0");
+
+  // Release and count again
+  dut.rst = 0;
+  dut.step();
+  assert(dut.q == 43 && "count resumes from 42 -> 43");
+
+  return 0;
+}
+)";
+  {
+    std::ofstream drv("/tmp/hirct_genmodel_nzrstrun/driver.cpp");
+    drv << driver;
+  }
+
+  int rc = std::system(
+      "c++ -std=c++17 -o /tmp/hirct_genmodel_nzrstrun/test "
+      "-I/tmp/hirct_genmodel_nzrstrun/cmodel "
+      "/tmp/hirct_genmodel_nzrstrun/cmodel/NzRstRun.cpp "
+      "/tmp/hirct_genmodel_nzrstrun/driver.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "NzRstRun must compile with driver";
+
+  if (rc == 0) {
+    int run_rc = std::system("/tmp/hirct_genmodel_nzrstrun/test");
+    EXPECT_EQ(run_rc, 0) << "NzRstRun runtime assertions failed";
+  }
+
+  std::system("rm -rf /tmp/hirct_genmodel_nzrstrun");
+}
+
+TEST_F(CModelEmitterFixture, GenModel_AggregateStateResetCodegen) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @arr_id(%arg0: !hw.array<4xi8>) -> !hw.array<4xi8> {
+        arc.output %arg0 : !hw.array<4xi8>
+      }
+      hw.module @AggRstCodegen(in %clk : i1, in %rst : i1, in %d : i8,
+                               out q : i8) {
+        %c = seq.to_clock %clk
+        %0 = arc.state @arr_id(%0) clock %c reset %rst latency 1
+              {names = ["arr"]} : (!hw.array<4xi8>) -> !hw.array<4xi8>
+        %idx = hw.constant 0 : i2
+        %elem = hw.array_get %0[%idx] : !hw.array<4xi8>, i2
+        hw.output %elem : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("AggRstCodegen");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_aggrst");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_aggrst");
+  ASSERT_TRUE(ok);
+
+  std::ifstream cpp_ifs(
+      "/tmp/hirct_genmodel_aggrst/cmodel/AggRstCodegen.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  EXPECT_NE(cpp_content.find("reg_"), std::string::npos)
+      << "aggregate state must produce reg_ declaration; got:\n"
+      << cpp_content;
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_aggrst/cmodel "
+      "/tmp/hirct_genmodel_aggrst/cmodel/AggRstCodegen.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "AggRstCodegen must compile";
+
+  std::system("rm -rf /tmp/hirct_genmodel_aggrst");
+}
+
+TEST_F(CModelEmitterFixture, GenModel_AggregateStateEnableCodegen) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @arr_id(%arg0: !hw.array<4xi8>) -> !hw.array<4xi8> {
+        arc.output %arg0 : !hw.array<4xi8>
+      }
+      hw.module @AggEnCodegen(in %clk : i1, in %en : i1, in %d : i8,
+                              out q : i8) {
+        %c = seq.to_clock %clk
+        %0 = arc.state @arr_id(%0) clock %c enable %en latency 1
+              {names = ["arr"]} : (!hw.array<4xi8>) -> !hw.array<4xi8>
+        %idx = hw.constant 0 : i2
+        %elem = hw.array_get %0[%idx] : !hw.array<4xi8>, i2
+        hw.output %elem : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("AggEnCodegen");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_aggen");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_aggen");
+  ASSERT_TRUE(ok);
+
+  std::ifstream cpp_ifs(
+      "/tmp/hirct_genmodel_aggen/cmodel/AggEnCodegen.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_aggen/cmodel "
+      "/tmp/hirct_genmodel_aggen/cmodel/AggEnCodegen.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "AggEnCodegen must compile";
+
+  std::system("rm -rf /tmp/hirct_genmodel_aggen");
+}
+
+TEST_F(CModelEmitterFixture, GenModel_AggregateStateResetEnableCombined) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @arr_id(%arg0: !hw.array<4xi8>) -> !hw.array<4xi8> {
+        arc.output %arg0 : !hw.array<4xi8>
+      }
+      hw.module @AggRstEnCombined(in %clk : i1, in %rst : i1, in %en : i1,
+                                  in %d : i8, out q : i8) {
+        %c = seq.to_clock %clk
+        %0 = arc.state @arr_id(%0) clock %c enable %en reset %rst latency 1
+              {names = ["arr"]} : (!hw.array<4xi8>) -> !hw.array<4xi8>
+        %idx = hw.constant 0 : i2
+        %elem = hw.array_get %0[%idx] : !hw.array<4xi8>, i2
+        hw.output %elem : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("AggRstEnCombined");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_aggrstencomb");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_aggrstencomb");
+  ASSERT_TRUE(ok);
+
+  std::ifstream cpp_ifs(
+      "/tmp/hirct_genmodel_aggrstencomb/cmodel/AggRstEnCombined.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  EXPECT_NE(cpp_content.find("step"), std::string::npos)
+      << "aggregate state with reset+enable must have step logic; got:\n"
+      << cpp_content;
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_aggrstencomb/cmodel "
+      "/tmp/hirct_genmodel_aggrstencomb/cmodel/AggRstEnCombined.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "AggRstEnCombined must compile";
+
+  std::system("rm -rf /tmp/hirct_genmodel_aggrstencomb");
+}
+
 TEST_F(CModelEmitterFixture, GenModel_BoundaryCommentEmittedForCombOr) {
   auto module = parseInline(R"mlir(
     module {
@@ -3880,6 +4138,154 @@ TEST_F(CModelEmitterFixture, GenModel_BoundaryCommentEmittedForCombOr) {
       << cpp_content;
 
   std::system("rm -rf /tmp/hirct_genmodel_boundary_comment");
+}
+
+// ---------------------------------------------------------------------------
+// Batch: Aggregate output port direct codegen
+// ---------------------------------------------------------------------------
+
+TEST_F(CModelEmitterFixture, GenModel_AggregateOutputDirectFromState) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @arr_id(%arg0: !hw.array<4xi8>) -> !hw.array<4xi8> {
+        arc.output %arg0 : !hw.array<4xi8>
+      }
+      hw.module @AggOutState(in %clk : i1, in %rst : i1, in %d : i8,
+                             out q : !hw.array<4xi8>) {
+        %c = seq.to_clock %clk
+        %0 = arc.state @arr_id(%0) clock %c reset %rst latency 1
+              {names = ["arr"]} : (!hw.array<4xi8>) -> !hw.array<4xi8>
+        hw.output %0 : !hw.array<4xi8>
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("AggOutState");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_aggout_state");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_aggout_state");
+  ASSERT_TRUE(ok) << "emit must succeed; reason: " << gen.last_error_reason();
+
+  std::ifstream h_ifs(
+      "/tmp/hirct_genmodel_aggout_state/cmodel/AggOutState.h");
+  std::string h_content((std::istreambuf_iterator<char>(h_ifs)),
+                        std::istreambuf_iterator<char>());
+  std::ifstream cpp_ifs(
+      "/tmp/hirct_genmodel_aggout_state/cmodel/AggOutState.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  EXPECT_NE(h_content.find("q[4]"), std::string::npos)
+      << "array output port must be declared as C array, not scalar; header:\n"
+      << h_content;
+
+  EXPECT_NE(cpp_content.find("q["), std::string::npos)
+      << "eval_comb must assign array output elements; cpp:\n"
+      << cpp_content;
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_aggout_state/cmodel "
+      "/tmp/hirct_genmodel_aggout_state/cmodel/AggOutState.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "aggregate output from state must compile";
+
+  std::system("rm -rf /tmp/hirct_genmodel_aggout_state");
+}
+
+TEST_F(CModelEmitterFixture, GenModel_AggregateOutputDirectFromComb) {
+  auto module = parseInline(R"mlir(
+    module {
+      hw.module @AggOutComb(in %a : i8, in %b : i8, in %c : i8, in %d : i8,
+                            out q : !hw.array<4xi8>) {
+        %arr = hw.array_create %a, %b, %c, %d : i8
+        hw.output %arr : !hw.array<4xi8>
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("AggOutComb");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_aggout_comb");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_aggout_comb");
+  ASSERT_TRUE(ok) << "emit must succeed; reason: " << gen.last_error_reason();
+
+  std::ifstream h_ifs(
+      "/tmp/hirct_genmodel_aggout_comb/cmodel/AggOutComb.h");
+  std::string h_content((std::istreambuf_iterator<char>(h_ifs)),
+                        std::istreambuf_iterator<char>());
+  std::ifstream cpp_ifs(
+      "/tmp/hirct_genmodel_aggout_comb/cmodel/AggOutComb.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  EXPECT_NE(h_content.find("q[4]"), std::string::npos)
+      << "array output port must be declared as C array; header:\n"
+      << h_content;
+
+  EXPECT_NE(cpp_content.find("q["), std::string::npos)
+      << "eval_comb must produce element-wise output assignment; cpp:\n"
+      << cpp_content;
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_aggout_comb/cmodel "
+      "/tmp/hirct_genmodel_aggout_comb/cmodel/AggOutComb.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "aggregate output from comb must compile";
+
+  std::system("rm -rf /tmp/hirct_genmodel_aggout_comb");
+}
+
+TEST_F(CModelEmitterFixture, GenModel_AggregateOutputConstant) {
+  auto module = parseInline(R"mlir(
+    module {
+      hw.module @AggOutConst(out q : !hw.array<4xi8>) {
+        %c0 = hw.constant 0 : i8
+        %c1 = hw.constant 1 : i8
+        %c2 = hw.constant 2 : i8
+        %c3 = hw.constant 3 : i8
+        %arr = hw.array_create %c0, %c1, %c2, %c3 : i8
+        hw.output %arr : !hw.array<4xi8>
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("AggOutConst");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_aggout_const");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_aggout_const");
+  ASSERT_TRUE(ok) << "emit must succeed; reason: " << gen.last_error_reason();
+
+  std::ifstream h_ifs(
+      "/tmp/hirct_genmodel_aggout_const/cmodel/AggOutConst.h");
+  std::string h_content((std::istreambuf_iterator<char>(h_ifs)),
+                        std::istreambuf_iterator<char>());
+  std::ifstream cpp_ifs(
+      "/tmp/hirct_genmodel_aggout_const/cmodel/AggOutConst.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  EXPECT_NE(h_content.find("q[4]"), std::string::npos)
+      << "constant array output must be array; header:\n" << h_content;
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_aggout_const/cmodel "
+      "/tmp/hirct_genmodel_aggout_const/cmodel/AggOutConst.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "constant array output must compile";
+
+  std::system("rm -rf /tmp/hirct_genmodel_aggout_const");
 }
 
 } // namespace

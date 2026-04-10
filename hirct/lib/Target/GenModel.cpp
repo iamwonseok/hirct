@@ -202,15 +202,23 @@ bool GenModel::emit_header(const std::string &dir) {
   ofs << "\nclass " << name << " {\npublic:\n";
 
   for (const auto &p : ports) {
-    unsigned w = p.width;
-    if (w == 0)
-      w = 1;
-    if (w > 64) {
-      unsigned words = (w + 63) / 64;
-      ofs << "  uint64_t " << p.name << "[" << words << "];\n";
+    if (auto arr_ty = mlir::dyn_cast<circt::hw::ArrayType>(p.type)) {
+      unsigned depth = arr_ty.getNumElements();
+      unsigned elem_w = hirct::get_type_width(arr_ty.getElementType());
+      if (elem_w == 0) elem_w = 1;
+      std::string etype = hirct::cpp_type_for_width(elem_w);
+      ofs << "  " << etype << " " << p.name << "[" << depth << "];\n";
     } else {
-      std::string ctype = cpp_type_for_width(w);
-      ofs << "  " << ctype << " " << p.name << ";\n";
+      unsigned w = p.width;
+      if (w == 0)
+        w = 1;
+      if (w > 64) {
+        unsigned words = (w + 63) / 64;
+        ofs << "  uint64_t " << p.name << "[" << words << "];\n";
+      } else {
+        std::string ctype = cpp_type_for_width(w);
+        ofs << "  " << ctype << " " << p.name << ";\n";
+      }
     }
   }
 
@@ -257,11 +265,21 @@ bool GenModel::emit_header(const std::string &dir) {
       if (sname.empty())
         sname = "arc_state";
       std::string ident = ssa_to_ident("%" + sname);
-      unsigned w = hirct::get_type_width(stateOp.getResult(0).getType());
-      if (w == 0) w = 1;
-      std::string ctype = cpp_type_for_width(w);
-      ofs << "  " << ctype << " reg_" << ident << ";\n";
-      ofs << "  " << ctype << " next_" << ident << ";\n";
+      mlir::Type resultType = stateOp.getResult(0).getType();
+      if (auto arr_ty = mlir::dyn_cast<circt::hw::ArrayType>(resultType)) {
+        unsigned depth = arr_ty.getNumElements();
+        unsigned elem_w = hirct::get_type_width(arr_ty.getElementType());
+        if (elem_w == 0) elem_w = 1;
+        std::string etype = hirct::cpp_type_for_width(elem_w);
+        ofs << "  " << etype << " reg_" << ident << "[" << depth << "];\n";
+        ofs << "  " << etype << " next_" << ident << "[" << depth << "];\n";
+      } else {
+        unsigned w = hirct::get_type_width(resultType);
+        if (w == 0) w = 1;
+        std::string ctype = cpp_type_for_width(w);
+        ofs << "  " << ctype << " reg_" << ident << ";\n";
+        ofs << "  " << ctype << " next_" << ident << ";\n";
+      }
       if (stateOp.getReset())
         ofs << "  bool arc_rst_" << ident << ";\n";
       if (stateOp.getEnable())
@@ -425,7 +443,11 @@ void GenModel::emit_reset(std::ofstream &ofs, const std::string &name) {
   ofs << "void " << name << "::do_reset()\n{\n";
 
   for (const auto &p : input_ports) {
-    if (p.width > 64) {
+    if (auto arr_ty = mlir::dyn_cast<circt::hw::ArrayType>(p.type)) {
+      unsigned depth = arr_ty.getNumElements();
+      ofs << "  for (unsigned __k = 0; __k < " << depth << "; ++__k) "
+          << p.name << "[__k] = 0;\n";
+    } else if (p.width > 64) {
       unsigned words = (p.width + 63) / 64;
       ofs << "  for (unsigned __k = 0; __k < " << words << "; ++__k) "
           << p.name << "[__k] = 0;\n";
@@ -487,11 +509,38 @@ void GenModel::emit_reset(std::ofstream &ofs, const std::string &name) {
     if (sname.empty())
       sname = "arc_state";
     std::string ident = ssa_to_ident("%" + sname);
-    unsigned w = hirct::get_type_width(stateOp.getResult(0).getType());
+    mlir::Type resultType = stateOp.getResult(0).getType();
+    unsigned w = hirct::get_type_width(resultType);
     if (w == 0) w = 1;
-    std::string ctype = cpp_type_for_width(w);
-    ofs << "  reg_" << ident << " = static_cast<" << ctype << ">(0);\n";
-    ofs << "  next_" << ident << " = static_cast<" << ctype << ">(0);\n";
+
+    std::string reset_val = "0";
+    if (auto initAttr =
+            stateOp->getAttrOfType<mlir::IntegerAttr>("initial_value")) {
+      if (w <= 64) {
+        uint64_t uv = initAttr.getValue().zextOrTrunc(64).getZExtValue();
+        reset_val = std::to_string(uv);
+        if (uv >
+            static_cast<uint64_t>(std::numeric_limits<long long>::max()))
+          reset_val += "ULL";
+      }
+    }
+
+    if (auto arr_ty = mlir::dyn_cast<circt::hw::ArrayType>(resultType)) {
+      unsigned depth = arr_ty.getNumElements();
+      unsigned elem_w = hirct::get_type_width(arr_ty.getElementType());
+      if (elem_w == 0) elem_w = 1;
+      std::string etype = hirct::cpp_type_for_width(elem_w);
+      ofs << "  for (unsigned __k = 0; __k < " << depth << "; ++__k) { "
+          << "reg_" << ident << "[__k] = static_cast<" << etype
+          << ">(0); next_" << ident << "[__k] = static_cast<" << etype
+          << ">(0); }\n";
+    } else {
+      std::string ctype = cpp_type_for_width(w);
+      ofs << "  reg_" << ident << " = static_cast<" << ctype << ">("
+          << reset_val << ");\n";
+      ofs << "  next_" << ident << " = static_cast<" << ctype << ">("
+          << reset_val << ");\n";
+    }
     if (stateOp.getReset())
       ofs << "  arc_rst_" << ident << " = false;\n";
     if (stateOp.getEnable())
@@ -1137,11 +1186,22 @@ void GenModel::emit_eval_comb(std::ofstream &ofs,
       }
 
       if (next_e.empty()) {
-        // Fallback: use first input directly (identity arc or missing callee).
         next_e = expr(state.getInputs()[0]);
       }
 
-      if (!next_e.empty()) {
+      mlir::Type stateResultType = state.getResult(0).getType();
+      if (auto arr_ty =
+              mlir::dyn_cast<circt::hw::ArrayType>(stateResultType)) {
+        if (!next_e.empty()) {
+          unsigned depth = arr_ty.getNumElements();
+          unsigned elem_w = hirct::get_type_width(arr_ty.getElementType());
+          if (elem_w == 0) elem_w = 1;
+          std::string etype = hirct::cpp_type_for_width(elem_w);
+          ofs << "  for (unsigned __k = 0; __k < " << depth
+              << "; ++__k) next_" << ri << "[__k] = static_cast<" << etype
+              << ">(" << next_e << "[__k]);\n";
+        }
+      } else if (!next_e.empty()) {
         unsigned w = w_of(state.getResult(0));
         if (w == 1)
           ofs << "  next_" << ri << " = ((" << next_e
@@ -1152,7 +1212,6 @@ void GenModel::emit_eval_comb(std::ofstream &ofs,
               << width_mask_expr(w) << ");\n";
       }
 
-      // Store reset/enable signals into class members so step() can use them.
       if (state.getReset()) {
         std::string rst_e = expr(state.getReset());
         if (!rst_e.empty())
@@ -1493,17 +1552,34 @@ void GenModel::emit_eval_comb(std::ofstream &ofs,
       std::string oe = expr(outputOp.getOperand(oi));
       if (oe.empty())
         oe = "0";
+
+      if (auto arr_ty = mlir::dyn_cast<circt::hw::ArrayType>(p.type)) {
+        unsigned depth = arr_ty.getNumElements();
+        unsigned elem_w = hirct::get_type_width(arr_ty.getElementType());
+        if (elem_w == 0) elem_w = 1;
+        std::string etype = hirct::cpp_type_for_width(elem_w);
+        std::string pn = p.getName().str();
+        if (oe != "0") {
+          for (unsigned k = 0; k < depth; ++k)
+            ofs << "  " << pn << "[" << k << "] = static_cast<" << etype
+                << ">(" << oe << "[" << k << "]);\n";
+        } else {
+          for (unsigned k = 0; k < depth; ++k)
+            ofs << "  " << pn << "[" << k << "] = static_cast<" << etype
+                << ">(0);\n";
+        }
+        ++oi;
+        continue;
+      }
+
       unsigned ow = hirct::get_type_width(p.type);
       if (ow == 0)
         ow = 1;
       if (ow > 64) {
         unsigned words = (ow + 63) / 64;
-        // Check if the source operand is also a wide value (i.e., a wide port
-        // mapped to a word array). If so, do a word-by-word copy.
         mlir::Value srcVal = outputOp.getOperand(oi);
         unsigned src_w = hirct::get_type_width(srcVal.getType());
         if (src_w > 64 && !oe.empty() && oe != "0") {
-          // Source is a wide port array — copy words directly
           for (unsigned k = 0; k < words; ++k)
             ofs << "  " << p.getName().str() << "[" << k << "] = "
                 << oe << "[" << k << "];\n";
@@ -1647,21 +1723,77 @@ void GenModel::emit_step(std::ofstream &ofs, const std::string &name) {
         enSig = "arc_en_" + ident;
     }
 
-    if (hasReset && !rstSig.empty()) {
-      ofs << "  if (" << rstSig << ")\n";
-      ofs << "    reg_" << ident << " = 0;\n";
-      if (hasEnable && !enSig.empty()) {
-        ofs << "  else if (" << enSig << ")\n";
+    mlir::Type resultType = stateOp.getResult(0).getType();
+    bool isArray = mlir::isa<circt::hw::ArrayType>(resultType);
+    unsigned w = hirct::get_type_width(resultType);
+    if (w == 0) w = 1;
+
+    std::string resetVal = "0";
+    if (!isArray) {
+      if (auto initAttr =
+              stateOp->getAttrOfType<mlir::IntegerAttr>("initial_value")) {
+        if (w <= 64) {
+          uint64_t uv = initAttr.getValue().zextOrTrunc(64).getZExtValue();
+          resetVal = std::to_string(uv);
+          if (uv >
+              static_cast<uint64_t>(std::numeric_limits<long long>::max()))
+            resetVal += "ULL";
+        }
+      }
+    }
+
+    if (isArray) {
+      auto arr_ty = mlir::cast<circt::hw::ArrayType>(resultType);
+      unsigned depth = arr_ty.getNumElements();
+      unsigned elem_w = hirct::get_type_width(arr_ty.getElementType());
+      if (elem_w == 0) elem_w = 1;
+      std::string etype = hirct::cpp_type_for_width(elem_w);
+
+      if (hasReset && !rstSig.empty()) {
+        ofs << "  if (" << rstSig << ") {\n";
+        ofs << "    for (unsigned __k = 0; __k < " << depth
+            << "; ++__k) reg_" << ident << "[__k] = static_cast<" << etype
+            << ">(0);\n";
+        if (hasEnable && !enSig.empty()) {
+          ofs << "  } else if (" << enSig << ") {\n";
+          ofs << "    for (unsigned __k = 0; __k < " << depth
+              << "; ++__k) reg_" << ident << "[__k] = next_" << ident
+              << "[__k];\n";
+        } else {
+          ofs << "  } else {\n";
+          ofs << "    for (unsigned __k = 0; __k < " << depth
+              << "; ++__k) reg_" << ident << "[__k] = next_" << ident
+              << "[__k];\n";
+        }
+        ofs << "  }\n";
+      } else if (hasEnable && !enSig.empty()) {
+        ofs << "  if (" << enSig << ") {\n";
+        ofs << "    for (unsigned __k = 0; __k < " << depth
+            << "; ++__k) reg_" << ident << "[__k] = next_" << ident
+            << "[__k];\n";
+        ofs << "  }\n";
+      } else {
+        ofs << "  for (unsigned __k = 0; __k < " << depth
+            << "; ++__k) reg_" << ident << "[__k] = next_" << ident
+            << "[__k];\n";
+      }
+    } else {
+      if (hasReset && !rstSig.empty()) {
+        ofs << "  if (" << rstSig << ")\n";
+        ofs << "    reg_" << ident << " = " << resetVal << ";\n";
+        if (hasEnable && !enSig.empty()) {
+          ofs << "  else if (" << enSig << ")\n";
+          ofs << "    reg_" << ident << " = next_" << ident << ";\n";
+        } else {
+          ofs << "  else\n";
+          ofs << "    reg_" << ident << " = next_" << ident << ";\n";
+        }
+      } else if (hasEnable && !enSig.empty()) {
+        ofs << "  if (" << enSig << ")\n";
         ofs << "    reg_" << ident << " = next_" << ident << ";\n";
       } else {
-        ofs << "  else\n";
-        ofs << "    reg_" << ident << " = next_" << ident << ";\n";
+        ofs << "  reg_" << ident << " = next_" << ident << ";\n";
       }
-    } else if (hasEnable && !enSig.empty()) {
-      ofs << "  if (" << enSig << ")\n";
-      ofs << "    reg_" << ident << " = next_" << ident << ";\n";
-    } else {
-      ofs << "  reg_" << ident << " = next_" << ident << ";\n";
     }
   }
 
@@ -1830,21 +1962,77 @@ void GenModel::emit_domain_step(std::ofstream &ofs,
         enSig = "arc_en_" + ident;
     }
 
-    if (hasReset && !rstSig.empty()) {
-      ofs << "  if (" << rstSig << ")\n";
-      ofs << "    reg_" << ident << " = 0;\n";
-      if (hasEnable && !enSig.empty()) {
-        ofs << "  else if (" << enSig << ")\n";
+    mlir::Type resultType = stateOp.getResult(0).getType();
+    bool isArray = mlir::isa<circt::hw::ArrayType>(resultType);
+    unsigned w = hirct::get_type_width(resultType);
+    if (w == 0) w = 1;
+
+    std::string resetVal = "0";
+    if (!isArray) {
+      if (auto initAttr =
+              stateOp->getAttrOfType<mlir::IntegerAttr>("initial_value")) {
+        if (w <= 64) {
+          uint64_t uv = initAttr.getValue().zextOrTrunc(64).getZExtValue();
+          resetVal = std::to_string(uv);
+          if (uv >
+              static_cast<uint64_t>(std::numeric_limits<long long>::max()))
+            resetVal += "ULL";
+        }
+      }
+    }
+
+    if (isArray) {
+      auto arr_ty = mlir::cast<circt::hw::ArrayType>(resultType);
+      unsigned depth = arr_ty.getNumElements();
+      unsigned elem_w = hirct::get_type_width(arr_ty.getElementType());
+      if (elem_w == 0) elem_w = 1;
+      std::string etype = hirct::cpp_type_for_width(elem_w);
+
+      if (hasReset && !rstSig.empty()) {
+        ofs << "  if (" << rstSig << ") {\n";
+        ofs << "    for (unsigned __k = 0; __k < " << depth
+            << "; ++__k) reg_" << ident << "[__k] = static_cast<" << etype
+            << ">(0);\n";
+        if (hasEnable && !enSig.empty()) {
+          ofs << "  } else if (" << enSig << ") {\n";
+          ofs << "    for (unsigned __k = 0; __k < " << depth
+              << "; ++__k) reg_" << ident << "[__k] = next_" << ident
+              << "[__k];\n";
+        } else {
+          ofs << "  } else {\n";
+          ofs << "    for (unsigned __k = 0; __k < " << depth
+              << "; ++__k) reg_" << ident << "[__k] = next_" << ident
+              << "[__k];\n";
+        }
+        ofs << "  }\n";
+      } else if (hasEnable && !enSig.empty()) {
+        ofs << "  if (" << enSig << ") {\n";
+        ofs << "    for (unsigned __k = 0; __k < " << depth
+            << "; ++__k) reg_" << ident << "[__k] = next_" << ident
+            << "[__k];\n";
+        ofs << "  }\n";
+      } else {
+        ofs << "  for (unsigned __k = 0; __k < " << depth
+            << "; ++__k) reg_" << ident << "[__k] = next_" << ident
+            << "[__k];\n";
+      }
+    } else {
+      if (hasReset && !rstSig.empty()) {
+        ofs << "  if (" << rstSig << ")\n";
+        ofs << "    reg_" << ident << " = " << resetVal << ";\n";
+        if (hasEnable && !enSig.empty()) {
+          ofs << "  else if (" << enSig << ")\n";
+          ofs << "    reg_" << ident << " = next_" << ident << ";\n";
+        } else {
+          ofs << "  else\n";
+          ofs << "    reg_" << ident << " = next_" << ident << ";\n";
+        }
+      } else if (hasEnable && !enSig.empty()) {
+        ofs << "  if (" << enSig << ")\n";
         ofs << "    reg_" << ident << " = next_" << ident << ";\n";
       } else {
-        ofs << "  else\n";
-        ofs << "    reg_" << ident << " = next_" << ident << ";\n";
+        ofs << "  reg_" << ident << " = next_" << ident << ";\n";
       }
-    } else if (hasEnable && !enSig.empty()) {
-      ofs << "  if (" << enSig << ")\n";
-      ofs << "    reg_" << ident << " = next_" << ident << ";\n";
-    } else {
-      ofs << "  reg_" << ident << " = next_" << ident << ";\n";
     }
   }
 

@@ -337,13 +337,19 @@ std::string emit_op_expr(
     }
     e = "static_cast<" + ctype + ">(" + expr(op.getOperand(0)) + ")";
   } else if (auto ac = mlir::dyn_cast<circt::hw::ArrayCreateOp>(op)) {
+    std::string etype = ctype;
+    if (auto arr_ty = mlir::dyn_cast<circt::hw::ArrayType>(result.getType())) {
+      unsigned elem_w = hirct::get_type_width(arr_ty.getElementType());
+      if (elem_w == 0) elem_w = 1;
+      etype = hirct::cpp_type_for_width(elem_w);
+    }
     std::string rn = next_tmp();
-    ofs << "  const " << ctype << " " << rn << "[] = {";
+    ofs << "  const " << etype << " " << rn << "[] = {";
     auto operands = ac.getOperands();
     for (int i = static_cast<int>(operands.size()) - 1; i >= 0; --i) {
       if (i < static_cast<int>(operands.size()) - 1)
         ofs << ", ";
-      ofs << "static_cast<" << ctype << ">(" << expr(operands[i])
+      ofs << "static_cast<" << etype << ">(" << expr(operands[i])
           << ")";
     }
     ofs << "};\n";
