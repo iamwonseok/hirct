@@ -45,6 +45,9 @@ struct PortInfo {
   std::string name;
   bool isInput = false;
   unsigned width = 0;
+
+  bool isWide() const { return width > 64; }
+  unsigned wordCount() const { return isWide() ? (width + 63) / 64 : 0; }
 };
 
 struct OpaqueExprRef {

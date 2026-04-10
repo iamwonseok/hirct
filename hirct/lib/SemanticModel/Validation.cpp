@@ -20,7 +20,10 @@
 
 namespace hirct::semantic {
 
-static constexpr unsigned kMaxSupportedWidth = 64;
+// Phase 1 wide-port policy:
+//   - Public input/output ports: any width allowed (stored as uint64_t array)
+//   - Internal state/aggregate/memory: width > 64 still rejected
+static constexpr unsigned kMaxInternalWidth = 64;
 
 std::string normalizeIdentifier(llvm::StringRef raw) {
   std::string result;
@@ -112,14 +115,14 @@ llvm::StringRef stringifyInitPolicy(InitPolicy policy) {
   llvm_unreachable("covered switch");
 }
 
-static void validateWidth(unsigned width, llvm::StringRef entity,
-                          llvm::StringRef entityName,
-                          llvm::SmallVectorImpl<ValidationError> &errors) {
-  if (width > kMaxSupportedWidth)
+static void validateInternalWidth(unsigned width, llvm::StringRef entity,
+                                  llvm::StringRef entityName,
+                                  llvm::SmallVectorImpl<ValidationError> &errors) {
+  if (width > kMaxInternalWidth)
     errors.push_back({RejectCode::WidthUnsupported,
                       std::string(entity) + " `" + entityName.str() +
                           "` has unsupported width " + std::to_string(width) +
-                          " (max " + std::to_string(kMaxSupportedWidth) + ")"});
+                          " (max " + std::to_string(kMaxInternalWidth) + ")"});
 }
 
 static void validateIdentifier(llvm::StringRef name, llvm::StringRef context,
@@ -140,14 +143,14 @@ validateModuleModel(const ModuleModel &model) {
 
   for (const auto &port : model.inputPorts) {
     validateIdentifier(port.name, "input port", errors);
-    validateWidth(port.width, "input port", port.name, errors);
+    // Phase 1: port width is unrestricted (wide ports use array storage)
     if (!usedNames.insert(port.name).second)
       errors.push_back({RejectCode::InvalidIdentifier,
                         "input port `" + port.name + "` has duplicate name"});
   }
   for (const auto &port : model.outputPorts) {
     validateIdentifier(port.name, "output port", errors);
-    validateWidth(port.width, "output port", port.name, errors);
+    // Phase 1: port width is unrestricted (wide ports use array storage)
     if (!usedNames.insert(port.name).second)
       errors.push_back({RejectCode::InvalidIdentifier,
                         "output port `" + port.name + "` has duplicate name"});
@@ -155,7 +158,7 @@ validateModuleModel(const ModuleModel &model) {
 
   for (const auto &stateVar : model.stateVars) {
     validateIdentifier(stateVar.stableName, "state", errors);
-    validateWidth(stateVar.width, "state", stateVar.stableName, errors);
+    validateInternalWidth(stateVar.width, "state", stateVar.stableName, errors);
     if (stateVar.clockDomain.empty()) {
       errors.push_back(
           {RejectCode::ClockDomainAmbiguous,
@@ -177,8 +180,8 @@ validateModuleModel(const ModuleModel &model) {
 
   for (const auto &aggVar : model.aggregateStateVars) {
     validateIdentifier(aggVar.stableName, "aggregate state", errors);
-    validateWidth(aggVar.elementWidth, "aggregate state element",
-                  aggVar.stableName, errors);
+    validateInternalWidth(aggVar.elementWidth, "aggregate state element",
+                          aggVar.stableName, errors);
     if (aggVar.clockDomain.empty()) {
       errors.push_back(
           {RejectCode::ClockDomainAmbiguous,
@@ -200,8 +203,8 @@ validateModuleModel(const ModuleModel &model) {
 
   for (const auto &memoryVar : model.memoryVars) {
     validateIdentifier(memoryVar.stableName, "memory", errors);
-    validateWidth(memoryVar.elementWidth, "memory element",
-                  memoryVar.stableName, errors);
+    validateInternalWidth(memoryVar.elementWidth, "memory element",
+                          memoryVar.stableName, errors);
     if (memoryVar.depth == 0 || memoryVar.elementWidth == 0) {
       errors.push_back({RejectCode::MemoryShapeAmbiguous,
                         "memory `" + memoryVar.stableName +

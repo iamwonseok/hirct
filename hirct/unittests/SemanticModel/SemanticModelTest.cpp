@@ -584,7 +584,7 @@ TEST_F(SemanticModelFixture, WidthOver64Reject) {
   EXPECT_TRUE(found) << "must reject >64-bit width";
 }
 
-TEST_F(SemanticModelFixture, WidthOver64PortReject) {
+TEST_F(SemanticModelFixture, WidthOver64PortAllowed_Phase1) {
   hirct::semantic::ModuleModel model;
   model.moduleName = "WidePort";
   hirct::semantic::PortInfo port;
@@ -594,12 +594,9 @@ TEST_F(SemanticModelFixture, WidthOver64PortReject) {
   model.inputPorts.push_back(port);
 
   auto errors = hirct::semantic::validateModuleModel(model);
-  bool found = false;
-  for (const auto &e : errors) {
-    if (e.code == hirct::semantic::RejectCode::WidthUnsupported)
-      found = true;
-  }
-  EXPECT_TRUE(found) << "must reject >64-bit port width";
+  for (const auto &e : errors)
+    EXPECT_NE(e.code, hirct::semantic::RejectCode::WidthUnsupported)
+        << "Phase 1: port >64-bit must be allowed";
 }
 
 TEST_F(SemanticModelFixture, Width64PassesValidation) {
@@ -1123,6 +1120,77 @@ TEST_F(SemanticModelFixture, MultiClockOutputVisibility) {
   EXPECT_EQ(model->outputs[1].visibility,
             hirct::semantic::OutputVisibility::Edge);
   EXPECT_EQ(model->outputs[1].sourceEntity, "reg_b");
+}
+
+// ---------------------------------------------------------------------------
+// Phase 1 wide port support: validation contract
+// ---------------------------------------------------------------------------
+
+TEST_F(SemanticModelFixture, WideInputPortAllowed) {
+  auto module = parseInline(R"mlir(
+    module {
+      hw.module @WideMux(in %sel : i4, in %din : i512, out dout : i32) {
+        %0 = comb.extract %din from 0 : (i512) -> i32
+        hw.output %0 : i32
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+  auto result = hirct::semantic::buildModuleModel(*module, "WideMux");
+  ASSERT_TRUE(succeeded(result));
+  EXPECT_EQ(result->inputPorts.size(), 2u);
+  EXPECT_EQ(result->inputPorts[1].width, 512u);
+
+  auto errors = hirct::semantic::validateModuleModel(*result);
+  for (const auto &e : errors)
+    EXPECT_NE(e.code, hirct::semantic::RejectCode::WidthUnsupported)
+        << "wide input port should be allowed in Phase 1: " << e.message;
+}
+
+TEST_F(SemanticModelFixture, WideOutputPortAllowed) {
+  auto module = parseInline(R"mlir(
+    module {
+      hw.module @WideDemux(in %sel : i4, in %din : i32, out dout : i512) {
+        %c0 = hw.constant 0 : i512
+        hw.output %c0 : i512
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+  auto result = hirct::semantic::buildModuleModel(*module, "WideDemux");
+  ASSERT_TRUE(succeeded(result));
+  EXPECT_EQ(result->outputPorts.size(), 1u);
+  EXPECT_EQ(result->outputPorts[0].width, 512u);
+
+  auto errors = hirct::semantic::validateModuleModel(*result);
+  for (const auto &e : errors)
+    EXPECT_NE(e.code, hirct::semantic::RejectCode::WidthUnsupported)
+        << "wide output port should be allowed in Phase 1: " << e.message;
+}
+
+TEST_F(SemanticModelFixture, WideInternalStateStillRejected) {
+  hirct::semantic::ModuleModel model;
+  model.moduleName = "WideState";
+  model.inputPorts.push_back({"clk", true, 1});
+  model.inputPorts.push_back({"d", true, 128});
+  model.outputPorts.push_back({"q", false, 128});
+  model.clockDomains.push_back("clk");
+  hirct::semantic::StateVar sv;
+  sv.stableName = "reg_wide";
+  sv.arcName = "wide_arc";
+  sv.clockDomain = "clk";
+  sv.width = 128;
+  sv.stateOpIndex = 0;
+  model.stateVars.push_back(sv);
+
+  auto errors = hirct::semantic::validateModuleModel(model);
+  bool hasWidthReject = false;
+  for (const auto &e : errors) {
+    if (e.code == hirct::semantic::RejectCode::WidthUnsupported &&
+        e.message.find("state") != std::string::npos)
+      hasWidthReject = true;
+  }
+  EXPECT_TRUE(hasWidthReject) << "internal state >64-bit must still be rejected";
 }
 
 } // namespace

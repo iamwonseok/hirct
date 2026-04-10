@@ -2126,4 +2126,117 @@ TEST_F(CModelEmitterFixture, ArcCallInline_NestedGuard) {
   EXPECT_NE(artifact.implContent.find("eval_comb"), std::string::npos);
 }
 
+// ---------------------------------------------------------------------------
+// Phase 1 wide port support: emitter tests
+// ---------------------------------------------------------------------------
+
+TEST_F(CModelEmitterFixture, WidePort_StorageLayout) {
+  hirct::semantic::ModuleModel model;
+  model.moduleName = "WideIO";
+  model.inputPorts.push_back({"sel", true, 4});
+  model.inputPorts.push_back({"din", true, 512});
+  model.outputPorts.push_back({"dout", false, 256});
+
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/test";
+  hirct::CModelEmitter emitter(model, opts);
+  auto artifact = emitter.emit();
+
+  EXPECT_NE(artifact.headerContent.find("input_din"), std::string::npos)
+      << "wide input must appear in struct";
+  EXPECT_NE(artifact.headerContent.find("output_dout"), std::string::npos)
+      << "wide output must appear in struct";
+  EXPECT_NE(artifact.headerContent.find("[8]"), std::string::npos)
+      << "i512 should map to 8 words (ceil(512/64))";
+  EXPECT_NE(artifact.headerContent.find("[4]"), std::string::npos)
+      << "i256 should map to 4 words (ceil(256/64))";
+}
+
+TEST_F(CModelEmitterFixture, WidePort_ApiSurface) {
+  hirct::semantic::ModuleModel model;
+  model.moduleName = "WideIO";
+  model.inputPorts.push_back({"sel", true, 4});
+  model.inputPorts.push_back({"din", true, 512});
+  model.outputPorts.push_back({"dout", false, 256});
+
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/test";
+  hirct::CModelEmitter emitter(model, opts);
+  auto artifact = emitter.emit();
+
+  EXPECT_NE(artifact.headerContent.find("set_din_word"), std::string::npos)
+      << "wide input must have word-level setter";
+  EXPECT_NE(artifact.headerContent.find("set_din_words"), std::string::npos)
+      << "wide input must have bulk setter";
+  EXPECT_NE(artifact.headerContent.find("get_dout_word"), std::string::npos)
+      << "wide output must have word-level getter";
+  EXPECT_NE(artifact.headerContent.find("get_dout_words"), std::string::npos)
+      << "wide output must have bulk getter";
+
+  EXPECT_NE(artifact.headerContent.find("set_sel"), std::string::npos)
+      << "scalar input still uses scalar API";
+  EXPECT_EQ(artifact.headerContent.find("set_sel_word"), std::string::npos)
+      << "scalar input must NOT have word-level API";
+}
+
+TEST_F(CModelEmitterFixture, WidePort_CompileCheck) {
+  hirct::semantic::ModuleModel model;
+  model.moduleName = "WideCompile";
+  model.inputPorts.push_back({"sel", true, 4});
+  model.inputPorts.push_back({"din", true, 512});
+  model.outputPorts.push_back({"narrow_out", false, 32});
+  model.outputPorts.push_back({"wide_out", false, 256});
+
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/test";
+  hirct::CModelEmitter emitter(model, opts);
+  auto artifact = emitter.emit();
+
+  auto tmpDir = std::filesystem::temp_directory_path() / "hirct_widecompile_test";
+  std::filesystem::create_directories(tmpDir);
+  auto hdrPath = tmpDir / "WideCompile.h";
+  auto cppPath = tmpDir / "WideCompile.cpp";
+  {
+    std::ofstream hdr(hdrPath);
+    hdr << artifact.headerContent;
+    std::ofstream cpp(cppPath);
+    cpp << artifact.implContent;
+  }
+
+  std::string cmd = "c++ -std=c++17 -fsyntax-only -Werror " +
+                    cppPath.string() + " -include " + hdrPath.string() +
+                    " 2>&1";
+  int ret = std::system(cmd.c_str());
+  EXPECT_EQ(ret, 0) << "wide port artifact must compile cleanly";
+
+  std::filesystem::remove_all(tmpDir);
+}
+
+TEST_F(CModelEmitterFixture, WidePort_EvalCombBoundary) {
+  auto module = parseInline(R"mlir(
+    module {
+      hw.module @WideExtract(in %din : i512, out dout : i32) {
+        %0 = comb.extract %din from 0 : (i512) -> i32
+        hw.output %0 : i32
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule = (*module).lookupSymbol<circt::hw::HWModuleOp>("WideExtract");
+  ASSERT_TRUE(hwModule);
+
+  auto result = hirct::semantic::buildModuleModel(*module, "WideExtract");
+  ASSERT_TRUE(succeeded(result));
+
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/test";
+  hirct::CModelEmitter emitter(*result, opts, hwModule);
+  auto artifact = emitter.emit();
+
+  EXPECT_NE(artifact.implContent.find("eval_comb"), std::string::npos);
+  EXPECT_EQ(artifact.implContent.find("unsupported:comb.extract"), std::string::npos)
+      << "comb.extract on wide port must be supported";
+}
+
 } // namespace

@@ -76,6 +76,13 @@ int main(int argc, char **argv) {
   }
 
   llvm::outs() << "module: " << model->moduleName << "\n";
+
+  for (const auto &port : model->inputPorts)
+    llvm::outs() << "input: " << port.name << " width=" << port.width << "\n";
+
+  for (const auto &port : model->outputPorts)
+    llvm::outs() << "output_port: " << port.name << " width=" << port.width << "\n";
+
   llvm::outs() << "clocks:";
   for (const auto &clock : model->clockDomains)
     llvm::outs() << " " << clock;

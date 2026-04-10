@@ -1,0 +1,14 @@
+// RUN: %hirct-semantic %s --module WideMux | %FileCheck %s
+
+module {
+  hw.module @WideMux(in %sel : i4, in %din : i512, out dout : i32) {
+    %0 = comb.extract %din from 0 : (i512) -> i32
+    hw.output %0 : i32
+  }
+}
+
+// CHECK: module: WideMux
+// CHECK: input: sel width=4
+// CHECK: input: din width=512
+// CHECK: output_port: dout width=32
+// CHECK: output: dout visibility=comb

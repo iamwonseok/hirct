@@ -30,7 +30,41 @@ std::string CModelEmitter::legalCType(unsigned width) {
     return "uint32_t";
   if (width <= 64)
     return "uint64_t";
-  llvm_unreachable("width >64 must be rejected by validation before emission");
+  llvm_unreachable("legalCType called for width >64; use wide storage instead");
+}
+
+std::string CModelEmitter::wideStorageDecl(const semantic::PortInfo &port,
+                                           llvm::StringRef prefix) {
+  unsigned words = port.wordCount();
+  return ("  uint64_t " + prefix + port.name + "[" + std::to_string(words) +
+          "];\n")
+      .str();
+}
+
+void CModelEmitter::emitWideInputApi(llvm::raw_string_ostream &os,
+                                     const semantic::PortInfo &port) {
+  const auto &mod = model_.moduleName;
+  unsigned words = port.wordCount();
+  os << "void " << mod << "_set_" << port.name << "_word(" << mod
+     << "_state *s, size_t idx, uint64_t v);\n";
+  os << "void " << mod << "_set_" << port.name << "_words(" << mod
+     << "_state *s, const uint64_t *src, size_t count);\n";
+  os << "uint64_t " << mod << "_get_" << port.name << "_word(const " << mod
+     << "_state *s, size_t idx);\n";
+  os << "size_t " << mod << "_get_" << port.name
+     << "_word_count(void);\n";
+  (void)words;
+}
+
+void CModelEmitter::emitWideOutputApi(llvm::raw_string_ostream &os,
+                                      const semantic::PortInfo &port) {
+  const auto &mod = model_.moduleName;
+  os << "uint64_t " << mod << "_get_" << port.name << "_word(const " << mod
+     << "_state *s, size_t idx);\n";
+  os << "void " << mod << "_get_" << port.name << "_words(const " << mod
+     << "_state *s, uint64_t *dst, size_t count);\n";
+  os << "size_t " << mod << "_get_" << port.name
+     << "_word_count(void);\n";
 }
 
 CModelEmitter::CModelEmitter(const semantic::ModuleModel &model,
@@ -64,15 +98,24 @@ void CModelEmitter::emitHeader(llvm::raw_string_ostream &os) {
   os << "#ifndef " << mod << "_MODEL_H\n";
   os << "#define " << mod << "_MODEL_H\n\n";
   os << "#include <cstdint>\n";
-  os << "#include <cstddef>\n\n";
+  os << "#include <cstddef>\n";
+  os << "#include <cstring>\n\n";
 
   os << "struct " << mod << "_state {\n";
 
-  for (const auto &port : model_.inputPorts)
-    os << "  " << legalCType(port.width) << " input_" << port.name << ";\n";
+  for (const auto &port : model_.inputPorts) {
+    if (port.isWide())
+      os << wideStorageDecl(port, "input_");
+    else
+      os << "  " << legalCType(port.width) << " input_" << port.name << ";\n";
+  }
 
-  for (const auto &port : model_.outputPorts)
-    os << "  " << legalCType(port.width) << " output_" << port.name << ";\n";
+  for (const auto &port : model_.outputPorts) {
+    if (port.isWide())
+      os << wideStorageDecl(port, "output_");
+    else
+      os << "  " << legalCType(port.width) << " output_" << port.name << ";\n";
+  }
 
   for (const auto &sv : model_.stateVars)
     os << "  " << legalCType(sv.width) << " " << sv.stableName << ";\n";
@@ -91,13 +134,21 @@ void CModelEmitter::emitHeader(llvm::raw_string_ostream &os) {
 
   os << "void " << mod << "_initialize(" << mod << "_state *s);\n";
 
-  for (const auto &port : model_.inputPorts)
-    os << "void " << mod << "_set_" << port.name << "(" << mod << "_state *s, "
-       << legalCType(port.width) << " v);\n";
+  for (const auto &port : model_.inputPorts) {
+    if (port.isWide())
+      emitWideInputApi(os, port);
+    else
+      os << "void " << mod << "_set_" << port.name << "(" << mod
+         << "_state *s, " << legalCType(port.width) << " v);\n";
+  }
 
-  for (const auto &port : model_.outputPorts)
-    os << legalCType(port.width) << " " << mod << "_get_" << port.name
-       << "(const " << mod << "_state *s);\n";
+  for (const auto &port : model_.outputPorts) {
+    if (port.isWide())
+      emitWideOutputApi(os, port);
+    else
+      os << legalCType(port.width) << " " << mod << "_get_" << port.name
+         << "(const " << mod << "_state *s);\n";
+  }
 
   os << "void " << mod << "_eval_comb(" << mod << "_state *s);\n";
 
@@ -110,25 +161,70 @@ void CModelEmitter::emitHeader(llvm::raw_string_ostream &os) {
 
 void CModelEmitter::emitSetters(llvm::raw_string_ostream &os) {
   const auto &mod = model_.moduleName;
-  for (const auto &port : model_.inputPorts)
-    os << "void " << mod << "_set_" << port.name << "(" << mod << "_state *s, "
-       << legalCType(port.width) << " v) {\n"
-       << "  s->input_" << port.name << " = v;\n}\n\n";
+  for (const auto &port : model_.inputPorts) {
+    if (port.isWide()) {
+      unsigned words = port.wordCount();
+      os << "void " << mod << "_set_" << port.name << "_word(" << mod
+         << "_state *s, size_t idx, uint64_t v) {\n"
+         << "  if (idx < " << words << ") s->input_" << port.name
+         << "[idx] = v;\n}\n\n";
+      os << "void " << mod << "_set_" << port.name << "_words(" << mod
+         << "_state *s, const uint64_t *src, size_t count) {\n"
+         << "  size_t n = count < " << words << " ? count : " << words
+         << ";\n"
+         << "  memcpy(s->input_" << port.name << ", src, n * sizeof(uint64_t));\n"
+         << "}\n\n";
+      os << "uint64_t " << mod << "_get_" << port.name << "_word(const " << mod
+         << "_state *s, size_t idx) {\n"
+         << "  return idx < " << words << " ? s->input_" << port.name
+         << "[idx] : 0;\n}\n\n";
+      os << "size_t " << mod << "_get_" << port.name
+         << "_word_count(void) {\n"
+         << "  return " << words << ";\n}\n\n";
+    } else {
+      os << "void " << mod << "_set_" << port.name << "(" << mod
+         << "_state *s, " << legalCType(port.width) << " v) {\n"
+         << "  s->input_" << port.name << " = v;\n}\n\n";
+    }
+  }
 }
 
 void CModelEmitter::emitGetters(llvm::raw_string_ostream &os) {
   const auto &mod = model_.moduleName;
-  for (const auto &port : model_.outputPorts)
-    os << legalCType(port.width) << " " << mod << "_get_" << port.name
-       << "(const " << mod << "_state *s) {\n"
-       << "  return s->output_" << port.name << ";\n}\n\n";
+  for (const auto &port : model_.outputPorts) {
+    if (port.isWide()) {
+      unsigned words = port.wordCount();
+      os << "uint64_t " << mod << "_get_" << port.name << "_word(const " << mod
+         << "_state *s, size_t idx) {\n"
+         << "  return idx < " << words << " ? s->output_" << port.name
+         << "[idx] : 0;\n}\n\n";
+      os << "void " << mod << "_get_" << port.name << "_words(const " << mod
+         << "_state *s, uint64_t *dst, size_t count) {\n"
+         << "  size_t n = count < " << words << " ? count : " << words
+         << ";\n"
+         << "  memcpy(dst, s->output_" << port.name
+         << ", n * sizeof(uint64_t));\n"
+         << "}\n\n";
+      os << "size_t " << mod << "_get_" << port.name
+         << "_word_count(void) {\n"
+         << "  return " << words << ";\n}\n\n";
+    } else {
+      os << legalCType(port.width) << " " << mod << "_get_" << port.name
+         << "(const " << mod << "_state *s) {\n"
+         << "  return s->output_" << port.name << ";\n}\n\n";
+    }
+  }
 }
 
 std::string CModelEmitter::renderExpr(mlir::Value val) {
   if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(val)) {
     unsigned argNum = blockArg.getArgNumber();
-    if (argNum < model_.inputPorts.size())
-      return "s->input_" + model_.inputPorts[argNum].name;
+    if (argNum < model_.inputPorts.size()) {
+      const auto &port = model_.inputPorts[argNum];
+      if (port.isWide())
+        return "/* wide_port:" + port.name + " */0";
+      return "s->input_" + port.name;
+    }
     return "/* unknown_arg_" + std::to_string(argNum) + " */0";
   }
 
@@ -140,6 +236,12 @@ std::string CModelEmitter::renderExpr(mlir::Value val) {
 
   if (opName == "hw.constant") {
     if (auto attr = def->getAttrOfType<mlir::IntegerAttr>("value")) {
+      unsigned bitWidth = attr.getValue().getBitWidth();
+      if (bitWidth > 64) {
+        if (attr.getValue().isZero())
+          return "/* wide_const_zero */0";
+        return "/* unsupported:hw.constant_wide */0";
+      }
       llvm::SmallString<32> buf;
       if (attr.getValue().isNegative()) {
         attr.getValue().toStringSigned(buf);
@@ -147,8 +249,8 @@ std::string CModelEmitter::renderExpr(mlir::Value val) {
         attr.getValue().toStringUnsigned(buf);
         buf += "u";
       }
-      return std::string("(") + legalCType(attr.getValue().getBitWidth()) +
-             ")" + std::string(buf);
+      return std::string("(") + legalCType(bitWidth) + ")" +
+             std::string(buf);
     }
     return "/* bad_const */0";
   }
@@ -211,6 +313,8 @@ std::string CModelEmitter::renderExpr(mlir::Value val) {
     unsigned totalWidth = 0;
     if (auto ty = mlir::dyn_cast<mlir::IntegerType>(val.getType()))
       totalWidth = ty.getWidth();
+    if (totalWidth > 64)
+      return "/* unsupported:comb.concat_wide */0";
     std::string result = "0";
     unsigned shift = 0;
     for (int i = def->getNumOperands() - 1; i >= 0; --i) {
@@ -232,8 +336,34 @@ std::string CModelEmitter::renderExpr(mlir::Value val) {
     unsigned resultWidth = 0;
     if (auto ty = mlir::dyn_cast<mlir::IntegerType>(val.getType()))
       resultWidth = ty.getWidth();
+
+    mlir::Value src = def->getOperand(0);
+    unsigned srcWidth = 0;
+    if (auto ty = mlir::dyn_cast<mlir::IntegerType>(src.getType()))
+      srcWidth = ty.getWidth();
+
+    if (srcWidth > 64) {
+      if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(src)) {
+        unsigned argNum = blockArg.getArgNumber();
+        if (argNum < model_.inputPorts.size()) {
+          const auto &port = model_.inputPorts[argNum];
+          unsigned wordIdx = lowBit / 64;
+          unsigned bitInWord = lowBit % 64;
+          if (resultWidth <= 64 && bitInWord + resultWidth <= 64) {
+            uint64_t mask = resultWidth >= 64 ? ~0ULL : ((1ULL << resultWidth) - 1);
+            return "((" + legalCType(resultWidth) + ")((s->input_" + port.name +
+                   "[" + std::to_string(wordIdx) + "] >> " +
+                   std::to_string(bitInWord) + ") & " +
+                   std::to_string(mask) + "u))";
+          }
+          return "/* wide_extract_cross_word:" + port.name + " */0";
+        }
+      }
+      return "/* unsupported:comb.extract_wide */0";
+    }
+
     uint64_t mask = resultWidth >= 64 ? ~0ULL : ((1ULL << resultWidth) - 1);
-    return "((" + legalCType(resultWidth) + ")((" + renderExpr(def->getOperand(0)) +
+    return "((" + legalCType(resultWidth) + ")((" + renderExpr(src) +
            " >> " + std::to_string(lowBit) + ") & " + std::to_string(mask) + "u))";
   }
 
@@ -284,6 +414,12 @@ std::string CModelEmitter::renderArcExpr(
 
   if (opName == "hw.constant") {
     if (auto attr = def->getAttrOfType<mlir::IntegerAttr>("value")) {
+      unsigned bitWidth = attr.getValue().getBitWidth();
+      if (bitWidth > 64) {
+        if (attr.getValue().isZero())
+          return "/* wide_const_zero */0";
+        return "/* unsupported:hw.constant_wide */0";
+      }
       llvm::SmallString<32> buf;
       if (attr.getValue().isNegative()) {
         attr.getValue().toStringSigned(buf);
@@ -291,8 +427,8 @@ std::string CModelEmitter::renderArcExpr(
         attr.getValue().toStringUnsigned(buf);
         buf += "u";
       }
-      return std::string("(") + legalCType(attr.getValue().getBitWidth()) +
-             ")" + std::string(buf);
+      return std::string("(") + legalCType(bitWidth) + ")" +
+             std::string(buf);
     }
     return "/* bad_const */0";
   }
@@ -358,6 +494,8 @@ std::string CModelEmitter::renderArcExpr(
     unsigned totalWidth = 0;
     if (auto ty = mlir::dyn_cast<mlir::IntegerType>(val.getType()))
       totalWidth = ty.getWidth();
+    if (totalWidth > 64)
+      return "/* unsupported:comb.concat_wide */0";
     std::string result = "0";
     unsigned shift = 0;
     for (int i = def->getNumOperands() - 1; i >= 0; --i) {
@@ -379,6 +517,8 @@ std::string CModelEmitter::renderArcExpr(
     unsigned resultWidth = 0;
     if (auto ty = mlir::dyn_cast<mlir::IntegerType>(val.getType()))
       resultWidth = ty.getWidth();
+    if (resultWidth > 64)
+      return "/* unsupported:comb.extract_wide_result */0";
     uint64_t mask = resultWidth >= 64 ? ~0ULL : ((1ULL << resultWidth) - 1);
     return "((" + legalCType(resultWidth) + ")((" + renderArcExpr(def->getOperand(0), argMap) +
            " >> " + std::to_string(lowBit) + ") & " + std::to_string(mask) + "u))";
@@ -426,9 +566,15 @@ void CModelEmitter::emitEvalComb(llvm::raw_string_ostream &os) {
     if (idx >= model_.outputPorts.size())
       continue;
 
+    const auto &oport = model_.outputPorts[idx];
+    if (oport.isWide()) {
+      os << "  /* TODO: wide comb output `" << oport.name << "` */\n";
+      emittedAnything = true;
+      continue;
+    }
     std::string expr = renderExpr(operand);
-    os << "  s->output_" << model_.outputPorts[idx].name << " = ("
-       << legalCType(model_.outputPorts[idx].width) << ")(" << expr << ");\n";
+    os << "  s->output_" << oport.name << " = ("
+       << legalCType(oport.width) << ")(" << expr << ");\n";
     emittedAnything = true;
   }
 
@@ -443,12 +589,24 @@ void CModelEmitter::emitImpl(llvm::raw_string_ostream &os) {
 
   os << "#include \"" << mod << options_.headerSuffix << "\"\n\n";
 
+  os << "#include <cstring>\n\n";
+
   // initialize
   os << "void " << mod << "_initialize(" << mod << "_state *s) {\n";
-  for (const auto &port : model_.inputPorts)
-    os << "  s->input_" << port.name << " = 0;\n";
-  for (const auto &port : model_.outputPorts)
-    os << "  s->output_" << port.name << " = 0;\n";
+  for (const auto &port : model_.inputPorts) {
+    if (port.isWide())
+      os << "  memset(s->input_" << port.name << ", 0, sizeof(s->input_"
+         << port.name << "));\n";
+    else
+      os << "  s->input_" << port.name << " = 0;\n";
+  }
+  for (const auto &port : model_.outputPorts) {
+    if (port.isWide())
+      os << "  memset(s->output_" << port.name << ", 0, sizeof(s->output_"
+         << port.name << "));\n";
+    else
+      os << "  s->output_" << port.name << " = 0;\n";
+  }
   for (const auto &sv : model_.stateVars) {
     if (sv.hasConstantInit)
       os << "  s->" << sv.stableName << " = " << sv.initValue << ";\n";

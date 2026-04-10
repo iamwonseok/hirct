@@ -56,6 +56,12 @@ private:
                             const llvm::DenseMap<mlir::Value, std::string> *outerArgMap,
                             unsigned depth);
   std::string legalCType(unsigned width);
+  std::string wideStorageDecl(const semantic::PortInfo &port,
+                              llvm::StringRef prefix);
+  void emitWideInputApi(llvm::raw_string_ostream &os,
+                        const semantic::PortInfo &port);
+  void emitWideOutputApi(llvm::raw_string_ostream &os,
+                         const semantic::PortInfo &port);
 
   static constexpr unsigned kMaxInlineDepth = 16;
 
