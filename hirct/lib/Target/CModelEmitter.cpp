@@ -242,7 +242,10 @@ std::string CModelEmitter::renderExpr(mlir::Value val) {
   }
 
   if (opName == "arc.call") {
-    return "/* unsupported:arc.call_inline_needed */0";
+    unsigned resultIdx = 0;
+    if (auto opResult = mlir::dyn_cast<mlir::OpResult>(val))
+      resultIdx = opResult.getResultNumber();
+    return inlineArcCall(def, resultIdx, nullptr, 0);
   }
 
   if (opName == "arc.state") {
@@ -379,6 +382,13 @@ std::string CModelEmitter::renderArcExpr(
     uint64_t mask = resultWidth >= 64 ? ~0ULL : ((1ULL << resultWidth) - 1);
     return "((" + legalCType(resultWidth) + ")((" + renderArcExpr(def->getOperand(0), argMap) +
            " >> " + std::to_string(lowBit) + ") & " + std::to_string(mask) + "u))";
+  }
+
+  if (opName == "arc.call") {
+    unsigned resultIdx = 0;
+    if (auto opResult = mlir::dyn_cast<mlir::OpResult>(val))
+      resultIdx = opResult.getResultNumber();
+    return inlineArcCall(def, resultIdx, &argMap, 0);
   }
 
   return "/* unsupported:" + opName.str() + " */0";
@@ -634,6 +644,167 @@ void CModelEmitter::emitEvalClock(llvm::raw_string_ostream &os,
   }
 
   os << "}\n\n";
+}
+
+std::string CModelEmitter::inlineArcCall(
+    mlir::Operation *callOp, unsigned resultIdx,
+    const llvm::DenseMap<mlir::Value, std::string> *outerArgMap,
+    unsigned depth) {
+  if (depth >= kMaxInlineDepth)
+    return "/* arc.call_max_depth */0";
+
+  auto callSymRef = callOp->getAttrOfType<mlir::FlatSymbolRefAttr>("arc");
+  if (!callSymRef)
+    return "/* arc.call_no_sym */0";
+
+  auto parentModule = callOp->getParentOfType<mlir::ModuleOp>();
+  if (!parentModule)
+    return "/* arc.call_no_parent */0";
+
+  auto *calleeSym = parentModule.lookupSymbol(callSymRef.getValue());
+  auto calleeDef = mlir::dyn_cast_or_null<circt::arc::DefineOp>(calleeSym);
+  if (!calleeDef || calleeDef.getBody().empty())
+    return "/* arc.call_bad_callee */0";
+
+  mlir::Block &body = calleeDef.getBody().front();
+  auto outputOp =
+      mlir::dyn_cast<circt::arc::OutputOp>(body.getTerminator());
+  if (!outputOp || resultIdx >= outputOp.getOutputs().size())
+    return "/* arc.call_bad_output */0";
+
+  llvm::DenseMap<mlir::Value, std::string> innerArgMap;
+  for (unsigned i = 0; i < callOp->getNumOperands() &&
+                       i < body.getNumArguments(); ++i) {
+    mlir::Value callOperand = callOp->getOperand(i);
+    mlir::Value bodyArg = body.getArgument(i);
+
+    if (outerArgMap) {
+      innerArgMap[bodyArg] = renderArcExpr(callOperand, *outerArgMap);
+    } else {
+      innerArgMap[bodyArg] = renderExpr(callOperand);
+    }
+  }
+
+  // Recursively render the target output expression within the callee body
+  std::function<std::string(mlir::Value)> renderInBody;
+  renderInBody = [&](mlir::Value val) -> std::string {
+    auto it = innerArgMap.find(val);
+    if (it != innerArgMap.end())
+      return it->second;
+
+    mlir::Operation *def = val.getDefiningOp();
+    if (!def)
+      return "/* null_def */0";
+
+    llvm::StringRef opName = def->getName().getStringRef();
+
+    if (opName == "hw.constant") {
+      if (auto attr = def->getAttrOfType<mlir::IntegerAttr>("value")) {
+        llvm::SmallString<32> buf;
+        if (attr.getValue().isNegative())
+          attr.getValue().toStringSigned(buf);
+        else {
+          attr.getValue().toStringUnsigned(buf);
+          buf += "u";
+        }
+        return std::string("(") + legalCType(attr.getValue().getBitWidth()) +
+               ")" + std::string(buf);
+      }
+      return "/* bad_const */0";
+    }
+
+    auto renderVarInBody = [&](llvm::StringRef cOp) -> std::string {
+      std::string result = renderInBody(def->getOperand(0));
+      for (unsigned i = 1; i < def->getNumOperands(); ++i)
+        result = "(" + result + " " + cOp.str() + " " +
+                 renderInBody(def->getOperand(i)) + ")";
+      return result;
+    };
+
+    if (opName == "comb.xor" && def->getNumOperands() >= 2)
+      return renderVarInBody("^");
+    if (opName == "comb.and" && def->getNumOperands() >= 2)
+      return renderVarInBody("&");
+    if (opName == "comb.or" && def->getNumOperands() >= 2)
+      return renderVarInBody("|");
+    if (opName == "comb.add" && def->getNumOperands() >= 2)
+      return renderVarInBody("+");
+    if (opName == "comb.sub" && def->getNumOperands() == 2) {
+      return "(" + renderInBody(def->getOperand(0)) + " - " +
+             renderInBody(def->getOperand(1)) + ")";
+    }
+    if (opName == "comb.mul" && def->getNumOperands() >= 2)
+      return renderVarInBody("*");
+    if (opName == "comb.mux" && def->getNumOperands() == 3) {
+      return "(" + renderInBody(def->getOperand(0)) + " ? " +
+             renderInBody(def->getOperand(1)) + " : " +
+             renderInBody(def->getOperand(2)) + ")";
+    }
+
+    if (opName == "comb.icmp") {
+      auto predAttr = def->getAttrOfType<mlir::IntegerAttr>("predicate");
+      if (predAttr && def->getNumOperands() == 2) {
+        std::string cOp;
+        switch (predAttr.getInt()) {
+        case 0: cOp = "=="; break; case 1: cOp = "!="; break;
+        case 2: cOp = "<"; break;  case 3: cOp = "<="; break;
+        case 4: cOp = ">"; break;  case 5: cOp = ">="; break;
+        case 6: cOp = "<"; break;  case 7: cOp = "<="; break;
+        case 8: cOp = ">"; break;  case 9: cOp = ">="; break;
+        case 10: cOp = "=="; break; case 11: cOp = "!="; break;
+        case 12: cOp = "=="; break; case 13: cOp = "!="; break;
+        default: return "/* unsupported_icmp_pred */0";
+        }
+        return "(" + renderInBody(def->getOperand(0)) + " " + cOp + " " +
+               renderInBody(def->getOperand(1)) + ")";
+      }
+      return "/* bad_icmp */0";
+    }
+
+    if (opName == "comb.concat") {
+      unsigned totalWidth = 0;
+      if (auto ty = mlir::dyn_cast<mlir::IntegerType>(val.getType()))
+        totalWidth = ty.getWidth();
+      std::string result = "0";
+      unsigned shift = 0;
+      for (int i = def->getNumOperands() - 1; i >= 0; --i) {
+        unsigned opWidth = 0;
+        if (auto ty = mlir::dyn_cast<mlir::IntegerType>(
+                def->getOperand(i).getType()))
+          opWidth = ty.getWidth();
+        std::string part = "((" + legalCType(totalWidth) + ")" +
+                           renderInBody(def->getOperand(i)) + " << " +
+                           std::to_string(shift) + ")";
+        result = "(" + result + " | " + part + ")";
+        shift += opWidth;
+      }
+      return result;
+    }
+
+    if (opName == "comb.extract") {
+      auto lowBitAttr = def->getAttrOfType<mlir::IntegerAttr>("lowBit");
+      unsigned lowBit = lowBitAttr ? lowBitAttr.getInt() : 0;
+      unsigned resultWidth = 0;
+      if (auto ty = mlir::dyn_cast<mlir::IntegerType>(val.getType()))
+        resultWidth = ty.getWidth();
+      uint64_t mask =
+          resultWidth >= 64 ? ~0ULL : ((1ULL << resultWidth) - 1);
+      return "((" + legalCType(resultWidth) + ")((" +
+             renderInBody(def->getOperand(0)) + " >> " +
+             std::to_string(lowBit) + ") & " + std::to_string(mask) + "u))";
+    }
+
+    if (opName == "arc.call") {
+      unsigned ri = 0;
+      if (auto opResult = mlir::dyn_cast<mlir::OpResult>(val))
+        ri = opResult.getResultNumber();
+      return inlineArcCall(def, ri, nullptr, depth + 1);
+    }
+
+    return "/* unsupported:" + opName.str() + " */0";
+  };
+
+  return renderInBody(outputOp.getOutputs()[resultIdx]);
 }
 
 } // namespace hirct

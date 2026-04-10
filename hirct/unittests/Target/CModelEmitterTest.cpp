@@ -1869,15 +1869,8 @@ TEST_F(CModelEmitterFixture, RealRtlHammingDecCompiles) {
   hirct::CModelEmitter emitter(model, opts, hwModule);
   auto artifact = emitter.emit();
 
-  // arc.call in combinational path requires inline expansion -- expected boundary
-  bool hasArcCallBoundary =
-      artifact.implContent.find("arc.call_inline_needed") != std::string::npos;
-  EXPECT_TRUE(hasArcCallBoundary)
-      << "combinational arc.call should be marked as inline_needed boundary";
-
-  // Verify no unknown/generic unsupported ops (only arc.call boundary is OK)
-  auto implNoArcCall = artifact.implContent;
-  // Must compile despite boundary markers (they expand to 0)
+  EXPECT_EQ(artifact.implContent.find("unsupported:arc.call"), std::string::npos)
+      << "arc.call should be fully inlined now";
   std::system("mkdir -p /tmp/hirct_rtl_hamming");
   {
     std::ofstream f("/tmp/hirct_rtl_hamming/secded_hamming_dec_d64_p8.h");
@@ -2033,6 +2026,104 @@ TEST_F(CModelEmitterFixture, RealRtl_secded_hamming_enc_d32_p7) {
                        0,   // pure combinational
                        1,   // d:i32
                        1);  // p:i7
+}
+
+// ---------------------------------------------------------------------------
+// arc.call inline tests
+// ---------------------------------------------------------------------------
+
+TEST_F(CModelEmitterFixture, ArcCallInline_EvalComb_EncD32) {
+  auto fixtureRoot = std::filesystem::path(__FILE__)
+                         .parent_path().parent_path().parent_path() /
+                     "tests" / "fixtures";
+  auto mlirPath = fixtureRoot / "secded_hamming_enc_d32_p7_arc.mlir";
+  ASSERT_TRUE(std::filesystem::exists(mlirPath)) << mlirPath.string();
+  std::ifstream ifs(mlirPath);
+  std::string content((std::istreambuf_iterator<char>(ifs)),
+                      std::istreambuf_iterator<char>());
+  auto module = parseInline(content);
+  ASSERT_TRUE(module);
+
+  auto result = hirct::semantic::buildModuleModel(*module,
+                                                  "secded_hamming_enc_d32_p7");
+  ASSERT_TRUE(succeeded(result));
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("secded_hamming_enc_d32_p7");
+  ASSERT_TRUE(hwModule);
+
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/hirct_arccall_enc";
+  hirct::CModelEmitter emitter(*result, opts, hwModule);
+  auto artifact = emitter.emit();
+
+  EXPECT_EQ(artifact.implContent.find("unsupported:arc.call"), std::string::npos)
+      << "arc.call must be inlined in eval_comb for secded_hamming_enc_d32_p7";
+  EXPECT_NE(artifact.implContent.find("eval_comb"), std::string::npos);
+}
+
+TEST_F(CModelEmitterFixture, ArcCallInline_PostEdgeComb_PpuMpmIf) {
+  auto fixtureRoot = std::filesystem::path(__FILE__)
+                         .parent_path().parent_path().parent_path() /
+                     "tests" / "fixtures";
+  auto mlirPath = fixtureRoot / "ncs_core_ppu_mpm_if_arc.mlir";
+  ASSERT_TRUE(std::filesystem::exists(mlirPath)) << mlirPath.string();
+  std::ifstream ifs(mlirPath);
+  std::string content((std::istreambuf_iterator<char>(ifs)),
+                      std::istreambuf_iterator<char>());
+  auto module = parseInline(content);
+  ASSERT_TRUE(module);
+
+  auto result = hirct::semantic::buildModuleModel(*module,
+                                                  "ncs_core_ppu_mpm_if");
+  ASSERT_TRUE(succeeded(result));
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("ncs_core_ppu_mpm_if");
+  ASSERT_TRUE(hwModule);
+
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/hirct_arccall_ppu";
+  hirct::CModelEmitter emitter(*result, opts, hwModule);
+  auto artifact = emitter.emit();
+
+  EXPECT_EQ(artifact.implContent.find("unsupported:arc.call"), std::string::npos)
+      << "arc.call must be inlined in post_edge_comb for ncs_core_ppu_mpm_if";
+}
+
+TEST_F(CModelEmitterFixture, ArcCallInline_NestedGuard) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @inner(%arg0: i8) -> i8 {
+        %c1 = hw.constant 1 : i8
+        %0 = comb.add %arg0, %c1 : i8
+        arc.output %0 : i8
+      }
+      arc.define @outer(%arg0: i8) -> i8 {
+        %0 = arc.call @inner(%arg0) : (i8) -> i8
+        %c2 = hw.constant 2 : i8
+        %1 = comb.add %0, %c2 : i8
+        arc.output %1 : i8
+      }
+      hw.module @NestedCall(in %a : i8, out out : i8) {
+        %0 = arc.call @outer(%a) : (i8) -> i8
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto result = hirct::semantic::buildModuleModel(*module, "NestedCall");
+  ASSERT_TRUE(succeeded(result));
+  auto hwModule = module->lookupSymbol<circt::hw::HWModuleOp>("NestedCall");
+  ASSERT_TRUE(hwModule);
+
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/hirct_arccall_nested";
+  hirct::CModelEmitter emitter(*result, opts, hwModule);
+  auto artifact = emitter.emit();
+
+  EXPECT_EQ(artifact.implContent.find("unsupported:arc.call"), std::string::npos)
+      << "nested arc.call must be fully inlined";
+  EXPECT_NE(artifact.implContent.find("eval_comb"), std::string::npos);
 }
 
 } // namespace

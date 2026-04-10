@@ -51,7 +51,13 @@ private:
   std::string renderExpr(mlir::Value val);
   std::string renderArcExpr(mlir::Value val,
                             const llvm::DenseMap<mlir::Value, std::string> &argMap);
+  std::string inlineArcCall(mlir::Operation *callOp,
+                            unsigned resultIdx,
+                            const llvm::DenseMap<mlir::Value, std::string> *outerArgMap,
+                            unsigned depth);
   std::string legalCType(unsigned width);
+
+  static constexpr unsigned kMaxInlineDepth = 16;
 
   const semantic::ModuleModel &model_;
   CModelOptions options_;
