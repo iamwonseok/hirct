@@ -7129,4 +7129,328 @@ TEST_F(CModelEmitterFixture, IcmpSignedSgeCodegen) {
       << artifact.implContent;
 }
 
+// ---------------------------------------------------------------------------
+// Host C ABI Seam Tests
+// ---------------------------------------------------------------------------
+
+TEST_F(CModelEmitterFixture, HostCAbi_HeaderIsCCompatible) {
+  auto module = parseInline(R"mlir(
+    module {
+      hw.module @CCompat(in %a : i8, in %b : i8, out sum : i8) {
+        %0 = comb.add %a, %b : i8
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "CCompat");
+  ASSERT_TRUE(succeeded(model));
+  auto hwModule = (*module).lookupSymbol<circt::hw::HWModuleOp>("CCompat");
+  ASSERT_TRUE(hwModule);
+
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/hirct_cabi_compat";
+  hirct::CModelEmitter emitter(*model, opts, hwModule);
+  auto artifact = emitter.emit();
+
+  // Generated header must use C-compatible includes (stdint.h not cstdint)
+  EXPECT_NE(artifact.headerContent.find("<stdint.h>"), std::string::npos)
+      << "header must use <stdint.h> for C compatibility";
+  EXPECT_NE(artifact.headerContent.find("<stddef.h>"), std::string::npos)
+      << "header must use <stddef.h> for C compatibility";
+  EXPECT_NE(artifact.headerContent.find("<string.h>"), std::string::npos)
+      << "header must use <string.h> for C compatibility";
+
+  // Must have extern "C" guards
+  EXPECT_NE(artifact.headerContent.find("extern \"C\""), std::string::npos)
+      << "header must have extern \"C\" linkage guards";
+  EXPECT_NE(artifact.headerContent.find("#ifdef __cplusplus"), std::string::npos)
+      << "header must have __cplusplus guard";
+}
+
+TEST_F(CModelEmitterFixture, HostCAbi_CombOnly_CompileAsC) {
+  // Verify the generated artifact compiles as pure C (not C++)
+  auto module = parseInline(R"mlir(
+    module {
+      hw.module @CAdd(in %a : i8, in %b : i8, out sum : i8) {
+        %0 = comb.add %a, %b : i8
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "CAdd");
+  ASSERT_TRUE(succeeded(model));
+  auto hwModule = (*module).lookupSymbol<circt::hw::HWModuleOp>("CAdd");
+  ASSERT_TRUE(hwModule);
+
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/hirct_cabi_cadd";
+  hirct::CModelEmitter emitter(*model, opts, hwModule);
+  auto artifact = emitter.emit();
+
+  std::system("mkdir -p /tmp/hirct_cabi_cadd");
+  ASSERT_TRUE(hirct::writeArtifact(artifact));
+
+  // Write a pure C driver
+  {
+    std::ofstream df("/tmp/hirct_cabi_cadd/driver.c");
+    df << R"DRV(
+#include "CAdd.h"
+#include <assert.h>
+#include <stdio.h>
+int main(void) {
+  struct CAdd_state s;
+  CAdd_initialize(&s);
+  assert(CAdd_get_sum(&s) == 0);
+
+  CAdd_set_a(&s, 10);
+  CAdd_set_b(&s, 20);
+  CAdd_eval_comb(&s);
+  assert(CAdd_get_sum(&s) == 30);
+
+  printf("PASS: HostCAbi_CombOnly_CompileAsC\n");
+  return 0;
+}
+)DRV";
+  }
+
+  // Compile generated .cpp as C++ object, then link with C driver
+  // The header must be includable from C
+  int rc_obj = std::system(
+      "c++ -std=c++17 -O0 -Werror -c "
+      "-I/tmp/hirct_cabi_cadd "
+      "/tmp/hirct_cabi_cadd/CAdd.cpp "
+      "-o /tmp/hirct_cabi_cadd/CAdd.o 2>&1");
+  ASSERT_EQ(rc_obj, 0) << "C model must compile as C++ object";
+
+  int rc_drv = std::system(
+      "cc -std=c11 -O0 -Werror -c "
+      "-I/tmp/hirct_cabi_cadd "
+      "/tmp/hirct_cabi_cadd/driver.c "
+      "-o /tmp/hirct_cabi_cadd/driver.o 2>&1");
+  ASSERT_EQ(rc_drv, 0) << "C driver must compile with C compiler";
+
+  int rc_link = std::system(
+      "c++ -o /tmp/hirct_cabi_cadd/test "
+      "/tmp/hirct_cabi_cadd/CAdd.o "
+      "/tmp/hirct_cabi_cadd/driver.o 2>&1");
+  ASSERT_EQ(rc_link, 0) << "C driver + C++ model must link";
+
+  int run_rc = std::system("/tmp/hirct_cabi_cadd/test");
+  EXPECT_EQ(run_rc, 0) << "HostCAbi_CombOnly: C driver runtime";
+
+  std::system("rm -rf /tmp/hirct_cabi_cadd");
+}
+
+TEST_F(CModelEmitterFixture, HostCAbi_SingleClock_CompileAsC) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @fc_cabi_ctr(%arg0: i8, %arg1: i1, %arg2: i1) -> i8 {
+        %c1_i8 = hw.constant 1 : i8
+        %c0_i8 = hw.constant 0 : i8
+        %0 = comb.add %arg0, %c1_i8 : i8
+        %1 = comb.mux %arg1, %arg0, %0 : i8
+        %2 = comb.mux %arg2, %c0_i8, %1 : i8
+        arc.output %2 : i8
+      }
+      arc.define @clk_arc_cabi(%arg0: i1) -> !seq.clock {
+        %0 = seq.to_clock %arg0
+        arc.output %0 : !seq.clock
+      }
+      hw.module @CAbiCtr(in %clk : i1, in %rst : i1, in %en : i1,
+                         out count : i8) {
+        %clock = arc.call @clk_arc_cabi(%clk) : (i1) -> !seq.clock
+        %0 = arc.state @fc_cabi_ctr(%0, %en, %rst) clock %clock latency 1 {names = ["count_reg"]} : (i8, i1, i1) -> i8
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "CAbiCtr");
+  ASSERT_TRUE(succeeded(model));
+  auto hwModule = (*module).lookupSymbol<circt::hw::HWModuleOp>("CAbiCtr");
+  ASSERT_TRUE(hwModule);
+
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/hirct_cabi_ctr";
+  hirct::CModelEmitter emitter(*model, opts, hwModule);
+  auto artifact = emitter.emit();
+
+  std::system("mkdir -p /tmp/hirct_cabi_ctr");
+  ASSERT_TRUE(hirct::writeArtifact(artifact));
+
+  // Pure C driver exercising init/set/eval_comb/eval_clk/get
+  {
+    std::ofstream df("/tmp/hirct_cabi_ctr/driver.c");
+    df << R"DRV(
+#include "CAbiCtr.h"
+#include <assert.h>
+#include <stdio.h>
+int main(void) {
+  struct CAbiCtr_state s;
+  CAbiCtr_initialize(&s);
+  assert(CAbiCtr_get_count(&s) == 0);
+
+  /* Cycle 1: rst=0, en=0 -> count increments */
+  CAbiCtr_set_rst(&s, 0);
+  CAbiCtr_set_en(&s, 0);
+  CAbiCtr_eval_comb(&s);
+  CAbiCtr_eval_clk(&s);
+  CAbiCtr_eval_comb(&s);
+  assert(s.count_reg == 1);
+  assert(CAbiCtr_get_count(&s) == 1);
+
+  /* Cycle 2: still counting */
+  CAbiCtr_eval_clk(&s);
+  CAbiCtr_eval_comb(&s);
+  assert(s.count_reg == 2);
+
+  /* Cycle 3: en=1 -> hold */
+  CAbiCtr_set_en(&s, 1);
+  CAbiCtr_eval_clk(&s);
+  CAbiCtr_eval_comb(&s);
+  assert(s.count_reg == 2);
+
+  /* Cycle 4: rst=1 -> reset */
+  CAbiCtr_set_rst(&s, 1);
+  CAbiCtr_eval_clk(&s);
+  CAbiCtr_eval_comb(&s);
+  assert(s.count_reg == 0);
+
+  printf("PASS: HostCAbi_SingleClock_CompileAsC\n");
+  return 0;
+}
+)DRV";
+  }
+
+  int rc_obj = std::system(
+      "c++ -std=c++17 -O0 -Werror -c "
+      "-I/tmp/hirct_cabi_ctr "
+      "/tmp/hirct_cabi_ctr/CAbiCtr.cpp "
+      "-o /tmp/hirct_cabi_ctr/CAbiCtr.o 2>&1");
+  ASSERT_EQ(rc_obj, 0) << "C model must compile as C++ object";
+
+  int rc_drv = std::system(
+      "cc -std=c11 -O0 -Werror -c "
+      "-I/tmp/hirct_cabi_ctr "
+      "/tmp/hirct_cabi_ctr/driver.c "
+      "-o /tmp/hirct_cabi_ctr/driver.o 2>&1");
+  ASSERT_EQ(rc_drv, 0) << "C driver must compile with C compiler";
+
+  int rc_link = std::system(
+      "c++ -o /tmp/hirct_cabi_ctr/test "
+      "/tmp/hirct_cabi_ctr/CAbiCtr.o "
+      "/tmp/hirct_cabi_ctr/driver.o 2>&1");
+  ASSERT_EQ(rc_link, 0) << "C driver + C++ model must link";
+
+  int run_rc = std::system("/tmp/hirct_cabi_ctr/test");
+  EXPECT_EQ(run_rc, 0) << "HostCAbi_SingleClock: C driver runtime";
+
+  std::system("rm -rf /tmp/hirct_cabi_ctr");
+}
+
+TEST_F(CModelEmitterFixture, HostCAbi_ArtifactCompile_CppBridge) {
+  // Verify: generated artifact compiles when included from both C and C++
+  auto module = parseInline(R"mlir(
+    module {
+      hw.module @Bridge(in %x : i16, out y : i16) {
+        hw.output %x : i16
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "Bridge");
+  ASSERT_TRUE(succeeded(model));
+  auto hwModule = (*module).lookupSymbol<circt::hw::HWModuleOp>("Bridge");
+  ASSERT_TRUE(hwModule);
+
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/hirct_cabi_bridge";
+  hirct::CModelEmitter emitter(*model, opts, hwModule);
+  auto artifact = emitter.emit();
+
+  std::system("mkdir -p /tmp/hirct_cabi_bridge");
+  ASSERT_TRUE(hirct::writeArtifact(artifact));
+
+  // C++ driver including the same header
+  {
+    std::ofstream df("/tmp/hirct_cabi_bridge/cpp_driver.cpp");
+    df << R"DRV(
+#include "Bridge.h"
+#include <cassert>
+#include <cstdio>
+int main() {
+  Bridge_state s;
+  Bridge_initialize(&s);
+  Bridge_set_x(&s, 42);
+  Bridge_eval_comb(&s);
+  assert(Bridge_get_y(&s) == 42);
+  printf("PASS: HostCAbi_ArtifactCompile_CppBridge\n");
+  return 0;
+}
+)DRV";
+  }
+
+  // C driver including the same header
+  {
+    std::ofstream df("/tmp/hirct_cabi_bridge/c_driver.c");
+    df << R"DRV(
+#include "Bridge.h"
+#include <assert.h>
+#include <stdio.h>
+int main(void) {
+  struct Bridge_state s;
+  Bridge_initialize(&s);
+  Bridge_set_x(&s, 42);
+  Bridge_eval_comb(&s);
+  assert(Bridge_get_y(&s) == 42);
+  printf("PASS: HostCAbi_ArtifactCompile_CppBridge (C side)\n");
+  return 0;
+}
+)DRV";
+  }
+
+  // Both must compile and link
+  int rc_cpp = std::system(
+      "c++ -std=c++17 -O0 -Werror "
+      "-I/tmp/hirct_cabi_bridge "
+      "/tmp/hirct_cabi_bridge/Bridge.cpp "
+      "/tmp/hirct_cabi_bridge/cpp_driver.cpp "
+      "-o /tmp/hirct_cabi_bridge/test_cpp 2>&1");
+  ASSERT_EQ(rc_cpp, 0) << "C++ bridge compile must work";
+
+  int run_cpp = std::system("/tmp/hirct_cabi_bridge/test_cpp");
+  EXPECT_EQ(run_cpp, 0) << "C++ bridge runtime must pass";
+
+  int rc_c_obj = std::system(
+      "cc -std=c11 -O0 -Werror -c "
+      "-I/tmp/hirct_cabi_bridge "
+      "/tmp/hirct_cabi_bridge/c_driver.c "
+      "-o /tmp/hirct_cabi_bridge/c_driver.o 2>&1");
+  ASSERT_EQ(rc_c_obj, 0) << "C bridge compile must work";
+
+  int rc_model_obj = std::system(
+      "c++ -std=c++17 -O0 -Werror -c "
+      "-I/tmp/hirct_cabi_bridge "
+      "/tmp/hirct_cabi_bridge/Bridge.cpp "
+      "-o /tmp/hirct_cabi_bridge/Bridge.o 2>&1");
+  ASSERT_EQ(rc_model_obj, 0) << "C++ model object compile must work";
+
+  int rc_link = std::system(
+      "c++ -o /tmp/hirct_cabi_bridge/test_c "
+      "/tmp/hirct_cabi_bridge/Bridge.o "
+      "/tmp/hirct_cabi_bridge/c_driver.o 2>&1");
+  ASSERT_EQ(rc_link, 0) << "C driver + C++ model must link";
+
+  int run_c = std::system("/tmp/hirct_cabi_bridge/test_c");
+  EXPECT_EQ(run_c, 0) << "C bridge runtime must pass";
+
+  std::system("rm -rf /tmp/hirct_cabi_bridge");
+}
+
 } // namespace

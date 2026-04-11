@@ -147,11 +147,14 @@ void CModelEmitter::emitHeader(llvm::raw_string_ostream &os) {
 
   os << "#ifndef " << mod << "_MODEL_H\n";
   os << "#define " << mod << "_MODEL_H\n\n";
-  os << "#include <cstdint>\n";
-  os << "#include <cstddef>\n";
-  os << "#include <cstring>\n\n";
+  os << "#include <stdint.h>\n";
+  os << "#include <stddef.h>\n";
+  os << "#include <string.h>\n\n";
+  os << "#ifdef __cplusplus\n";
+  os << "extern \"C\" {\n";
+  os << "#endif\n\n";
 
-  os << "struct " << mod << "_state {\n";
+  os << "typedef struct " << mod << "_state {\n";
 
   for (const auto &port : model_.inputPorts) {
     if (port.isWide())
@@ -180,7 +183,7 @@ void CModelEmitter::emitHeader(llvm::raw_string_ostream &os) {
     os << "  " << legalCType(mem.elementWidth) << " " << mem.stableName << "["
        << mem.depth << "];\n";
 
-  os << "};\n\n";
+  os << "} " << mod << "_state;\n\n";
 
   os << "void " << mod << "_initialize(" << mod << "_state *s);\n";
 
@@ -206,7 +209,10 @@ void CModelEmitter::emitHeader(llvm::raw_string_ostream &os) {
     os << "void " << mod << "_eval_" << clock << "(" << mod
        << "_state *s);\n";
 
-  os << "\n#endif // " << mod << "_MODEL_H\n";
+  os << "\n#ifdef __cplusplus\n";
+  os << "}\n";
+  os << "#endif\n\n";
+  os << "#endif // " << mod << "_MODEL_H\n";
 }
 
 void CModelEmitter::emitSetters(llvm::raw_string_ostream &os) {
@@ -649,7 +655,11 @@ void CModelEmitter::emitImpl(llvm::raw_string_ostream &os) {
 
   os << "#include \"" << mod << options_.headerSuffix << "\"\n\n";
 
-  os << "#include <cstring>\n\n";
+  os << "#include <string.h>\n\n";
+
+  os << "#ifdef __cplusplus\n";
+  os << "extern \"C\" {\n";
+  os << "#endif\n\n";
 
   // initialize
   os << "void " << mod << "_initialize(" << mod << "_state *s) {\n";
@@ -700,6 +710,10 @@ void CModelEmitter::emitImpl(llvm::raw_string_ostream &os) {
   // eval_<clock>
   for (const auto &clock : model_.clockDomains)
     emitEvalClock(os, clock);
+
+  os << "#ifdef __cplusplus\n";
+  os << "}\n";
+  os << "#endif\n";
 }
 
 void CModelEmitter::emitEvalClock(llvm::raw_string_ostream &os,
