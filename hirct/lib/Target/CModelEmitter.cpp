@@ -939,6 +939,11 @@ void CModelEmitter::emitEvalClock(llvm::raw_string_ostream &os,
             arg.getArgNumber() < model_.inputPorts.size())
           rstSig = "s->input_" +
                    model_.inputPorts[arg.getArgNumber()].name;
+      } else {
+        std::string expr = renderExpr(aggStateOp.getReset());
+        if (expr.find("/* unsupported") == std::string::npos &&
+            expr.find("/* unresolved") == std::string::npos)
+          rstSig = expr;
       }
     }
     if (av->hasEnable && aggStateOp.getEnable()) {
@@ -948,6 +953,11 @@ void CModelEmitter::emitEvalClock(llvm::raw_string_ostream &os,
             arg.getArgNumber() < model_.inputPorts.size())
           enSig = "s->input_" +
                   model_.inputPorts[arg.getArgNumber()].name;
+      } else {
+        std::string expr = renderExpr(aggStateOp.getEnable());
+        if (expr.find("/* unsupported") == std::string::npos &&
+            expr.find("/* unresolved") == std::string::npos)
+          enSig = expr;
       }
     }
 

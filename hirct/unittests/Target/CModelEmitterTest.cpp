@@ -5932,4 +5932,283 @@ int main() {
   std::system("rm -rf /tmp/hirct_cm_aggnzrt");
 }
 
+// ---------------------------------------------------------------------------
+// Batch: aggregate indirect reset/enable from arc.call
+// ---------------------------------------------------------------------------
+
+TEST_F(CModelEmitterFixture, CModelEmitter_EvalClockAggregateResetFromArcCall) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @ctrl_arc(%arg0: i1, %arg1: i1) -> (i1, !seq.clock) {
+        %0 = comb.xor %arg0, %arg1 : i1
+        %1 = seq.to_clock %arg1
+        arc.output %0, %1 : i1, !seq.clock
+      }
+      arc.define @agg_inc(%old: !hw.array<3xi8>) -> !hw.array<3xi8> {
+        %c0 = hw.constant 0 : i2
+        %c1_2 = hw.constant 1 : i2
+        %c2 = hw.constant 2 : i2
+        %c1_8 = hw.constant 1 : i8
+        %e0 = hw.array_get %old[%c0] : !hw.array<3xi8>, i2
+        %e1 = hw.array_get %old[%c1_2] : !hw.array<3xi8>, i2
+        %e2 = hw.array_get %old[%c2] : !hw.array<3xi8>, i2
+        %n0 = comb.add %e0, %c1_8 : i8
+        %n1 = comb.add %e1, %c1_8 : i8
+        %n2 = comb.add %e2, %c1_8 : i8
+        %result = hw.array_create %n2, %n1, %n0 : i8
+        arc.output %result : !hw.array<3xi8>
+      }
+      hw.module @AggRstCall(in %rst_n : i1, in %clk_i : i1,
+                            out q0 : i8) {
+        %ctrl:2 = arc.call @ctrl_arc(%rst_n, %clk_i) : (i1, i1) -> (i1, !seq.clock)
+        %s = arc.state @agg_inc(%s) clock %ctrl#1 reset %ctrl#0 latency 1
+              {names = ["arr"]} : (!hw.array<3xi8>) -> !hw.array<3xi8>
+        %c0 = hw.constant 0 : i2
+        %q0 = hw.array_get %s[%c0] : !hw.array<3xi8>, i2
+        hw.output %q0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("AggRstCall");
+  ASSERT_TRUE(hwModule);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "AggRstCall");
+  ASSERT_TRUE(succeeded(model));
+  ASSERT_EQ(model->aggregateStateVars.size(), 1u);
+
+  const auto &agg = model->aggregateStateVars[0];
+  EXPECT_TRUE(agg.hasReset);
+
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/hirct_cm_aggrstcall";
+  hirct::CModelEmitter emitter(*model, opts, hwModule);
+  auto artifact = emitter.emit();
+
+  auto evalClkPos = artifact.implContent.find("AggRstCall_eval_clk_i(");
+  ASSERT_NE(evalClkPos, std::string::npos)
+      << "must have eval_clk_i function; impl:\n" << artifact.implContent;
+  auto afterPos = artifact.implContent.substr(evalClkPos);
+
+  EXPECT_NE(afterPos.find("if ("), std::string::npos)
+      << "aggregate eval_clock must have reset branch from arc.call; got:\n"
+      << afterPos;
+  EXPECT_NE(afterPos.find("s->arr"), std::string::npos)
+      << "aggregate eval_clock must reference s->arr for commit; got:\n"
+      << afterPos;
+  EXPECT_EQ(afterPos.find("/* unresolved"), std::string::npos)
+      << "reset signal must be resolved (no unresolved markers); got:\n"
+      << afterPos;
+}
+
+TEST_F(CModelEmitterFixture, CModelEmitter_EvalClockAggregateEnableFromArcCall) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @en_arc(%arg0: i1, %arg1: i1) -> (i1, !seq.clock) {
+        %0 = comb.and %arg0, %arg1 : i1
+        %1 = seq.to_clock %arg1
+        arc.output %0, %1 : i1, !seq.clock
+      }
+      arc.define @agg_inc2(%old: !hw.array<2xi8>) -> !hw.array<2xi8> {
+        %c0 = hw.constant 0 : i1
+        %c1_1 = hw.constant 1 : i1
+        %c1_8 = hw.constant 1 : i8
+        %e0 = hw.array_get %old[%c0] : !hw.array<2xi8>, i1
+        %e1 = hw.array_get %old[%c1_1] : !hw.array<2xi8>, i1
+        %n0 = comb.add %e0, %c1_8 : i8
+        %n1 = comb.add %e1, %c1_8 : i8
+        %result = hw.array_create %n1, %n0 : i8
+        arc.output %result : !hw.array<2xi8>
+      }
+      hw.module @AggEnCall(in %en_i : i1, in %clk_i : i1,
+                           out q0 : i8) {
+        %ctrl:2 = arc.call @en_arc(%en_i, %clk_i) : (i1, i1) -> (i1, !seq.clock)
+        %s = arc.state @agg_inc2(%s) clock %ctrl#1 enable %ctrl#0 latency 1
+              {names = ["ew"]} : (!hw.array<2xi8>) -> !hw.array<2xi8>
+        %c0 = hw.constant 0 : i1
+        %q0 = hw.array_get %s[%c0] : !hw.array<2xi8>, i1
+        hw.output %q0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("AggEnCall");
+  ASSERT_TRUE(hwModule);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "AggEnCall");
+  ASSERT_TRUE(succeeded(model));
+  ASSERT_EQ(model->aggregateStateVars.size(), 1u);
+
+  const auto &agg = model->aggregateStateVars[0];
+  EXPECT_TRUE(agg.hasEnable);
+
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/hirct_cm_aggencall";
+  hirct::CModelEmitter emitter(*model, opts, hwModule);
+  auto artifact = emitter.emit();
+
+  auto evalClkPos = artifact.implContent.find("AggEnCall_eval_clk_i(");
+  ASSERT_NE(evalClkPos, std::string::npos)
+      << "must have eval_clk_i function; impl:\n" << artifact.implContent;
+  auto afterPos = artifact.implContent.substr(evalClkPos);
+
+  EXPECT_NE(afterPos.find("if ("), std::string::npos)
+      << "aggregate eval_clock must have enable branch from arc.call; got:\n"
+      << afterPos;
+  EXPECT_NE(afterPos.find("s->ew"), std::string::npos)
+      << "aggregate eval_clock must reference s->ew for commit; got:\n"
+      << afterPos;
+  EXPECT_EQ(afterPos.find("/* unresolved"), std::string::npos)
+      << "enable signal must be resolved (no unresolved markers); got:\n"
+      << afterPos;
+}
+
+TEST_F(CModelEmitterFixture, CModelEmitter_AggregateIndirectResetEnableRuntime) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @ctrl_arc3(%arg0: i1, %arg1: i1, %arg2: i1) -> (i1, i1, !seq.clock) {
+        %1 = seq.to_clock %arg2
+        arc.output %arg1, %arg0, %1 : i1, i1, !seq.clock
+      }
+      arc.define @agg_inc3(%old: !hw.array<2xi8>) -> !hw.array<2xi8> {
+        %c0 = hw.constant 0 : i1
+        %c1_1 = hw.constant 1 : i1
+        %c1_8 = hw.constant 1 : i8
+        %e0 = hw.array_get %old[%c0] : !hw.array<2xi8>, i1
+        %e1 = hw.array_get %old[%c1_1] : !hw.array<2xi8>, i1
+        %n0 = comb.add %e0, %c1_8 : i8
+        %n1 = comb.add %e1, %c1_8 : i8
+        %result = hw.array_create %n1, %n0 : i8
+        arc.output %result : !hw.array<2xi8>
+      }
+      hw.module @AggIndirRE(in %rst_n : i1, in %en : i1, in %clk_i : i1,
+                            out q0 : i8, out q1 : i8) {
+        %ctrl:3 = arc.call @ctrl_arc3(%rst_n, %en, %clk_i) : (i1, i1, i1) -> (i1, i1, !seq.clock)
+        %s = arc.state @agg_inc3(%s) clock %ctrl#2 enable %ctrl#0 reset %ctrl#1 latency 1
+              {names = ["ew"]} : (!hw.array<2xi8>) -> !hw.array<2xi8>
+        %c0 = hw.constant 0 : i1
+        %c1 = hw.constant 1 : i1
+        %q0 = hw.array_get %s[%c0] : !hw.array<2xi8>, i1
+        %q1 = hw.array_get %s[%c1] : !hw.array<2xi8>, i1
+        hw.output %q0, %q1 : i8, i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("AggIndirRE");
+  ASSERT_TRUE(hwModule);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "AggIndirRE");
+  ASSERT_TRUE(succeeded(model));
+  ASSERT_EQ(model->aggregateStateVars.size(), 1u);
+
+  const auto &agg = model->aggregateStateVars[0];
+  EXPECT_TRUE(agg.hasReset);
+  EXPECT_TRUE(agg.hasEnable);
+
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/hirct_cm_aggindirre";
+  hirct::CModelEmitter emitter(*model, opts, hwModule);
+  auto artifact = emitter.emit();
+
+  std::system("mkdir -p /tmp/hirct_cm_aggindirre");
+  {
+    std::ofstream hf("/tmp/hirct_cm_aggindirre/AggIndirRE.h");
+    hf << artifact.headerContent;
+  }
+  {
+    std::ofstream cf("/tmp/hirct_cm_aggindirre/AggIndirRE.cpp");
+    cf << artifact.implContent;
+  }
+
+  int syntaxRc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_cm_aggindirre "
+      "/tmp/hirct_cm_aggindirre/AggIndirRE.cpp 2>&1");
+  ASSERT_EQ(syntaxRc, 0)
+      << "AggIndirRE must compile; impl:\n" << artifact.implContent;
+
+  auto rtEvalPos = artifact.implContent.find("eval_clk_i(");
+  ASSERT_NE(rtEvalPos, std::string::npos)
+      << "must have eval_clk_i; impl:\n" << artifact.implContent;
+  auto rtAfter = artifact.implContent.substr(rtEvalPos);
+  EXPECT_NE(rtAfter.find("if ("), std::string::npos)
+      << "runtime test: eval_clk_i must have reset/enable branch; got:\n"
+      << rtAfter;
+
+  std::string driverSrc = R"(
+#include "AggIndirRE.h"
+#include <cstdio>
+#include <cassert>
+int main() {
+  AggIndirRE_state s;
+  AggIndirRE_initialize(&s);
+  assert(s.ew[0] == 0 && s.ew[1] == 0);
+
+  // rst_n=0, en=1 -> ctrl#1=rst_n=0 (no reset), ctrl#0=en=1 (enable) -> increment
+  s.input_rst_n = 0;
+  s.input_en = 1;
+  s.input_clk_i = 0;
+  AggIndirRE_eval_comb(&s);
+  AggIndirRE_eval_clk_i(&s);
+  assert(s.ew[0] == 1 && s.ew[1] == 1);
+
+  // rst_n=0, en=0 -> no reset, no enable -> hold
+  s.input_en = 0;
+  AggIndirRE_eval_comb(&s);
+  AggIndirRE_eval_clk_i(&s);
+  assert(s.ew[0] == 1 && s.ew[1] == 1);
+
+  // rst_n=0, en=1 -> no reset, enable -> increment
+  s.input_en = 1;
+  AggIndirRE_eval_comb(&s);
+  AggIndirRE_eval_clk_i(&s);
+  assert(s.ew[0] == 2 && s.ew[1] == 2);
+
+  // rst_n=1, en=1 -> ctrl#1=1 (reset fires, reset > enable)
+  s.input_rst_n = 1;
+  s.input_en = 1;
+  AggIndirRE_eval_comb(&s);
+  AggIndirRE_eval_clk_i(&s);
+  assert(s.ew[0] == 0 && s.ew[1] == 0);
+
+  // rst_n=0, en=1 -> reset released, enable active -> increment
+  s.input_rst_n = 0;
+  AggIndirRE_eval_comb(&s);
+  AggIndirRE_eval_clk_i(&s);
+  assert(s.ew[0] == 1 && s.ew[1] == 1);
+
+  return 0;
+}
+)";
+
+  {
+    std::ofstream df("/tmp/hirct_cm_aggindirre/driver.cpp");
+    df << driverSrc;
+  }
+
+  int compileRc = std::system(
+      "c++ -std=c++17 -O0 -Werror "
+      "-I/tmp/hirct_cm_aggindirre "
+      "/tmp/hirct_cm_aggindirre/AggIndirRE.cpp "
+      "/tmp/hirct_cm_aggindirre/driver.cpp "
+      "-o /tmp/hirct_cm_aggindirre/test 2>&1");
+  ASSERT_EQ(compileRc, 0)
+      << "AggIndirRE driver must compile; impl:\n" << artifact.implContent;
+
+  if (compileRc == 0) {
+    int runRc = std::system("/tmp/hirct_cm_aggindirre/test");
+    EXPECT_EQ(runRc, 0)
+        << "AggIndirRE runtime: indirect reset/enable from arc.call must work";
+  }
+
+  std::system("rm -rf /tmp/hirct_cm_aggindirre");
+}
+
 } // namespace
