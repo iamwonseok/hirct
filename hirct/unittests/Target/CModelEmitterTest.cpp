@@ -5290,4 +5290,427 @@ int main() {
   std::system("rm -rf /tmp/hirct_ewrsten");
 }
 
+// ---------------------------------------------------------------------------
+// Batch: Aggregate nonzero initial value
+// ---------------------------------------------------------------------------
+
+TEST_F(CModelEmitterFixture, GenModel_AggregateStateNonzeroResetCodegen) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @arr_id(%arg0: !hw.array<4xi8>) -> !hw.array<4xi8> {
+        arc.output %arg0 : !hw.array<4xi8>
+      }
+      hw.module @AggNzRstCodegen(in %clk : i1, in %rst : i1, in %d : i8,
+                                 out q : i8) {
+        %c = seq.to_clock %clk
+        %0 = arc.state @arr_id(%0) clock %c reset %rst latency 1
+              {names = ["arr"], initial_value = 117901063 : i32} : (!hw.array<4xi8>) -> !hw.array<4xi8>
+        %idx = hw.constant 0 : i2
+        %elem = hw.array_get %0[%idx] : !hw.array<4xi8>, i2
+        hw.output %elem : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("AggNzRstCodegen");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_aggnzrst");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_aggnzrst");
+  ASSERT_TRUE(ok);
+
+  std::ifstream cpp_ifs(
+      "/tmp/hirct_genmodel_aggnzrst/cmodel/AggNzRstCodegen.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  EXPECT_NE(cpp_content.find("static_cast<uint8_t>(7)"), std::string::npos)
+      << "aggregate nonzero reset value 7 must appear in do_reset; got:\n"
+      << cpp_content;
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_aggnzrst/cmodel "
+      "/tmp/hirct_genmodel_aggnzrst/cmodel/AggNzRstCodegen.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "AggNzRstCodegen must compile";
+
+  std::system("rm -rf /tmp/hirct_genmodel_aggnzrst");
+}
+
+TEST_F(CModelEmitterFixture, GenModel_AggregateStateNonzeroResetRuntime) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @arr_id(%arg0: !hw.array<4xi8>) -> !hw.array<4xi8> {
+        arc.output %arg0 : !hw.array<4xi8>
+      }
+      hw.module @AggNzRstRun(in %clk : i1, in %rst : i1, in %d : !hw.array<4xi8>,
+                             out q0 : i8) {
+        %c = seq.to_clock %clk
+        %0 = arc.state @arr_id(%d) clock %c reset %rst latency 1
+              {names = ["arr"], initial_value = 117901063 : i32} : (!hw.array<4xi8>) -> !hw.array<4xi8>
+        %idx = hw.constant 0 : i2
+        %elem = hw.array_get %0[%idx] : !hw.array<4xi8>, i2
+        hw.output %elem : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule = module->lookupSymbol<circt::hw::HWModuleOp>("AggNzRstRun");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_aggnzrstrun");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_aggnzrstrun");
+  ASSERT_TRUE(ok);
+
+  {
+    std::ofstream drv("/tmp/hirct_genmodel_aggnzrstrun/driver.cpp");
+    drv << R"(
+#include "AggNzRstRun.h"
+#include <cassert>
+#include <cstdio>
+int main() {
+  AggNzRstRun dut;
+  dut.do_reset();
+  // After do_reset, each element must be 7
+  assert(dut.q0 == 7 && "do_reset must init aggregate elements to 7");
+
+  // Step with rst=1 -> still 7
+  dut.rst = 1;
+  dut.step();
+  assert(dut.q0 == 7 && "reset active must keep elements at 7");
+
+  // Release reset, feed different data
+  dut.rst = 0;
+  dut.d[0] = 10; dut.d[1] = 20; dut.d[2] = 30; dut.d[3] = 40;
+  dut.step();
+  assert(dut.q0 == 10 && "after rst release, data must propagate");
+
+  // Re-assert reset -> back to 7
+  dut.rst = 1;
+  dut.step();
+  assert(dut.q0 == 7 && "re-reset must restore to 7, not 0");
+
+  printf("PASS: AggregateStateNonzeroReset\n");
+  return 0;
+}
+)";
+  }
+
+  int rc = std::system(
+      "c++ -std=c++17 -o /tmp/hirct_genmodel_aggnzrstrun/test "
+      "-I/tmp/hirct_genmodel_aggnzrstrun/cmodel "
+      "/tmp/hirct_genmodel_aggnzrstrun/cmodel/AggNzRstRun.cpp "
+      "/tmp/hirct_genmodel_aggnzrstrun/driver.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "AggNzRstRun must compile with driver";
+
+  if (rc == 0) {
+    int run_rc = std::system("/tmp/hirct_genmodel_aggnzrstrun/test");
+    EXPECT_EQ(run_rc, 0) << "AggNzRstRun runtime assertions failed";
+  }
+
+  std::system("rm -rf /tmp/hirct_genmodel_aggnzrstrun");
+}
+
+TEST_F(CModelEmitterFixture, GenModel_AggregateStateNonzeroResetEnableRuntime) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @arr_id(%arg0: !hw.array<4xi8>) -> !hw.array<4xi8> {
+        arc.output %arg0 : !hw.array<4xi8>
+      }
+      hw.module @AggNzRstEnRun(in %clk : i1, in %rst : i1, in %en : i1,
+                               in %d : !hw.array<4xi8>, out q0 : i8) {
+        %c = seq.to_clock %clk
+        %0 = arc.state @arr_id(%d) clock %c enable %en reset %rst latency 1
+              {names = ["arr"], initial_value = 84215045 : i32} : (!hw.array<4xi8>) -> !hw.array<4xi8>
+        %idx = hw.constant 0 : i2
+        %elem = hw.array_get %0[%idx] : !hw.array<4xi8>, i2
+        hw.output %elem : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("AggNzRstEnRun");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_aggnzrsten");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_aggnzrsten");
+  ASSERT_TRUE(ok);
+
+  {
+    std::ofstream drv("/tmp/hirct_genmodel_aggnzrsten/driver.cpp");
+    drv << R"(
+#include "AggNzRstEnRun.h"
+#include <cassert>
+#include <cstdio>
+int main() {
+  AggNzRstEnRun dut;
+  dut.do_reset();
+  // After do_reset, each element must be 5
+  assert(dut.q0 == 5 && "do_reset must init aggregate elements to 5");
+
+  // rst=1 en=1 -> reset wins
+  dut.rst = 1; dut.en = 1;
+  dut.d[0] = 99; dut.d[1] = 99; dut.d[2] = 99; dut.d[3] = 99;
+  dut.step();
+  assert(dut.q0 == 5 && "reset must beat enable");
+
+  // rst=0 en=1 -> data propagates
+  dut.rst = 0; dut.en = 1;
+  dut.d[0] = 10; dut.d[1] = 20; dut.d[2] = 30; dut.d[3] = 40;
+  dut.step();
+  assert(dut.q0 == 10 && "enable without reset must propagate data");
+
+  // rst=0 en=0 -> holds
+  dut.en = 0;
+  dut.d[0] = 77; dut.d[1] = 77; dut.d[2] = 77; dut.d[3] = 77;
+  dut.step();
+  assert(dut.q0 == 10 && "en=0 must hold previous value");
+
+  // rst=1 en=0 -> reset wins
+  dut.rst = 1; dut.en = 0;
+  dut.step();
+  assert(dut.q0 == 5 && "reset must restore to 5 even with en=0");
+
+  printf("PASS: AggregateStateNonzeroResetEnable\n");
+  return 0;
+}
+)";
+  }
+
+  int rc = std::system(
+      "c++ -std=c++17 -o /tmp/hirct_genmodel_aggnzrsten/test "
+      "-I/tmp/hirct_genmodel_aggnzrsten/cmodel "
+      "/tmp/hirct_genmodel_aggnzrsten/cmodel/AggNzRstEnRun.cpp "
+      "/tmp/hirct_genmodel_aggnzrsten/driver.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "AggNzRstEnRun must compile with driver";
+
+  if (rc == 0) {
+    int run_rc = std::system("/tmp/hirct_genmodel_aggnzrsten/test");
+    EXPECT_EQ(run_rc, 0) << "AggNzRstEnRun runtime assertions failed";
+  }
+
+  std::system("rm -rf /tmp/hirct_genmodel_aggnzrsten");
+}
+
+// ---------------------------------------------------------------------------
+// Large-width aggregate (>128-bit total) nonzero init tests
+// 17 x i8 = 136 bits, every element = 0xAB = 171
+// ---------------------------------------------------------------------------
+
+TEST_F(CModelEmitterFixture,
+       GenModel_AggregateStateNonzeroResetLargeWidthCodegen) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @arr17_id(%arg0: !hw.array<17xi8>) -> !hw.array<17xi8> {
+        arc.output %arg0 : !hw.array<17xi8>
+      }
+      hw.module @AggNzRstLargeCodegen(in %clk : i1, in %rst : i1,
+                                      out q : i8) {
+        %c = seq.to_clock %clk
+        %0 = arc.state @arr17_id(%0) clock %c reset %rst latency 1
+              {names = ["arr"], initial_value = 58416474095415694810088967901698373430187 : i136} : (!hw.array<17xi8>) -> !hw.array<17xi8>
+        %idx = hw.constant 0 : i5
+        %elem = hw.array_get %0[%idx] : !hw.array<17xi8>, i5
+        hw.output %elem : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("AggNzRstLargeCodegen");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_aggnzrstlg");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_aggnzrstlg");
+  ASSERT_TRUE(ok);
+
+  std::ifstream cpp_ifs(
+      "/tmp/hirct_genmodel_aggnzrstlg/cmodel/AggNzRstLargeCodegen.cpp");
+  std::string cpp_content((std::istreambuf_iterator<char>(cpp_ifs)),
+                          std::istreambuf_iterator<char>());
+
+  EXPECT_NE(cpp_content.find("static_cast<uint8_t>(171)"), std::string::npos)
+      << "large aggregate nonzero reset value 171 (0xAB) must appear in "
+         "do_reset; got:\n"
+      << cpp_content;
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_genmodel_aggnzrstlg/cmodel "
+      "/tmp/hirct_genmodel_aggnzrstlg/cmodel/AggNzRstLargeCodegen.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "AggNzRstLargeCodegen must compile";
+
+  std::system("rm -rf /tmp/hirct_genmodel_aggnzrstlg");
+}
+
+TEST_F(CModelEmitterFixture,
+       GenModel_AggregateStateNonzeroResetLargeWidthRuntime) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @arr17_id(%arg0: !hw.array<17xi8>) -> !hw.array<17xi8> {
+        arc.output %arg0 : !hw.array<17xi8>
+      }
+      hw.module @AggNzRstLargeRun(in %clk : i1, in %rst : i1,
+                                  in %d : !hw.array<17xi8>, out q0 : i8,
+                                  out q16 : i8) {
+        %c = seq.to_clock %clk
+        %0 = arc.state @arr17_id(%d) clock %c reset %rst latency 1
+              {names = ["arr"], initial_value = 58416474095415694810088967901698373430187 : i136} : (!hw.array<17xi8>) -> !hw.array<17xi8>
+        %idx0 = hw.constant 0 : i5
+        %idx16 = hw.constant 16 : i5
+        %e0 = hw.array_get %0[%idx0] : !hw.array<17xi8>, i5
+        %e16 = hw.array_get %0[%idx16] : !hw.array<17xi8>, i5
+        hw.output %e0, %e16 : i8, i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("AggNzRstLargeRun");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_aggnzrstlgrun");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_aggnzrstlgrun");
+  ASSERT_TRUE(ok);
+
+  {
+    std::ofstream drv("/tmp/hirct_genmodel_aggnzrstlgrun/driver.cpp");
+    drv << R"DRV(
+#include "AggNzRstLargeRun.h"
+#include <cassert>
+#include <cstdio>
+int main() {
+  AggNzRstLargeRun dut;
+  dut.do_reset();
+  assert(dut.q0 == 171 && "do_reset: elem[0] must be 171");
+  assert(dut.q16 == 171 && "do_reset: elem[16] must be 171");
+
+  dut.rst = 1;
+  dut.step();
+  assert(dut.q0 == 171 && "reset active: elem[0] must be 171");
+  assert(dut.q16 == 171 && "reset active: elem[16] must be 171");
+
+  dut.rst = 0;
+  for (int i = 0; i < 17; ++i) dut.d[i] = 42;
+  dut.step();
+  assert(dut.q0 == 42 && "after rst release: data must propagate");
+
+  dut.rst = 1;
+  dut.step();
+  assert(dut.q0 == 171 && "re-reset: elem[0] must restore to 171");
+  assert(dut.q16 == 171 && "re-reset: elem[16] must restore to 171");
+
+  printf("PASS: AggregateStateNonzeroResetLargeWidth\n");
+  return 0;
+}
+)DRV";
+  }
+
+  int rc = std::system(
+      "c++ -std=c++17 -o /tmp/hirct_genmodel_aggnzrstlgrun/test "
+      "-I/tmp/hirct_genmodel_aggnzrstlgrun/cmodel "
+      "/tmp/hirct_genmodel_aggnzrstlgrun/cmodel/AggNzRstLargeRun.cpp "
+      "/tmp/hirct_genmodel_aggnzrstlgrun/driver.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "AggNzRstLargeRun must compile with driver";
+
+  if (rc == 0) {
+    int run_rc = std::system("/tmp/hirct_genmodel_aggnzrstlgrun/test");
+    EXPECT_EQ(run_rc, 0) << "AggNzRstLargeRun runtime assertions failed";
+  }
+
+  std::system("rm -rf /tmp/hirct_genmodel_aggnzrstlgrun");
+}
+
+TEST_F(CModelEmitterFixture,
+       GenModel_AggregateStateNonzeroResetLargeWidthEnableRuntime) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @arr17_id(%arg0: !hw.array<17xi8>) -> !hw.array<17xi8> {
+        arc.output %arg0 : !hw.array<17xi8>
+      }
+      hw.module @AggNzRstLargeEnRun(in %clk : i1, in %rst : i1, in %en : i1,
+                                    in %d : !hw.array<17xi8>, out q0 : i8) {
+        %c = seq.to_clock %clk
+        %0 = arc.state @arr17_id(%d) clock %c enable %en reset %rst latency 1
+              {names = ["arr"], initial_value = 58416474095415694810088967901698373430187 : i136} : (!hw.array<17xi8>) -> !hw.array<17xi8>
+        %idx = hw.constant 0 : i5
+        %elem = hw.array_get %0[%idx] : !hw.array<17xi8>, i5
+        hw.output %elem : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("AggNzRstLargeEnRun");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_genmodel_aggnzrstlgen");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_genmodel_aggnzrstlgen");
+  ASSERT_TRUE(ok);
+
+  {
+    std::ofstream drv("/tmp/hirct_genmodel_aggnzrstlgen/driver.cpp");
+    drv << R"(
+#include "AggNzRstLargeEnRun.h"
+#include <cassert>
+#include <cstdio>
+int main() {
+  AggNzRstLargeEnRun dut;
+  dut.do_reset();
+  assert(dut.q0 == 171 && "do_reset: elem[0] must be 171");
+
+  dut.rst = 1; dut.en = 1;
+  for (int i = 0; i < 17; ++i) dut.d[i] = 99;
+  dut.step();
+  assert(dut.q0 == 171 && "reset beats enable");
+
+  dut.rst = 0; dut.en = 1;
+  for (int i = 0; i < 17; ++i) dut.d[i] = 55;
+  dut.step();
+  assert(dut.q0 == 55 && "enable without reset propagates data");
+
+  dut.en = 0;
+  for (int i = 0; i < 17; ++i) dut.d[i] = 77;
+  dut.step();
+  assert(dut.q0 == 55 && "en=0 holds value");
+
+  dut.rst = 1; dut.en = 0;
+  dut.step();
+  assert(dut.q0 == 171 && "reset restores 171 with en=0");
+
+  printf("PASS: AggregateStateNonzeroResetLargeWidthEnable\n");
+  return 0;
+}
+)";
+  }
+
+  int rc = std::system(
+      "c++ -std=c++17 -o /tmp/hirct_genmodel_aggnzrstlgen/test "
+      "-I/tmp/hirct_genmodel_aggnzrstlgen/cmodel "
+      "/tmp/hirct_genmodel_aggnzrstlgen/cmodel/AggNzRstLargeEnRun.cpp "
+      "/tmp/hirct_genmodel_aggnzrstlgen/driver.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "AggNzRstLargeEnRun must compile with driver";
+
+  if (rc == 0) {
+    int run_rc = std::system("/tmp/hirct_genmodel_aggnzrstlgen/test");
+    EXPECT_EQ(run_rc, 0) << "AggNzRstLargeEnRun runtime assertions failed";
+  }
+
+  std::system("rm -rf /tmp/hirct_genmodel_aggnzrstlgen");
+}
+
 } // namespace

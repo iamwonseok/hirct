@@ -44,6 +44,35 @@ struct PathGuard {
   ~PathGuard() { path.erase(block); }
 };
 
+/// Extract per-element init values from an IntegerAttr on an array-typed
+/// arc.state.  Returns a vector of C++ literal strings, one per element.
+/// Falls back to all-zeros when the attr is absent or elemW > 64.
+static llvm::SmallVector<std::string>
+extractArrayElementInits(circt::arc::StateOp stateOp,
+                         unsigned depth, unsigned elemW) {
+  llvm::SmallVector<std::string> inits(depth, "0");
+  auto initAttr =
+      stateOp->getAttrOfType<mlir::IntegerAttr>("initial_value");
+  if (!initAttr || depth == 0 || elemW == 0 || elemW > 64)
+    return inits;
+  unsigned totalW = depth * elemW;
+  llvm::APInt val = initAttr.getValue().zextOrTrunc(totalW);
+  llvm::APInt mask = llvm::APInt::getLowBitsSet(totalW, elemW);
+  for (unsigned k = 0; k < depth; ++k) {
+    llvm::APInt elem = (val.lshr(k * elemW)) & mask;
+    uint64_t uv = elem.getZExtValue();
+    std::string s = std::to_string(uv);
+    if (uv > static_cast<uint64_t>(std::numeric_limits<long long>::max()))
+      s += "ULL";
+    inits[k] = std::move(s);
+  }
+  return inits;
+}
+
+static bool hasNonzeroArrayInit(const llvm::SmallVector<std::string> &inits) {
+  return llvm::any_of(inits, [](const std::string &s) { return s != "0"; });
+}
+
 } // namespace
 
 GenModel::GenModel(circt::hw::HWModuleOp hw_module,
@@ -530,10 +559,19 @@ void GenModel::emit_reset(std::ofstream &ofs, const std::string &name) {
       unsigned elem_w = hirct::get_type_width(arr_ty.getElementType());
       if (elem_w == 0) elem_w = 1;
       std::string etype = hirct::cpp_type_for_width(elem_w);
-      ofs << "  for (unsigned __k = 0; __k < " << depth << "; ++__k) { "
-          << "reg_" << ident << "[__k] = static_cast<" << etype
-          << ">(0); next_" << ident << "[__k] = static_cast<" << etype
-          << ">(0); }\n";
+      auto elemInits = extractArrayElementInits(stateOp, depth, elem_w);
+      if (hasNonzeroArrayInit(elemInits)) {
+        for (unsigned k = 0; k < depth; ++k) {
+          ofs << "  reg_" << ident << "[" << k << "] = static_cast<" << etype
+              << ">(" << elemInits[k] << "); next_" << ident << "[" << k
+              << "] = static_cast<" << etype << ">(" << elemInits[k] << ");\n";
+        }
+      } else {
+        ofs << "  for (unsigned __k = 0; __k < " << depth << "; ++__k) { "
+            << "reg_" << ident << "[__k] = static_cast<" << etype
+            << ">(0); next_" << ident << "[__k] = static_cast<" << etype
+            << ">(0); }\n";
+      }
     } else {
       std::string ctype = cpp_type_for_width(w);
       ofs << "  reg_" << ident << " = static_cast<" << ctype << ">("
@@ -1756,12 +1794,24 @@ void GenModel::emit_step(std::ofstream &ofs, const std::string &name) {
       unsigned elem_w = hirct::get_type_width(arr_ty.getElementType());
       if (elem_w == 0) elem_w = 1;
       std::string etype = hirct::cpp_type_for_width(elem_w);
+      auto elemInits = extractArrayElementInits(stateOp, depth, elem_w);
+      bool nonzeroInit = hasNonzeroArrayInit(elemInits);
+
+      auto emitArrayReset = [&]() {
+        if (nonzeroInit) {
+          for (unsigned k = 0; k < depth; ++k)
+            ofs << "    reg_" << ident << "[" << k << "] = static_cast<"
+                << etype << ">(" << elemInits[k] << ");\n";
+        } else {
+          ofs << "    for (unsigned __k = 0; __k < " << depth
+              << "; ++__k) reg_" << ident << "[__k] = static_cast<" << etype
+              << ">(0);\n";
+        }
+      };
 
       if (hasReset && !rstSig.empty()) {
         ofs << "  if (" << rstSig << ") {\n";
-        ofs << "    for (unsigned __k = 0; __k < " << depth
-            << "; ++__k) reg_" << ident << "[__k] = static_cast<" << etype
-            << ">(0);\n";
+        emitArrayReset();
         if (hasEnable && !enSig.empty()) {
           ofs << "  } else if (" << enSig << ") {\n";
           ofs << "    for (unsigned __k = 0; __k < " << depth
@@ -1995,12 +2045,24 @@ void GenModel::emit_domain_step(std::ofstream &ofs,
       unsigned elem_w = hirct::get_type_width(arr_ty.getElementType());
       if (elem_w == 0) elem_w = 1;
       std::string etype = hirct::cpp_type_for_width(elem_w);
+      auto elemInits = extractArrayElementInits(stateOp, depth, elem_w);
+      bool nonzeroInit = hasNonzeroArrayInit(elemInits);
+
+      auto emitArrayReset = [&]() {
+        if (nonzeroInit) {
+          for (unsigned k = 0; k < depth; ++k)
+            ofs << "    reg_" << ident << "[" << k << "] = static_cast<"
+                << etype << ">(" << elemInits[k] << ");\n";
+        } else {
+          ofs << "    for (unsigned __k = 0; __k < " << depth
+              << "; ++__k) reg_" << ident << "[__k] = static_cast<" << etype
+              << ">(0);\n";
+        }
+      };
 
       if (hasReset && !rstSig.empty()) {
         ofs << "  if (" << rstSig << ") {\n";
-        ofs << "    for (unsigned __k = 0; __k < " << depth
-            << "; ++__k) reg_" << ident << "[__k] = static_cast<" << etype
-            << ">(0);\n";
+        emitArrayReset();
         if (hasEnable && !enSig.empty()) {
           ofs << "  } else if (" << enSig << ") {\n";
           ofs << "    for (unsigned __k = 0; __k < " << depth
