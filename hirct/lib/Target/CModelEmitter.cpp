@@ -34,6 +34,53 @@ std::string CModelEmitter::legalCType(unsigned width) {
   llvm_unreachable("legalCType called for width >64; use wide storage instead");
 }
 
+std::string CModelEmitter::legalSignedCType(unsigned width) {
+  if (width == 0)
+    return "int8_t";
+  if (width <= 8)
+    return "int8_t";
+  if (width <= 16)
+    return "int16_t";
+  if (width <= 32)
+    return "int32_t";
+  if (width <= 64)
+    return "int64_t";
+  return "int64_t";
+}
+
+std::string CModelEmitter::renderIcmpExpr(int64_t predicate,
+                                          const std::string &lhs,
+                                          const std::string &rhs,
+                                          unsigned operandWidth) {
+  bool isSigned = (predicate >= 2 && predicate <= 5);
+
+  std::string cOp;
+  switch (predicate) {
+  case 0: cOp = "=="; break;
+  case 1: cOp = "!="; break;
+  case 2: cOp = "<"; break;   // slt
+  case 3: cOp = "<="; break;  // sle
+  case 4: cOp = ">"; break;   // sgt
+  case 5: cOp = ">="; break;  // sge
+  case 6: cOp = "<"; break;   // ult
+  case 7: cOp = "<="; break;  // ule
+  case 8: cOp = ">"; break;   // ugt
+  case 9: cOp = ">="; break;  // uge
+  case 10: cOp = "=="; break; // ceq
+  case 11: cOp = "!="; break; // cne
+  case 12: cOp = "=="; break; // weq
+  case 13: cOp = "!="; break; // wne
+  default: return "/* unsupported_icmp_pred */0";
+  }
+
+  if (isSigned) {
+    std::string sType = legalSignedCType(operandWidth);
+    return "((" + sType + ")(" + lhs + ") " + cOp + " (" + sType + ")(" +
+           rhs + "))";
+  }
+  return "(" + lhs + " " + cOp + " " + rhs + ")";
+}
+
 std::string CModelEmitter::wideStorageDecl(const semantic::PortInfo &port,
                                            llvm::StringRef prefix) {
   unsigned words = port.wordCount();
@@ -288,26 +335,13 @@ std::string CModelEmitter::renderExpr(mlir::Value val) {
   if (opName == "comb.icmp") {
     auto predAttr = def->getAttrOfType<mlir::IntegerAttr>("predicate");
     if (predAttr && def->getNumOperands() == 2) {
-      std::string cOp;
-      switch (predAttr.getInt()) {
-      case 0: cOp = "=="; break;
-      case 1: cOp = "!="; break;
-      case 2: cOp = "<"; break;
-      case 3: cOp = "<="; break;
-      case 4: cOp = ">"; break;
-      case 5: cOp = ">="; break;
-      case 6: cOp = "<"; break;
-      case 7: cOp = "<="; break;
-      case 8: cOp = ">"; break;
-      case 9: cOp = ">="; break;
-      case 10: cOp = "=="; break;
-      case 11: cOp = "!="; break;
-      case 12: cOp = "=="; break;
-      case 13: cOp = "!="; break;
-      default: return "/* unsupported_icmp_pred */0";
-      }
-      return "(" + renderExpr(def->getOperand(0)) + " " + cOp + " " +
-             renderExpr(def->getOperand(1)) + ")";
+      unsigned opWidth = 0;
+      if (auto ty = mlir::dyn_cast<mlir::IntegerType>(
+              def->getOperand(0).getType()))
+        opWidth = ty.getWidth();
+      return renderIcmpExpr(predAttr.getInt(),
+                            renderExpr(def->getOperand(0)),
+                            renderExpr(def->getOperand(1)), opWidth);
     }
     return "/* bad_icmp */0";
   }
@@ -469,26 +503,14 @@ std::string CModelEmitter::renderArcExpr(
   if (opName == "comb.icmp") {
     auto predAttr = def->getAttrOfType<mlir::IntegerAttr>("predicate");
     if (predAttr && def->getNumOperands() == 2) {
-      std::string cOp;
-      switch (predAttr.getInt()) {
-      case 0: cOp = "=="; break;
-      case 1: cOp = "!="; break;
-      case 2: cOp = "<"; break;
-      case 3: cOp = "<="; break;
-      case 4: cOp = ">"; break;
-      case 5: cOp = ">="; break;
-      case 6: cOp = "<"; break;
-      case 7: cOp = "<="; break;
-      case 8: cOp = ">"; break;
-      case 9: cOp = ">="; break;
-      case 10: cOp = "=="; break;
-      case 11: cOp = "!="; break;
-      case 12: cOp = "=="; break;
-      case 13: cOp = "!="; break;
-      default: return "/* unsupported_icmp_pred */0";
-      }
-      return "(" + renderArcExpr(def->getOperand(0), argMap) + " " + cOp + " " +
-             renderArcExpr(def->getOperand(1), argMap) + ")";
+      unsigned opWidth = 0;
+      if (auto ty = mlir::dyn_cast<mlir::IntegerType>(
+              def->getOperand(0).getType()))
+        opWidth = ty.getWidth();
+      return renderIcmpExpr(predAttr.getInt(),
+                            renderArcExpr(def->getOperand(0), argMap),
+                            renderArcExpr(def->getOperand(1), argMap),
+                            opWidth);
     }
     return "/* bad_icmp */0";
   }
@@ -1132,19 +1154,13 @@ std::string CModelEmitter::inlineArcCall(
     if (opName == "comb.icmp") {
       auto predAttr = def->getAttrOfType<mlir::IntegerAttr>("predicate");
       if (predAttr && def->getNumOperands() == 2) {
-        std::string cOp;
-        switch (predAttr.getInt()) {
-        case 0: cOp = "=="; break; case 1: cOp = "!="; break;
-        case 2: cOp = "<"; break;  case 3: cOp = "<="; break;
-        case 4: cOp = ">"; break;  case 5: cOp = ">="; break;
-        case 6: cOp = "<"; break;  case 7: cOp = "<="; break;
-        case 8: cOp = ">"; break;  case 9: cOp = ">="; break;
-        case 10: cOp = "=="; break; case 11: cOp = "!="; break;
-        case 12: cOp = "=="; break; case 13: cOp = "!="; break;
-        default: return "/* unsupported_icmp_pred */0";
-        }
-        return "(" + renderInBody(def->getOperand(0)) + " " + cOp + " " +
-               renderInBody(def->getOperand(1)) + ")";
+        unsigned opWidth = 0;
+        if (auto ty = mlir::dyn_cast<mlir::IntegerType>(
+                def->getOperand(0).getType()))
+          opWidth = ty.getWidth();
+        return renderIcmpExpr(predAttr.getInt(),
+                              renderInBody(def->getOperand(0)),
+                              renderInBody(def->getOperand(1)), opWidth);
       }
       return "/* bad_icmp */0";
     }

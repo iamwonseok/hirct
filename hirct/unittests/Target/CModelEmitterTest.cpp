@@ -7019,4 +7019,114 @@ TEST_F(CModelEmitterFixture, CModelEmitter_RuntimeSmoke_AggregateCompileOnly) {
   std::system("rm -rf /tmp/hirct_rt_aggsmk");
 }
 
+// ---------------------------------------------------------------------------
+// F-1: comb.icmp signed predicate correctness
+// ---------------------------------------------------------------------------
+
+TEST_F(CModelEmitterFixture, IcmpSignedSltCodegen) {
+  auto module = parseInline(R"mlir(
+    module {
+      hw.module @SltMod(in %a : i8, in %b : i8, out lt : i1) {
+        %0 = comb.icmp slt %a, %b : i8
+        hw.output %0 : i1
+      }
+    }
+  )mlir");
+  auto result = hirct::semantic::buildModuleModel(*module, "SltMod");
+  ASSERT_TRUE(succeeded(result));
+  auto model = *result;
+  auto hwModule = module->lookupSymbol<circt::hw::HWModuleOp>("SltMod");
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/hirct_test_slt";
+  hirct::CModelEmitter emitter(model, opts, hwModule);
+  auto artifact = emitter.emit();
+
+  // signed slt must emit a signed cast, not bare '<' on unsigned types
+  EXPECT_NE(artifact.implContent.find("int8_t"), std::string::npos)
+      << "slt codegen must cast operands to signed type;\n"
+      << artifact.implContent;
+}
+
+TEST_F(CModelEmitterFixture, IcmpSignedSltRuntime) {
+  auto module = parseInline(R"mlir(
+    module {
+      hw.module @SltRt(in %a : i8, in %b : i8, out lt : i1) {
+        %0 = comb.icmp slt %a, %b : i8
+        hw.output %0 : i1
+      }
+    }
+  )mlir");
+  auto result = hirct::semantic::buildModuleModel(*module, "SltRt");
+  ASSERT_TRUE(succeeded(result));
+  auto model = *result;
+  auto hwModule = module->lookupSymbol<circt::hw::HWModuleOp>("SltRt");
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/hirct_test_sltrt";
+  hirct::CModelEmitter emitter(model, opts, hwModule);
+  auto artifact = emitter.emit();
+
+  std::system("mkdir -p /tmp/hirct_test_sltrt");
+  ASSERT_TRUE(hirct::writeArtifact(artifact));
+
+  // Write a tiny main() that exercises signed comparison:
+  //   a = 0xff (i.e. -1 as int8_t), b = 0x00
+  //   slt(-1, 0) must be true (1)
+  {
+    std::ofstream f("/tmp/hirct_test_sltrt/main.cpp");
+    f << "#include \"SltRt.h\"\n"
+      << "#include <cstdio>\n"
+      << "#include <cstdlib>\n"
+      << "int main() {\n"
+      << "  SltRt_state s;\n"
+      << "  SltRt_initialize(&s);\n"
+      << "  SltRt_set_a(&s, 0xff);\n"  // -1 in signed i8
+      << "  SltRt_set_b(&s, 0x00);\n"  // 0
+      << "  SltRt_eval_comb(&s);\n"
+      << "  uint8_t lt = SltRt_get_lt(&s);\n"
+      << "  printf(\"slt(0xff, 0x00) = %u\\n\", lt);\n"
+      << "  if (lt != 1) {\n"
+      << "    fprintf(stderr, \"FAIL: slt(-1, 0) should be 1, got %u\\n\", lt);\n"
+      << "    return 1;\n"
+      << "  }\n"
+      << "  return 0;\n"
+      << "}\n";
+  }
+
+  int rc = std::system(
+      "c++ -std=c++17 -O0 -o /tmp/hirct_test_sltrt/run "
+      "-I/tmp/hirct_test_sltrt "
+      "/tmp/hirct_test_sltrt/SltRt.cpp "
+      "/tmp/hirct_test_sltrt/main.cpp 2>&1");
+  ASSERT_EQ(rc, 0) << "slt artifact must compile";
+
+  rc = std::system("/tmp/hirct_test_sltrt/run");
+  EXPECT_EQ(rc, 0) << "slt(-1, 0) must return true (exit 0)";
+
+  std::system("rm -rf /tmp/hirct_test_sltrt");
+}
+
+TEST_F(CModelEmitterFixture, IcmpSignedSgeCodegen) {
+  auto module = parseInline(R"mlir(
+    module {
+      hw.module @SgeMod(in %a : i8, in %b : i8, out ge : i1) {
+        %0 = comb.icmp sge %a, %b : i8
+        hw.output %0 : i1
+      }
+    }
+  )mlir");
+  auto result = hirct::semantic::buildModuleModel(*module, "SgeMod");
+  ASSERT_TRUE(succeeded(result));
+  auto model = *result;
+  auto hwModule = module->lookupSymbol<circt::hw::HWModuleOp>("SgeMod");
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/hirct_test_sge";
+  hirct::CModelEmitter emitter(model, opts, hwModule);
+  auto artifact = emitter.emit();
+
+  // signed sge must emit a signed cast
+  EXPECT_NE(artifact.implContent.find("int8_t"), std::string::npos)
+      << "sge codegen must cast operands to signed type;\n"
+      << artifact.implContent;
+}
+
 } // namespace

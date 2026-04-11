@@ -58,6 +58,11 @@ private:
                             const llvm::DenseMap<mlir::Value, std::string> *outerArgMap,
                             unsigned depth);
   std::string legalCType(unsigned width);
+  static std::string legalSignedCType(unsigned width);
+  static std::string renderIcmpExpr(int64_t predicate,
+                                    const std::string &lhs,
+                                    const std::string &rhs,
+                                    unsigned operandWidth);
   std::string wideStorageDecl(const semantic::PortInfo &port,
                               llvm::StringRef prefix);
   void emitWideInputApi(llvm::raw_string_ostream &os,
