@@ -1,0 +1,21 @@
+// Test CModel: deep arc.call chain with shared SSA values does not hang
+// and produces compilable C output with temporaries.
+//
+// This regression tests the fix for exponential blowup in inlineArcCall
+// when the arc body contains a long chain of ops with shared subgraphs
+// (e.g., restoring dividers like const_div5_d32 with ~270 SSA values).
+//
+// RUN: %hirct-gen --export-cmodel --top const_div5_d32 \
+// RUN:   -o %t_div %S/../../../test/fixtures/ConstDiv5D32.mlir 2>&1
+// RUN: cat %t_div/const_div5_d32.h | %FileCheck %s --check-prefix=CHECK-HDR
+// RUN: cat %t_div/const_div5_d32.cpp | %FileCheck %s --check-prefix=CHECK-IMPL
+//
+// CHECK-HDR: const_div5_d32_state
+// CHECK-HDR: input_d
+// CHECK-HDR: output_quotient
+// CHECK-HDR: output_remainder
+//
+// CHECK-IMPL: const_div5_d32_eval_comb
+// The deep chain must use temporary variables instead of inlining everything:
+// CHECK-IMPL: _t0
+// CHECK-IMPL: _t1

@@ -53,6 +53,10 @@ private:
   std::string renderExpr(mlir::Value val);
   std::string renderArcExpr(mlir::Value val,
                             const llvm::DenseMap<mlir::Value, std::string> &argMap);
+  std::string renderArcExprCached(
+      mlir::Value val,
+      const llvm::DenseMap<mlir::Value, std::string> &argMap,
+      llvm::DenseMap<mlir::Value, std::string> &cache);
   std::string inlineArcCall(mlir::Operation *callOp,
                             unsigned resultIdx,
                             const llvm::DenseMap<mlir::Value, std::string> *outerArgMap,
@@ -78,6 +82,7 @@ private:
   const semantic::ModuleModel &model_;
   CModelOptions options_;
   circt::hw::HWModuleOp hwModule_;
+  llvm::DenseMap<mlir::Value, std::string> exprCache_;
 };
 
 bool writeArtifact(const CModelArtifact &artifact);
