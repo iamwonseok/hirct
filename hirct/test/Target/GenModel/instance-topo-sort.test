@@ -2,6 +2,8 @@
 // Test GenModel: instance topological sort in eval_comb
 // Producer must be evaluated before Consumer because Consumer.result is SEQUENTIAL
 // (edge cut), but Consumer.data depends combinationally on Producer.comb_out
+// Known limitation: instance topo sort requires hierarchical export (not in v1 scope).
+// See: known-limitations.md KL-20, docs/v1-scope.md
 //
 // RUN: %hirct-gen %S/../../fixtures/CyclicInstances.mlir -o %t --only model
 // RUN: cat %t/CyclicTop/cmodel/CyclicTop.cpp | %FileCheck %s

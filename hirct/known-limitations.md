@@ -4,12 +4,31 @@
 > **규칙**: lit 테스트에서 이 파일을 참조하여 XFAIL 판정. XPASS(예상 실패가 통과) = WARN (CI는 Green 유지).
 > **분류 기준**: hirct-convention.md §5 "실패 분류 체계" 참조
 
+## KL-20. hirct-gen v1 Exporter Scope 경계
+
+**카테고리**: exporter / CLI scope  
+**등록일**: 2026-04-11  
+**상세 문서**: `docs/v1-scope.md`
+
+**v1 경계 요약**:
+- **지원**: Arc MLIR 입력 → single-top/flattened C model export + thin SystemC wrapper export
+- **미지원**: hierarchical multi-module general export, multi-clock wrapper, wide (>64-bit) wrapper I/O word-API 바인딩, non-flattened hierarchy 보존
+- **CLI**: `--export-cmodel`은 `.mlir` 필수, `--export-systemc-wrapper`는 `--export-cmodel` 필수, invalid `--top`은 error exit
+
+**XFAIL 연결**:
+- `test/Target/GenModel/multi-module.test` — hierarchical export 미지원
+- `test/Target/GenModel/instance-topo-sort.test` — 인스턴스 평가 순서 미구현
+- `test/Target/GenModel/instance-crossref.test` — 인스턴스 출력 cross-ref 미구현
+
+---
+
 ## KL-19. SystemCWrapperEmitter v1 범위 제한
 
 **카테고리**: SystemC wrapper / exporter scope  
 **영향 타겟**: `SystemCWrapperEmitter` 기반 wrapper 생성 경로  
 **심각도**: Medium (wrapper 사용 범위 제한, C model core에는 영향 없음)  
-**등록일**: 2026-04-09
+**등록일**: 2026-04-09  
+**갱신일**: 2026-04-11 — CLI guard 추가로 unsupported scope 명시적 거부
 
 **설명**:
 현재 `SystemCWrapperEmitter`는 **single-top / single-clock / 64비트 이하 포트**를 우선 지원하는 얇은 wrapper 계층이다.
@@ -17,6 +36,12 @@
 - **single-clock 우선**: `clock_method()`는 단일 SystemC clock 포트를 기준으로 `eval_<clock>() -> eval_comb()` 호출 순서를 고정한다. multi-clock 일반화는 backlog다.
 - **wide port 미일반화**: C model core는 `width > 64` 포트에 대해 `_set_<port>_word(s)` / `_get_<port>_word(s)` API를 제공하지만, 현재 wrapper는 이 word-based API까지 아직 연결하지 않는다.
 - **single-top 전제**: hierarchical multi-module export 자체가 아직 v1 범위 밖이므로 wrapper도 flatten 또는 single-top semantic scope를 전제로 한다.
+
+**CLI guard (2026-04-11)**:
+- `getWrapperV1UnsupportedReason()` 헬퍼가 multi-clock(clockDomains > 1) 또는 wide port(> 64-bit)를 감지하면 명시적 에러 메시지와 함께 non-zero exit
+- `--export-systemc-wrapper` 경로에서 wrapper emit 전에 체크
+- `export-systemc-wrapper.test`에 negative case(CHECK-MC-ERR, CHECK-WP-ERR) 고정
+- gtest: `WrapperV1_RejectsMultiClock`, `WrapperV1_RejectsWideInputPort`, `WrapperV1_RejectsWideOutputPort`, `WrapperV1_AcceptsSingleClockNarrow`, `WrapperV1_AcceptsCombOnly`
 
 **우회 방법**:
 - wrapper가 필요한 경우 `single-clock` + `<=64-bit I/O` top에 우선 적용
