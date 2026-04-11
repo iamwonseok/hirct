@@ -196,4 +196,25 @@ void SystemCWrapperEmitter::emitWrapperImpl(llvm::raw_string_ostream &os) {
   }
 }
 
+bool writeArtifact(const SystemCWrapperArtifact &artifact) {
+  std::error_code ec;
+  llvm::raw_fd_ostream headerOS(artifact.wrapperHeaderPath, ec);
+  if (ec)
+    return false;
+  headerOS << artifact.wrapperHeaderContent;
+  headerOS.close();
+  if (headerOS.has_error())
+    return false;
+
+  llvm::raw_fd_ostream implOS(artifact.wrapperImplPath, ec);
+  if (ec)
+    return false;
+  implOS << artifact.wrapperImplContent;
+  implOS.close();
+  if (implOS.has_error())
+    return false;
+
+  return true;
+}
+
 } // namespace hirct

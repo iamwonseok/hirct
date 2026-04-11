@@ -38,6 +38,8 @@ private:
   CModelOptions options_;
 };
 
+bool writeArtifact(const SystemCWrapperArtifact &artifact);
+
 } // namespace hirct
 
 #endif // HIRCT_TARGET_SYSTEMCWRAPPEREMITTER_H

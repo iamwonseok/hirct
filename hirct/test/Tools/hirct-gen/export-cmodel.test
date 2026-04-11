@@ -1,0 +1,30 @@
+// Test: --export-cmodel generates C model artifact files from Arc MLIR input
+//
+// Combinational module (no clock) — should produce header + impl
+// RUN: %hirct-gen %S/../../fixtures/CombOnly.mlir -o %t --export-cmodel
+// RUN: test -f %t/CombOnly.h
+// RUN: test -f %t/CombOnly.cpp
+// RUN: %FileCheck %s --check-prefix=CHECK-COMB-H < %t/CombOnly.h
+// RUN: %FileCheck %s --check-prefix=CHECK-COMB-CPP < %t/CombOnly.cpp
+//
+// CHECK-COMB-H: CombOnly_state
+// CHECK-COMB-H: eval_comb
+//
+// CHECK-COMB-CPP: CombOnly_eval_comb
+//
+// Clocked module — should produce header + impl with clock eval
+// RUN: %hirct-gen %S/../../fixtures/CounterArc.mlir -o %t_clk --export-cmodel
+// RUN: test -f %t_clk/CounterArc.h
+// RUN: test -f %t_clk/CounterArc.cpp
+// RUN: %FileCheck %s --check-prefix=CHECK-CLK-H < %t_clk/CounterArc.h
+// RUN: %FileCheck %s --check-prefix=CHECK-CLK-CPP < %t_clk/CounterArc.cpp
+//
+// Invalid --top must fail instead of silently falling back to another module.
+// RUN: not %hirct-gen %S/../../fixtures/CounterArc.mlir -o %t_bad --top MissingTop --export-cmodel 2>&1 | %FileCheck %s --check-prefix=CHECK-BAD-TOP
+//
+// CHECK-CLK-H: CounterArc_state
+// CHECK-CLK-H: eval_comb
+//
+// CHECK-CLK-CPP: CounterArc_eval_comb
+//
+// CHECK-BAD-TOP: Error: top module not found: MissingTop

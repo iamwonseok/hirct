@@ -1,0 +1,19 @@
+// Test: --export-systemc-wrapper generates SystemC wrapper alongside C model
+//
+// Wrapper requires C model, so both must be produced.
+// Using clocked module (single-clock, <=64-bit) within KL-19 scope.
+//
+// RUN: %hirct-gen %S/../../fixtures/CounterArc.mlir -o %t --export-cmodel --export-systemc-wrapper
+// RUN: test -f %t/CounterArc.h
+// RUN: test -f %t/CounterArc.cpp
+// RUN: test -f %t/CounterArc_sc_wrapper.h
+// RUN: test -f %t/CounterArc_sc_wrapper.cpp
+// RUN: %FileCheck %s --check-prefix=CHECK-WH < %t/CounterArc_sc_wrapper.h
+// RUN: %FileCheck %s --check-prefix=CHECK-WI < %t/CounterArc_sc_wrapper.cpp
+//
+// CHECK-WH: SC_MODULE
+// CHECK-WH: CounterArc_sc_wrapper
+// CHECK-WH: sc_in_clk
+//
+// CHECK-WI: eval_method
+// CHECK-WI: clock_method

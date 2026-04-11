@@ -13,6 +13,9 @@
 #include "hirct/Target/GenTB.h"
 #include "hirct/Target/GenVerify.h"
 #include "hirct/Target/GenWrapper.h"
+#include "hirct/Target/CModelEmitter.h"
+#include "hirct/Target/SystemCWrapperEmitter.h"
+#include "hirct/SemanticModel/Builder.h"
 #include "hirct/Transforms/Passes.h"
 
 #include "circt/Dialect/Arc/ArcDialect.h"
@@ -72,6 +75,8 @@ struct Options {
   bool dump_ir = false;
   bool timing = false;
   bool verbose = false;
+  bool export_cmodel = false;
+  bool export_systemc_wrapper = false;
   bool help = false;
   bool parse_error = false;
 };
@@ -100,6 +105,8 @@ void print_usage(const char *prog) {
                "  --run-pass <pass>          Alias for --pipeline; run a single named pass\n"
                "  --pipeline-checkpoint-dir <dir>  Save IR after each pass as {N}_{name}.mlir\n"
                "  --dump-ir                  Print final IR to stdout after pipeline and exit\n"
+               "  --export-cmodel            Export semantic C model (header + impl)\n"
+               "  --export-systemc-wrapper   Export thin SystemC wrapper (requires --export-cmodel)\n"
                "  --timing          Enable PassManager timing statistics\n"
                "  --verbose         Enable verbose output\n"
                "  --help            Show this help message\n";
@@ -161,6 +168,10 @@ Options parse_args(int argc, char *argv[]) {
       opts.no_auto_lib = true;
     } else if (arg == "--dump-ir") {
       opts.dump_ir = true;
+    } else if (arg == "--export-cmodel") {
+      opts.export_cmodel = true;
+    } else if (arg == "--export-systemc-wrapper") {
+      opts.export_systemc_wrapper = true;
     } else if (arg == "--timing") {
       opts.timing = true;
     } else if (arg == "--pipeline" || arg == "--run-pass") {
@@ -971,6 +982,74 @@ int main(int argc, char *argv[]) {
     return 0;
   }
 
+  if (opts.export_systemc_wrapper && !opts.export_cmodel) {
+    std::cerr << "Error: --export-systemc-wrapper requires --export-cmodel\n";
+    return 1;
+  }
+
+  if (opts.export_cmodel) {
+    if (!is_mlir_input) {
+      std::cerr << "Error: --export-cmodel requires .mlir input\n";
+      return 1;
+    }
+    if (!hirct::mkdir_p(opts.output_dir)) {
+      std::cerr << "Error: cannot create output directory: " << opts.output_dir
+                << "\n";
+      return 1;
+    }
+
+    llvm::SmallVector<circt::hw::HWModuleOp> hw_mods;
+    mlir_module->walk(
+        [&](circt::hw::HWModuleOp m) { hw_mods.push_back(m); });
+    if (hw_mods.empty()) {
+      std::cerr << "Error: no hw.module found in MLIR\n";
+      return 1;
+    }
+
+    circt::hw::HWModuleOp target_hw;
+    if (!opts.top_module.empty()) {
+      mlir::SymbolTable st(*mlir_module);
+      target_hw = st.lookup<circt::hw::HWModuleOp>(opts.top_module);
+      if (!target_hw) {
+        std::cerr << "Error: top module not found: " << opts.top_module
+                  << "\n";
+        return 1;
+      }
+    }
+    if (!target_hw)
+      target_hw = hw_mods.back();
+
+    auto modelResult = hirct::semantic::buildModuleModel(target_hw);
+    if (mlir::failed(modelResult)) {
+      std::cerr << "Error: semantic model build failed for "
+                << target_hw.getSymName().str() << "\n";
+      return 1;
+    }
+    auto &model = *modelResult;
+
+    hirct::CModelOptions cmodelOpts;
+    cmodelOpts.outputDir = opts.output_dir;
+    hirct::CModelEmitter emitter(model, cmodelOpts, target_hw);
+    auto artifact = emitter.emit();
+    if (!hirct::writeArtifact(artifact)) {
+      std::cerr << "Error: failed to write C model artifact\n";
+      return 1;
+    }
+
+    if (opts.export_systemc_wrapper) {
+      hirct::SystemCWrapperEmitter wrapperEmitter(model, cmodelOpts);
+      auto wrapperArtifact = wrapperEmitter.emit();
+      if (!hirct::writeArtifact(wrapperArtifact)) {
+        std::cerr << "Error: failed to write SystemC wrapper artifact\n";
+        return 1;
+      }
+    }
+
+    std::cout << "Exported C model for " << model.moduleName << " in "
+              << opts.output_dir << "/\n";
+    return 0;
+  }
+
   mlir::SymbolTable symbol_table(*mlir_module);
   llvm::SmallVector<circt::hw::HWModuleOp> hw_modules;
   mlir_module->walk(
@@ -986,6 +1065,10 @@ int main(int argc, char *argv[]) {
   if (!opts.top_module.empty()) {
     top_hw =
         symbol_table.lookup<circt::hw::HWModuleOp>(opts.top_module);
+    if (!top_hw) {
+      std::cerr << "Error: top module not found: " << opts.top_module << "\n";
+      return 1;
+    }
   }
   if (!top_hw)
     top_hw = hw_modules.back();
