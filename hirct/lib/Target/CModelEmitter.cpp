@@ -1107,7 +1107,41 @@ void CModelEmitter::emitEvalClock(llvm::raw_string_ostream &os,
     }
   }
 
-  // Phase 3: memory writes (seq.firmem.write_port)
+  // Phase 3a: snapshot memory-derived edge outputs BEFORE memory writes
+  // (read_latency=1 semantics: reads see old memory, not same-cycle writes)
+  llvm::SmallVector<std::pair<unsigned, std::string>> memEdgeSnapshots;
+  if (auto outputOp = mlir::dyn_cast<circt::hw::OutputOp>(
+          hwModule_.getBodyBlock()->getTerminator())) {
+    for (auto [idx, operand] : llvm::enumerate(outputOp.getOperands())) {
+      if (idx >= model_.outputs.size() || idx >= model_.outputPorts.size())
+        break;
+      const auto &binding = model_.outputs[idx];
+      if (binding.visibility != semantic::OutputVisibility::Edge)
+        continue;
+      if (binding.sourceEntity.empty())
+        continue;
+      bool isMemory = false;
+      for (const auto &mv : model_.memoryVars) {
+        if (mv.stableName == binding.sourceEntity) {
+          isMemory = true;
+          break;
+        }
+      }
+      if (!isMemory)
+        continue;
+      std::string readExpr = renderExpr(operand);
+      if (readExpr.find("/* unsupported") != std::string::npos ||
+          readExpr.find("/* firmem_read") != std::string::npos)
+        continue;
+      const auto &oport = model_.outputPorts[idx];
+      std::string snapName = "snap_mem_rd_" + oport.name;
+      os << "  " << legalCType(oport.width) << " " << snapName << " = ("
+         << legalCType(oport.width) << ")(" << readExpr << ");\n";
+      memEdgeSnapshots.push_back({static_cast<unsigned>(idx), snapName});
+    }
+  }
+
+  // Phase 3b: memory writes (seq.firmem.write_port)
   if (hwModule_) {
     hwModule_.walk([&](circt::seq::FirMemWriteOp wp) {
       auto firMem = wp.getMemory().getDefiningOp<circt::seq::FirMemOp>();
@@ -1146,6 +1180,10 @@ void CModelEmitter::emitEvalClock(llvm::raw_string_ostream &os,
   }
 
   // Phase 4: update edge and post_edge_comb output shadows
+  llvm::DenseSet<unsigned> snappedOutputs;
+  for (const auto &snap : memEdgeSnapshots)
+    snappedOutputs.insert(snap.first);
+
   if (auto outputOp = mlir::dyn_cast<circt::hw::OutputOp>(
           hwModule_.getBodyBlock()->getTerminator())) {
     for (auto [idx, operand] : llvm::enumerate(outputOp.getOperands())) {
@@ -1154,7 +1192,16 @@ void CModelEmitter::emitEvalClock(llvm::raw_string_ostream &os,
 
       const auto &binding = model_.outputs[idx];
       if (binding.visibility == semantic::OutputVisibility::Edge) {
-        if (!binding.sourceEntity.empty()) {
+        if (snappedOutputs.count(idx)) {
+          // Use pre-write snapshot for memory-derived edge outputs
+          for (const auto &snap : memEdgeSnapshots) {
+            if (snap.first == static_cast<unsigned>(idx)) {
+              os << "  s->output_" << model_.outputPorts[idx].name
+                 << " = " << snap.second << ";\n";
+              break;
+            }
+          }
+        } else if (!binding.sourceEntity.empty()) {
           bool isMemory = false;
           for (const auto &mv : model_.memoryVars) {
             if (mv.stableName == binding.sourceEntity) {
@@ -1163,27 +1210,16 @@ void CModelEmitter::emitEvalClock(llvm::raw_string_ostream &os,
             }
           }
           if (isMemory) {
-            // Resolve memory read address for edge output
-            std::string readExpr = renderExpr(operand);
-            if (readExpr.find("/* unsupported") == std::string::npos &&
-                readExpr.find("/* firmem_read") == std::string::npos) {
-              const auto &oport = model_.outputPorts[idx];
-              os << "  s->output_" << oport.name << " = ("
-                 << legalCType(oport.width) << ")(" << readExpr << ");\n";
-            } else {
-              os << "  /* TODO: memory-derived edge output '"
-                 << model_.outputPorts[idx].name
-                 << "' from '" << binding.sourceEntity
-                 << "' -- requires address/index resolution */\n";
-            }
+            os << "  /* TODO: memory-derived edge output '"
+               << model_.outputPorts[idx].name
+               << "' from '" << binding.sourceEntity
+               << "' -- requires address/index resolution */\n";
           } else {
             os << "  s->output_" << model_.outputPorts[idx].name
                << " = s->" << binding.sourceEntity << ";\n";
           }
         }
       } else if (binding.visibility == semantic::OutputVisibility::PostEdgeComb) {
-        // Post-edge comb: re-evaluate combinational expression with new state
-        // Reuse renderExpr which reads from input shadows and (now updated) state
         std::string expr = renderExpr(operand);
         os << "  s->output_" << model_.outputPorts[idx].name << " = ("
            << legalCType(model_.outputPorts[idx].width) << ")(" << expr << ");\n";

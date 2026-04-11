@@ -7453,4 +7453,140 @@ int main(void) {
   std::system("rm -rf /tmp/hirct_cabi_bridge");
 }
 
+// ---------------------------------------------------------------------------
+// CModelEmitter: firmem read-before-write (read_latency=1) semantics
+// ---------------------------------------------------------------------------
+
+TEST_F(CModelEmitterFixture, CModelEmitter_FirmemReadBeforeWrite) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @ReadId(%arg0: i16) -> i16 {
+        arc.output %arg0 : i16
+      }
+      hw.module @FirmemRBW(in %clk : !seq.clock, in %wr_addr : i4,
+                           in %wr_data : i16, in %wr_en : i1,
+                           in %rd_addr : i4, out rd_data : i16) {
+        %mem = seq.firmem 0, 0, undefined, undefined : <16 x 16>
+        %0 = seq.firmem.read_port %mem[%rd_addr], clock %clk : <16 x 16>
+        seq.firmem.write_port %mem[%wr_addr] = %wr_data, clock %clk enable %wr_en : <16 x 16>
+        hw.output %0 : i16
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "FirmemRBW");
+  ASSERT_TRUE(succeeded(model));
+
+  auto hwModule = (*module).lookupSymbol<circt::hw::HWModuleOp>("FirmemRBW");
+  ASSERT_TRUE(hwModule);
+
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/hirct_test_firmem_rbw";
+  hirct::CModelEmitter emitter(*model, opts, hwModule);
+  auto artifact = emitter.emit();
+
+  auto evalClkBody = artifact.implContent;
+  auto snapPos = evalClkBody.find("snap_mem_rd_");
+  EXPECT_NE(snapPos, std::string::npos)
+      << "eval_clock must snapshot memory reads before writes";
+
+  auto writePos = evalClkBody.find("if (s->input_wr_en)");
+  if (writePos == std::string::npos)
+    writePos = evalClkBody.find("s->memory_0[");
+  ASSERT_NE(writePos, std::string::npos)
+      << "eval_clock must have memory write";
+
+  EXPECT_LT(snapPos, writePos)
+      << "memory read snapshot must appear before memory write";
+}
+
+TEST_F(CModelEmitterFixture, CModelEmitter_FirmemReadBeforeWriteRuntime) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @ReadId(%arg0: i16) -> i16 {
+        arc.output %arg0 : i16
+      }
+      hw.module @FirmemRBWRT(in %clk : !seq.clock, in %wr_addr : i4,
+                             in %wr_data : i16, in %wr_en : i1,
+                             in %rd_addr : i4, out rd_data : i16) {
+        %mem = seq.firmem 0, 0, undefined, undefined : <16 x 16>
+        %0 = seq.firmem.read_port %mem[%rd_addr], clock %clk : <16 x 16>
+        seq.firmem.write_port %mem[%wr_addr] = %wr_data, clock %clk enable %wr_en : <16 x 16>
+        hw.output %0 : i16
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "FirmemRBWRT");
+  ASSERT_TRUE(succeeded(model));
+
+  auto hwModule = (*module).lookupSymbol<circt::hw::HWModuleOp>("FirmemRBWRT");
+  ASSERT_TRUE(hwModule);
+
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/hirct_test_firmem_rbw_rt";
+  hirct::CModelEmitter emitter(*model, opts, hwModule);
+  auto artifact = emitter.emit();
+
+  std::system("mkdir -p /tmp/hirct_test_firmem_rbw_rt");
+  {
+    std::ofstream hf("/tmp/hirct_test_firmem_rbw_rt/FirmemRBWRT.h");
+    hf << artifact.headerContent;
+  }
+  {
+    std::ofstream cf("/tmp/hirct_test_firmem_rbw_rt/FirmemRBWRT.cpp");
+    cf << artifact.implContent;
+  }
+
+  std::string driver = R"cpp(
+#include "FirmemRBWRT.h"
+#include <stdio.h>
+#include <assert.h>
+int main() {
+  FirmemRBWRT_state s;
+  FirmemRBWRT_initialize(&s);
+  // Write 0xABCD to address 3
+  FirmemRBWRT_set_wr_addr(&s, 3);
+  FirmemRBWRT_set_wr_data(&s, 0xABCD);
+  FirmemRBWRT_set_wr_en(&s, 1);
+  FirmemRBWRT_set_rd_addr(&s, 5); // different address
+  FirmemRBWRT_eval_comb(&s);
+  FirmemRBWRT_eval_clk(&s);
+  // Now read address 3, simultaneously write 0x1234 to address 3
+  FirmemRBWRT_set_rd_addr(&s, 3);
+  FirmemRBWRT_set_wr_addr(&s, 3);
+  FirmemRBWRT_set_wr_data(&s, 0x1234);
+  FirmemRBWRT_set_wr_en(&s, 1);
+  FirmemRBWRT_eval_comb(&s);
+  FirmemRBWRT_eval_clk(&s);
+  uint16_t rd = FirmemRBWRT_get_rd_data(&s);
+  // read_latency=1: must see OLD value 0xABCD, not new write 0x1234
+  if (rd != 0xABCD) {
+    printf("FAIL: rd=0x%04X expected 0xABCD (read-before-write)\n", rd);
+    return 1;
+  }
+  printf("PASS: CModelEmitter firmem read-before-write\n");
+  return 0;
+}
+)cpp";
+  {
+    std::ofstream df("/tmp/hirct_test_firmem_rbw_rt/driver.cpp");
+    df << driver;
+  }
+
+  int rc = std::system(
+      "c++ -std=c++17 -O0 -o /tmp/hirct_test_firmem_rbw_rt/test "
+      "-I/tmp/hirct_test_firmem_rbw_rt "
+      "/tmp/hirct_test_firmem_rbw_rt/driver.cpp "
+      "/tmp/hirct_test_firmem_rbw_rt/FirmemRBWRT.cpp 2>&1");
+  ASSERT_EQ(rc, 0) << "firmem read-before-write test must compile";
+
+  int run = std::system("/tmp/hirct_test_firmem_rbw_rt/test");
+  EXPECT_EQ(run, 0) << "firmem read-before-write runtime must pass";
+
+  std::system("rm -rf /tmp/hirct_test_firmem_rbw_rt");
+}
+
 } // namespace
