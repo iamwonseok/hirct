@@ -1277,6 +1277,134 @@ TEST_F(CModelEmitterFixture, EvalClockAggregateFullReplaceTODO) {
       << "aggregate eval_clock must have explicit TODO boundary or stub";
 }
 
+TEST_F(CModelEmitterFixture, EvalClockAggregateIndexedUpdateResetEnable) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @IdxArc(%old: !hw.array<4xi8>, %idx: i2, %val: i8) -> !hw.array<4xi8> {
+        %c0 = hw.constant 0 : i2
+        %c1 = hw.constant 1 : i2
+        %c2 = hw.constant 2 : i2
+        %c3 = hw.constant 3 : i2
+        %e0 = hw.array_get %old[%c0] : !hw.array<4xi8>, i2
+        %e1 = hw.array_get %old[%c1] : !hw.array<4xi8>, i2
+        %e2 = hw.array_get %old[%c2] : !hw.array<4xi8>, i2
+        %e3 = hw.array_get %old[%c3] : !hw.array<4xi8>, i2
+        %sel0 = comb.icmp eq %idx, %c0 : i2
+        %sel1 = comb.icmp eq %idx, %c1 : i2
+        %sel2 = comb.icmp eq %idx, %c2 : i2
+        %sel3 = comb.icmp eq %idx, %c3 : i2
+        %n0 = comb.mux %sel0, %val, %e0 : i8
+        %n1 = comb.mux %sel1, %val, %e1 : i8
+        %n2 = comb.mux %sel2, %val, %e2 : i8
+        %n3 = comb.mux %sel3, %val, %e3 : i8
+        %result = hw.array_create %n3, %n2, %n1, %n0 : i8
+        arc.output %result : !hw.array<4xi8>
+      }
+      hw.module @IdxRstEnCM(in %clk : !seq.clock, in %rst : i1, in %en : i1,
+                            in %idx : i2, in %val : i8,
+                            out q0 : i8) {
+        %s = arc.state @IdxArc(%s, %idx, %val) clock %clk enable %en reset %rst latency 1
+              {names = ["arr"]} : (!hw.array<4xi8>, i2, i8) -> !hw.array<4xi8>
+        %c0 = hw.constant 0 : i2
+        %q0 = hw.array_get %s[%c0] : !hw.array<4xi8>, i2
+        hw.output %q0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("IdxRstEnCM");
+  ASSERT_TRUE(hwModule);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "IdxRstEnCM");
+  ASSERT_TRUE(succeeded(model));
+  ASSERT_EQ(model->aggregateStateVars.size(), 1u);
+
+  const auto &agg = model->aggregateStateVars[0];
+  EXPECT_TRUE(agg.hasReset);
+  EXPECT_TRUE(agg.hasEnable);
+
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/hirct_cm_idxrsten";
+  hirct::CModelEmitter emitter(*model, opts, hwModule);
+  auto artifact = emitter.emit();
+
+  auto evalClkPos = artifact.implContent.find("IdxRstEnCM_eval_clk(");
+  ASSERT_NE(evalClkPos, std::string::npos)
+      << "must have eval_clk function";
+  auto afterPos = artifact.implContent.substr(evalClkPos);
+
+  EXPECT_EQ(afterPos.find("/* TODO:"), std::string::npos)
+      << "aggregate eval_clock must NOT have TODO marker; should have real "
+         "implementation; got:\n" << afterPos;
+  EXPECT_NE(afterPos.find("s->arr"), std::string::npos)
+      << "aggregate eval_clock must reference s->arr for commit; got:\n"
+      << afterPos;
+}
+
+TEST_F(CModelEmitterFixture, EvalClockAggregateElementwiseResetEnable) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @EwArc(%old: !hw.array<4xi8>) -> !hw.array<4xi8> {
+        %c0 = hw.constant 0 : i2
+        %c1 = hw.constant 1 : i2
+        %c2 = hw.constant 2 : i2
+        %c3 = hw.constant 3 : i2
+        %c1_8 = hw.constant 1 : i8
+        %e0 = hw.array_get %old[%c0] : !hw.array<4xi8>, i2
+        %e1 = hw.array_get %old[%c1] : !hw.array<4xi8>, i2
+        %e2 = hw.array_get %old[%c2] : !hw.array<4xi8>, i2
+        %e3 = hw.array_get %old[%c3] : !hw.array<4xi8>, i2
+        %n0 = comb.add %e0, %c1_8 : i8
+        %n1 = comb.add %e1, %c1_8 : i8
+        %n2 = comb.add %e2, %c1_8 : i8
+        %n3 = comb.add %e3, %c1_8 : i8
+        %result = hw.array_create %n3, %n2, %n1, %n0 : i8
+        arc.output %result : !hw.array<4xi8>
+      }
+      hw.module @EwRstEnCM(in %clk : !seq.clock, in %rst : i1, in %en : i1,
+                           out q0 : i8) {
+        %s = arc.state @EwArc(%s) clock %clk enable %en reset %rst latency 1
+              {names = ["ew"]} : (!hw.array<4xi8>) -> !hw.array<4xi8>
+        %c0 = hw.constant 0 : i2
+        %q0 = hw.array_get %s[%c0] : !hw.array<4xi8>, i2
+        hw.output %q0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("EwRstEnCM");
+  ASSERT_TRUE(hwModule);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "EwRstEnCM");
+  ASSERT_TRUE(succeeded(model));
+  ASSERT_EQ(model->aggregateStateVars.size(), 1u);
+
+  const auto &agg = model->aggregateStateVars[0];
+  EXPECT_TRUE(agg.hasReset);
+  EXPECT_TRUE(agg.hasEnable);
+
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/hirct_cm_ewrsten";
+  hirct::CModelEmitter emitter(*model, opts, hwModule);
+  auto artifact = emitter.emit();
+
+  auto evalClkPos = artifact.implContent.find("EwRstEnCM_eval_clk(");
+  ASSERT_NE(evalClkPos, std::string::npos)
+      << "must have eval_clk function";
+  auto afterPos = artifact.implContent.substr(evalClkPos);
+
+  EXPECT_EQ(afterPos.find("/* TODO:"), std::string::npos)
+      << "aggregate eval_clock must NOT have TODO marker; should have real "
+         "implementation; got:\n" << afterPos;
+  EXPECT_NE(afterPos.find("s->ew"), std::string::npos)
+      << "aggregate eval_clock must reference s->ew for commit; got:\n"
+      << afterPos;
+}
+
 // ---------------------------------------------------------------------------
 // Batch7 F1: shared arc.define -- two state instances with different inputs
 // ---------------------------------------------------------------------------
@@ -4571,6 +4699,595 @@ TEST_F(CModelEmitterFixture, GenModel_AggregateOutputConstant) {
   EXPECT_EQ(rc, 0) << "constant array output must compile";
 
   std::system("rm -rf /tmp/hirct_genmodel_aggout_const");
+}
+
+// ---------------------------------------------------------------------------
+// Batch: IndexedUpdate / ElementwiseUpdate + reset/enable hardening
+// ---------------------------------------------------------------------------
+
+TEST_F(CModelEmitterFixture, GenModel_IndexedUpdateResetRuntime) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @IdxArc(%old: !hw.array<4xi8>, %idx: i2, %val: i8) -> !hw.array<4xi8> {
+        %c0 = hw.constant 0 : i2
+        %c1 = hw.constant 1 : i2
+        %c2 = hw.constant 2 : i2
+        %c3 = hw.constant 3 : i2
+        %e0 = hw.array_get %old[%c0] : !hw.array<4xi8>, i2
+        %e1 = hw.array_get %old[%c1] : !hw.array<4xi8>, i2
+        %e2 = hw.array_get %old[%c2] : !hw.array<4xi8>, i2
+        %e3 = hw.array_get %old[%c3] : !hw.array<4xi8>, i2
+        %sel0 = comb.icmp eq %idx, %c0 : i2
+        %sel1 = comb.icmp eq %idx, %c1 : i2
+        %sel2 = comb.icmp eq %idx, %c2 : i2
+        %sel3 = comb.icmp eq %idx, %c3 : i2
+        %n0 = comb.mux %sel0, %val, %e0 : i8
+        %n1 = comb.mux %sel1, %val, %e1 : i8
+        %n2 = comb.mux %sel2, %val, %e2 : i8
+        %n3 = comb.mux %sel3, %val, %e3 : i8
+        %result = hw.array_create %n3, %n2, %n1, %n0 : i8
+        arc.output %result : !hw.array<4xi8>
+      }
+      hw.module @IdxRst(in %clk : i1, in %rst : i1, in %idx : i2,
+                        in %val : i8, out q0 : i8, out q1 : i8) {
+        %c = seq.to_clock %clk
+        %s = arc.state @IdxArc(%s, %idx, %val) clock %c reset %rst latency 1
+              {names = ["arr"]} : (!hw.array<4xi8>, i2, i8) -> !hw.array<4xi8>
+        %c0 = hw.constant 0 : i2
+        %c1 = hw.constant 1 : i2
+        %q0 = hw.array_get %s[%c0] : !hw.array<4xi8>, i2
+        %q1 = hw.array_get %s[%c1] : !hw.array<4xi8>, i2
+        hw.output %q0, %q1 : i8, i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule = module->lookupSymbol<circt::hw::HWModuleOp>("IdxRst");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_idxrst");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_idxrst");
+  ASSERT_TRUE(ok) << "emit must succeed";
+
+  std::ifstream cpp_ifs("/tmp/hirct_idxrst/cmodel/IdxRst.cpp");
+  std::string cpp_src((std::istreambuf_iterator<char>(cpp_ifs)),
+                      std::istreambuf_iterator<char>());
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_idxrst/cmodel /tmp/hirct_idxrst/cmodel/IdxRst.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "IndexedUpdate+reset must compile; src:\n" << cpp_src;
+
+  // Write runtime driver
+  {
+    std::ofstream drv("/tmp/hirct_idxrst/driver.cpp");
+    drv << R"(
+#include "IdxRst.h"
+#include <cassert>
+#include <cstdio>
+int main() {
+  IdxRst m;
+  m.do_reset();
+  // After reset: all elements should be 0
+  assert(m.q0 == 0 && "after reset q0==0");
+  assert(m.q1 == 0 && "after reset q1==0");
+
+  // Write 42 to index 0, rst=0
+  m.rst = 0; m.idx = 0; m.val = 42;
+  m.step();
+  assert(m.q0 == 42 && "idx0 updated to 42");
+  assert(m.q1 == 0 && "idx1 still 0");
+
+  // Write 99 to index 1
+  m.idx = 1; m.val = 99;
+  m.step();
+  assert(m.q0 == 42 && "idx0 still 42");
+  assert(m.q1 == 99 && "idx1 updated to 99");
+
+  // Assert reset: all should go to 0
+  m.rst = 1;
+  m.step();
+  assert(m.q0 == 0 && "after rst q0==0");
+  assert(m.q1 == 0 && "after rst q1==0");
+
+  printf("PASS: IndexedUpdate+reset\n");
+  return 0;
+}
+)";
+  }
+  rc = std::system(
+      "c++ -std=c++17 -o /tmp/hirct_idxrst/driver "
+      "-I/tmp/hirct_idxrst/cmodel "
+      "/tmp/hirct_idxrst/cmodel/IdxRst.cpp /tmp/hirct_idxrst/driver.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "IndexedUpdate+reset driver must compile";
+
+  if (rc == 0) {
+    int run = std::system("/tmp/hirct_idxrst/driver");
+    EXPECT_EQ(run, 0) << "IndexedUpdate+reset runtime must pass";
+  }
+
+  std::system("rm -rf /tmp/hirct_idxrst");
+}
+
+TEST_F(CModelEmitterFixture, GenModel_IndexedUpdateEnableRuntime) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @IdxArc(%old: !hw.array<4xi8>, %idx: i2, %val: i8) -> !hw.array<4xi8> {
+        %c0 = hw.constant 0 : i2
+        %c1 = hw.constant 1 : i2
+        %c2 = hw.constant 2 : i2
+        %c3 = hw.constant 3 : i2
+        %e0 = hw.array_get %old[%c0] : !hw.array<4xi8>, i2
+        %e1 = hw.array_get %old[%c1] : !hw.array<4xi8>, i2
+        %e2 = hw.array_get %old[%c2] : !hw.array<4xi8>, i2
+        %e3 = hw.array_get %old[%c3] : !hw.array<4xi8>, i2
+        %sel0 = comb.icmp eq %idx, %c0 : i2
+        %sel1 = comb.icmp eq %idx, %c1 : i2
+        %sel2 = comb.icmp eq %idx, %c2 : i2
+        %sel3 = comb.icmp eq %idx, %c3 : i2
+        %n0 = comb.mux %sel0, %val, %e0 : i8
+        %n1 = comb.mux %sel1, %val, %e1 : i8
+        %n2 = comb.mux %sel2, %val, %e2 : i8
+        %n3 = comb.mux %sel3, %val, %e3 : i8
+        %result = hw.array_create %n3, %n2, %n1, %n0 : i8
+        arc.output %result : !hw.array<4xi8>
+      }
+      hw.module @IdxEn(in %clk : i1, in %en : i1, in %idx : i2,
+                       in %val : i8, out q0 : i8, out q1 : i8) {
+        %c = seq.to_clock %clk
+        %s = arc.state @IdxArc(%s, %idx, %val) clock %c enable %en latency 1
+              {names = ["arr"]} : (!hw.array<4xi8>, i2, i8) -> !hw.array<4xi8>
+        %c0 = hw.constant 0 : i2
+        %c1 = hw.constant 1 : i2
+        %q0 = hw.array_get %s[%c0] : !hw.array<4xi8>, i2
+        %q1 = hw.array_get %s[%c1] : !hw.array<4xi8>, i2
+        hw.output %q0, %q1 : i8, i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule = module->lookupSymbol<circt::hw::HWModuleOp>("IdxEn");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_idxen");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_idxen");
+  ASSERT_TRUE(ok) << "emit must succeed";
+
+  {
+    std::ofstream drv("/tmp/hirct_idxen/driver.cpp");
+    drv << R"(
+#include "IdxEn.h"
+#include <cassert>
+#include <cstdio>
+int main() {
+  IdxEn m;
+  m.do_reset();
+  assert(m.q0 == 0 && m.q1 == 0);
+
+  // en=1: write 42 to idx 0
+  m.en = 1; m.idx = 0; m.val = 42;
+  m.step();
+  assert(m.q0 == 42 && "en=1 idx0 updated");
+  assert(m.q1 == 0 && "idx1 still 0");
+
+  // en=0: should hold
+  m.en = 0; m.idx = 0; m.val = 99;
+  m.step();
+  assert(m.q0 == 42 && "en=0 q0 held");
+  assert(m.q1 == 0 && "en=0 q1 held");
+
+  // en=1: write 77 to idx 1
+  m.en = 1; m.idx = 1; m.val = 77;
+  m.step();
+  assert(m.q0 == 42 && "idx0 still 42");
+  assert(m.q1 == 77 && "en=1 idx1 updated");
+
+  printf("PASS: IndexedUpdate+enable\n");
+  return 0;
+}
+)";
+  }
+  int rc = std::system(
+      "c++ -std=c++17 -o /tmp/hirct_idxen/driver "
+      "-I/tmp/hirct_idxen/cmodel "
+      "/tmp/hirct_idxen/cmodel/IdxEn.cpp /tmp/hirct_idxen/driver.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "IndexedUpdate+enable driver must compile";
+
+  if (rc == 0) {
+    int run = std::system("/tmp/hirct_idxen/driver");
+    EXPECT_EQ(run, 0) << "IndexedUpdate+enable runtime must pass";
+  }
+
+  std::system("rm -rf /tmp/hirct_idxen");
+}
+
+TEST_F(CModelEmitterFixture, GenModel_IndexedUpdateResetEnableRuntime) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @IdxArc(%old: !hw.array<4xi8>, %idx: i2, %val: i8) -> !hw.array<4xi8> {
+        %c0 = hw.constant 0 : i2
+        %c1 = hw.constant 1 : i2
+        %c2 = hw.constant 2 : i2
+        %c3 = hw.constant 3 : i2
+        %e0 = hw.array_get %old[%c0] : !hw.array<4xi8>, i2
+        %e1 = hw.array_get %old[%c1] : !hw.array<4xi8>, i2
+        %e2 = hw.array_get %old[%c2] : !hw.array<4xi8>, i2
+        %e3 = hw.array_get %old[%c3] : !hw.array<4xi8>, i2
+        %sel0 = comb.icmp eq %idx, %c0 : i2
+        %sel1 = comb.icmp eq %idx, %c1 : i2
+        %sel2 = comb.icmp eq %idx, %c2 : i2
+        %sel3 = comb.icmp eq %idx, %c3 : i2
+        %n0 = comb.mux %sel0, %val, %e0 : i8
+        %n1 = comb.mux %sel1, %val, %e1 : i8
+        %n2 = comb.mux %sel2, %val, %e2 : i8
+        %n3 = comb.mux %sel3, %val, %e3 : i8
+        %result = hw.array_create %n3, %n2, %n1, %n0 : i8
+        arc.output %result : !hw.array<4xi8>
+      }
+      hw.module @IdxRstEn(in %clk : i1, in %rst : i1, in %en : i1,
+                          in %idx : i2, in %val : i8,
+                          out q0 : i8, out q1 : i8) {
+        %c = seq.to_clock %clk
+        %s = arc.state @IdxArc(%s, %idx, %val) clock %c enable %en reset %rst latency 1
+              {names = ["arr"]} : (!hw.array<4xi8>, i2, i8) -> !hw.array<4xi8>
+        %c0 = hw.constant 0 : i2
+        %c1 = hw.constant 1 : i2
+        %q0 = hw.array_get %s[%c0] : !hw.array<4xi8>, i2
+        %q1 = hw.array_get %s[%c1] : !hw.array<4xi8>, i2
+        hw.output %q0, %q1 : i8, i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule = module->lookupSymbol<circt::hw::HWModuleOp>("IdxRstEn");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_idxrsten");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_idxrsten");
+  ASSERT_TRUE(ok) << "emit must succeed";
+
+  {
+    std::ofstream drv("/tmp/hirct_idxrsten/driver.cpp");
+    drv << R"(
+#include "IdxRstEn.h"
+#include <cassert>
+#include <cstdio>
+int main() {
+  IdxRstEn m;
+  m.do_reset();
+  assert(m.q0 == 0 && m.q1 == 0);
+
+  // en=1, rst=0: write 42 to idx 0
+  m.rst = 0; m.en = 1; m.idx = 0; m.val = 42;
+  m.step();
+  assert(m.q0 == 42 && "idx0 updated");
+
+  // en=0: hold
+  m.en = 0; m.idx = 0; m.val = 99;
+  m.step();
+  assert(m.q0 == 42 && "en=0 hold");
+
+  // rst=1 takes priority over en=1
+  m.rst = 1; m.en = 1; m.idx = 0; m.val = 55;
+  m.step();
+  assert(m.q0 == 0 && "rst beats en");
+  assert(m.q1 == 0 && "rst beats en");
+
+  // rst=0, en=1: write again
+  m.rst = 0; m.en = 1; m.idx = 1; m.val = 88;
+  m.step();
+  assert(m.q0 == 0 && "idx0 still 0");
+  assert(m.q1 == 88 && "idx1 updated");
+
+  printf("PASS: IndexedUpdate+reset+enable\n");
+  return 0;
+}
+)";
+  }
+  int rc = std::system(
+      "c++ -std=c++17 -o /tmp/hirct_idxrsten/driver "
+      "-I/tmp/hirct_idxrsten/cmodel "
+      "/tmp/hirct_idxrsten/cmodel/IdxRstEn.cpp "
+      "/tmp/hirct_idxrsten/driver.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "IndexedUpdate+reset+enable driver must compile";
+
+  if (rc == 0) {
+    int run = std::system("/tmp/hirct_idxrsten/driver");
+    EXPECT_EQ(run, 0) << "IndexedUpdate+reset+enable runtime must pass";
+  }
+
+  std::system("rm -rf /tmp/hirct_idxrsten");
+}
+
+TEST_F(CModelEmitterFixture, GenModel_ElementwiseUpdateResetRuntime) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @EwArc(%old: !hw.array<4xi8>) -> !hw.array<4xi8> {
+        %c0 = hw.constant 0 : i2
+        %c1 = hw.constant 1 : i2
+        %c2 = hw.constant 2 : i2
+        %c3 = hw.constant 3 : i2
+        %c1_8 = hw.constant 1 : i8
+        %e0 = hw.array_get %old[%c0] : !hw.array<4xi8>, i2
+        %e1 = hw.array_get %old[%c1] : !hw.array<4xi8>, i2
+        %e2 = hw.array_get %old[%c2] : !hw.array<4xi8>, i2
+        %e3 = hw.array_get %old[%c3] : !hw.array<4xi8>, i2
+        %n0 = comb.add %e0, %c1_8 : i8
+        %n1 = comb.add %e1, %c1_8 : i8
+        %n2 = comb.add %e2, %c1_8 : i8
+        %n3 = comb.add %e3, %c1_8 : i8
+        %result = hw.array_create %n3, %n2, %n1, %n0 : i8
+        arc.output %result : !hw.array<4xi8>
+      }
+      hw.module @EwRst(in %clk : i1, in %rst : i1,
+                       out q0 : i8, out q1 : i8) {
+        %c = seq.to_clock %clk
+        %s = arc.state @EwArc(%s) clock %c reset %rst latency 1
+              {names = ["ew"]} : (!hw.array<4xi8>) -> !hw.array<4xi8>
+        %c0 = hw.constant 0 : i2
+        %c1 = hw.constant 1 : i2
+        %q0 = hw.array_get %s[%c0] : !hw.array<4xi8>, i2
+        %q1 = hw.array_get %s[%c1] : !hw.array<4xi8>, i2
+        hw.output %q0, %q1 : i8, i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule = module->lookupSymbol<circt::hw::HWModuleOp>("EwRst");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_ewrst");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_ewrst");
+  ASSERT_TRUE(ok) << "emit must succeed";
+
+  {
+    std::ofstream drv("/tmp/hirct_ewrst/driver.cpp");
+    drv << R"(
+#include "EwRst.h"
+#include <cassert>
+#include <cstdio>
+int main() {
+  EwRst m;
+  m.do_reset();
+  assert(m.q0 == 0 && m.q1 == 0);
+
+  // Each step increments all elements by 1
+  m.rst = 0;
+  m.step();
+  assert(m.q0 == 1 && "tick1: 0+1=1");
+  assert(m.q1 == 1 && "tick1: 0+1=1");
+
+  m.step();
+  assert(m.q0 == 2 && "tick2: 1+1=2");
+  assert(m.q1 == 2 && "tick2: 1+1=2");
+
+  // Assert reset
+  m.rst = 1;
+  m.step();
+  assert(m.q0 == 0 && "rst: back to 0");
+  assert(m.q1 == 0 && "rst: back to 0");
+
+  // Continue incrementing
+  m.rst = 0;
+  m.step();
+  assert(m.q0 == 1 && "after rst tick: 0+1=1");
+
+  printf("PASS: ElementwiseUpdate+reset\n");
+  return 0;
+}
+)";
+  }
+  int rc = std::system(
+      "c++ -std=c++17 -o /tmp/hirct_ewrst/driver "
+      "-I/tmp/hirct_ewrst/cmodel "
+      "/tmp/hirct_ewrst/cmodel/EwRst.cpp /tmp/hirct_ewrst/driver.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "ElementwiseUpdate+reset driver must compile";
+
+  if (rc == 0) {
+    int run = std::system("/tmp/hirct_ewrst/driver");
+    EXPECT_EQ(run, 0) << "ElementwiseUpdate+reset runtime must pass";
+  }
+
+  std::system("rm -rf /tmp/hirct_ewrst");
+}
+
+TEST_F(CModelEmitterFixture, GenModel_ElementwiseUpdateEnableRuntime) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @EwArc(%old: !hw.array<4xi8>) -> !hw.array<4xi8> {
+        %c0 = hw.constant 0 : i2
+        %c1 = hw.constant 1 : i2
+        %c2 = hw.constant 2 : i2
+        %c3 = hw.constant 3 : i2
+        %c1_8 = hw.constant 1 : i8
+        %e0 = hw.array_get %old[%c0] : !hw.array<4xi8>, i2
+        %e1 = hw.array_get %old[%c1] : !hw.array<4xi8>, i2
+        %e2 = hw.array_get %old[%c2] : !hw.array<4xi8>, i2
+        %e3 = hw.array_get %old[%c3] : !hw.array<4xi8>, i2
+        %n0 = comb.add %e0, %c1_8 : i8
+        %n1 = comb.add %e1, %c1_8 : i8
+        %n2 = comb.add %e2, %c1_8 : i8
+        %n3 = comb.add %e3, %c1_8 : i8
+        %result = hw.array_create %n3, %n2, %n1, %n0 : i8
+        arc.output %result : !hw.array<4xi8>
+      }
+      hw.module @EwEn(in %clk : i1, in %en : i1,
+                      out q0 : i8, out q1 : i8) {
+        %c = seq.to_clock %clk
+        %s = arc.state @EwArc(%s) clock %c enable %en latency 1
+              {names = ["ew"]} : (!hw.array<4xi8>) -> !hw.array<4xi8>
+        %c0 = hw.constant 0 : i2
+        %c1 = hw.constant 1 : i2
+        %q0 = hw.array_get %s[%c0] : !hw.array<4xi8>, i2
+        %q1 = hw.array_get %s[%c1] : !hw.array<4xi8>, i2
+        hw.output %q0, %q1 : i8, i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule = module->lookupSymbol<circt::hw::HWModuleOp>("EwEn");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_ewen");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_ewen");
+  ASSERT_TRUE(ok) << "emit must succeed";
+
+  {
+    std::ofstream drv("/tmp/hirct_ewen/driver.cpp");
+    drv << R"(
+#include "EwEn.h"
+#include <cassert>
+#include <cstdio>
+int main() {
+  EwEn m;
+  m.do_reset();
+  assert(m.q0 == 0 && m.q1 == 0);
+
+  // en=1: increment
+  m.en = 1;
+  m.step();
+  assert(m.q0 == 1 && "en=1 tick1");
+  assert(m.q1 == 1 && "en=1 tick1");
+
+  // en=0: hold
+  m.en = 0;
+  m.step();
+  assert(m.q0 == 1 && "en=0 hold");
+  assert(m.q1 == 1 && "en=0 hold");
+
+  // en=1: increment again
+  m.en = 1;
+  m.step();
+  assert(m.q0 == 2 && "en=1 tick2");
+  assert(m.q1 == 2 && "en=1 tick2");
+
+  printf("PASS: ElementwiseUpdate+enable\n");
+  return 0;
+}
+)";
+  }
+  int rc = std::system(
+      "c++ -std=c++17 -o /tmp/hirct_ewen/driver "
+      "-I/tmp/hirct_ewen/cmodel "
+      "/tmp/hirct_ewen/cmodel/EwEn.cpp /tmp/hirct_ewen/driver.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "ElementwiseUpdate+enable driver must compile";
+
+  if (rc == 0) {
+    int run = std::system("/tmp/hirct_ewen/driver");
+    EXPECT_EQ(run, 0) << "ElementwiseUpdate+enable runtime must pass";
+  }
+
+  std::system("rm -rf /tmp/hirct_ewen");
+}
+
+TEST_F(CModelEmitterFixture, GenModel_ElementwiseUpdateResetEnableRuntime) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @EwArc(%old: !hw.array<4xi8>) -> !hw.array<4xi8> {
+        %c0 = hw.constant 0 : i2
+        %c1 = hw.constant 1 : i2
+        %c2 = hw.constant 2 : i2
+        %c3 = hw.constant 3 : i2
+        %c1_8 = hw.constant 1 : i8
+        %e0 = hw.array_get %old[%c0] : !hw.array<4xi8>, i2
+        %e1 = hw.array_get %old[%c1] : !hw.array<4xi8>, i2
+        %e2 = hw.array_get %old[%c2] : !hw.array<4xi8>, i2
+        %e3 = hw.array_get %old[%c3] : !hw.array<4xi8>, i2
+        %n0 = comb.add %e0, %c1_8 : i8
+        %n1 = comb.add %e1, %c1_8 : i8
+        %n2 = comb.add %e2, %c1_8 : i8
+        %n3 = comb.add %e3, %c1_8 : i8
+        %result = hw.array_create %n3, %n2, %n1, %n0 : i8
+        arc.output %result : !hw.array<4xi8>
+      }
+      hw.module @EwRstEn(in %clk : i1, in %rst : i1, in %en : i1,
+                         out q0 : i8, out q1 : i8) {
+        %c = seq.to_clock %clk
+        %s = arc.state @EwArc(%s) clock %c enable %en reset %rst latency 1
+              {names = ["ew"]} : (!hw.array<4xi8>) -> !hw.array<4xi8>
+        %c0 = hw.constant 0 : i2
+        %c1 = hw.constant 1 : i2
+        %q0 = hw.array_get %s[%c0] : !hw.array<4xi8>, i2
+        %q1 = hw.array_get %s[%c1] : !hw.array<4xi8>, i2
+        hw.output %q0, %q1 : i8, i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule = module->lookupSymbol<circt::hw::HWModuleOp>("EwRstEn");
+  ASSERT_TRUE(hwModule);
+
+  std::system("mkdir -p /tmp/hirct_ewrsten");
+  hirct::GenModel gen(hwModule, *module);
+  bool ok = gen.emit("/tmp/hirct_ewrsten");
+  ASSERT_TRUE(ok) << "emit must succeed";
+
+  {
+    std::ofstream drv("/tmp/hirct_ewrsten/driver.cpp");
+    drv << R"(
+#include "EwRstEn.h"
+#include <cassert>
+#include <cstdio>
+int main() {
+  EwRstEn m;
+  m.do_reset();
+  assert(m.q0 == 0 && m.q1 == 0);
+
+  // en=1: increment
+  m.rst = 0; m.en = 1;
+  m.step();
+  assert(m.q0 == 1 && "en=1 tick1");
+
+  // en=0: hold
+  m.en = 0;
+  m.step();
+  assert(m.q0 == 1 && "en=0 hold");
+
+  // en=1: increment again
+  m.en = 1;
+  m.step();
+  assert(m.q0 == 2 && "en=1 tick2");
+
+  // rst=1 beats en=1
+  m.rst = 1; m.en = 1;
+  m.step();
+  assert(m.q0 == 0 && "rst beats en");
+  assert(m.q1 == 0 && "rst beats en");
+
+  // resume
+  m.rst = 0; m.en = 1;
+  m.step();
+  assert(m.q0 == 1 && "after rst resume");
+
+  printf("PASS: ElementwiseUpdate+reset+enable\n");
+  return 0;
+}
+)";
+  }
+  int rc = std::system(
+      "c++ -std=c++17 -o /tmp/hirct_ewrsten/driver "
+      "-I/tmp/hirct_ewrsten/cmodel "
+      "/tmp/hirct_ewrsten/cmodel/EwRstEn.cpp "
+      "/tmp/hirct_ewrsten/driver.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "ElementwiseUpdate+reset+enable driver must compile";
+
+  if (rc == 0) {
+    int run = std::system("/tmp/hirct_ewrsten/driver");
+    EXPECT_EQ(run, 0) << "ElementwiseUpdate+reset+enable runtime must pass";
+  }
+
+  std::system("rm -rf /tmp/hirct_ewrsten");
 }
 
 } // namespace

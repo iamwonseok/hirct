@@ -524,6 +524,19 @@ std::string CModelEmitter::renderArcExpr(
            " >> " + std::to_string(lowBit) + ") & " + std::to_string(mask) + "u))";
   }
 
+  if (opName == "hw.array_get") {
+    auto ag = mlir::cast<circt::hw::ArrayGetOp>(def);
+    std::string arrE = renderArcExpr(ag.getInput(), argMap);
+    std::string idxE = renderArcExpr(ag.getIndex(), argMap);
+    auto arrTy =
+        mlir::dyn_cast<circt::hw::ArrayType>(ag.getInput().getType());
+    unsigned sz = arrTy ? arrTy.getNumElements() : 0;
+    if (sz > 0)
+      return "(" + arrE + "[(" + legalCType(32) + ")(" + idxE + ") % " +
+             std::to_string(sz) + "])";
+    return "0";
+  }
+
   if (opName == "arc.call") {
     unsigned resultIdx = 0;
     if (auto opResult = mlir::dyn_cast<mlir::OpResult>(val))
@@ -755,13 +768,186 @@ void CModelEmitter::emitEvalClock(llvm::raw_string_ostream &os,
   for (const auto *sv : domainStates)
     os << "  s->" << sv->stableName << " = next_" << sv->stableName << ";\n";
 
-  // Phase 2b: aggregate TODO boundary
+  // Phase 2b: aggregate state next-state computation and commit
   for (const auto *av : domainAggs) {
-    os << "  /* TODO: aggregate '" << av->stableName << "' update_style="
-       << (av->updateStyle == semantic::UpdateStyle::FullReplace ? "full_replace" :
-           av->updateStyle == semantic::UpdateStyle::IndexedUpdate ? "indexed_update" :
-           "elementwise_update")
-       << " -- sequential emit not yet implemented */\n";
+    if (av->numElements == 0 || av->elementWidth == 0)
+      continue;
+
+    std::string etype = legalCType(av->elementWidth);
+    unsigned depth = av->numElements;
+
+    circt::arc::StateOp aggStateOp = nullptr;
+    hwModule_.walk([&](circt::arc::StateOp s) {
+      if (aggStateOp)
+        return;
+      std::string sname;
+      if (auto names = s->getAttrOfType<mlir::ArrayAttr>("names")) {
+        if (!names.empty())
+          if (auto sa = mlir::dyn_cast<mlir::StringAttr>(names[0]))
+            sname = semantic::normalizeIdentifier(sa.getValue());
+      }
+      if (sname == av->stableName)
+        aggStateOp = s;
+    });
+
+    circt::arc::DefineOp arcDef = nullptr;
+    if (parentModule) {
+      if (auto *op = parentModule.lookupSymbol(av->arcName))
+        arcDef = mlir::dyn_cast<circt::arc::DefineOp>(op);
+    }
+
+    if (!arcDef || arcDef.getBody().empty() || !aggStateOp) {
+      os << "  /* aggregate '" << av->stableName
+         << "': no arc body or state op found */\n";
+      continue;
+    }
+
+    mlir::Block &body = arcDef.getBody().front();
+    auto outputOp =
+        mlir::dyn_cast<circt::arc::OutputOp>(body.getTerminator());
+    if (!outputOp || outputOp.getOutputs().empty()) {
+      os << "  /* aggregate '" << av->stableName
+         << "': empty arc output */\n";
+      continue;
+    }
+
+    llvm::DenseMap<mlir::Value, std::string> argMap;
+
+    llvm::DenseMap<mlir::Operation *, const semantic::StateVar *>
+        opToStateVar;
+    {
+      unsigned walkIdx = 0;
+      hwModule_.walk([&](circt::arc::StateOp s) {
+        for (const auto &msv : model_.stateVars) {
+          if (msv.stateOpIndex == walkIdx) {
+            opToStateVar[s.getOperation()] = &msv;
+            break;
+          }
+        }
+        ++walkIdx;
+      });
+    }
+
+    llvm::DenseMap<mlir::Operation *, const semantic::AggregateStateVar *>
+        opToAggVar;
+    hwModule_.walk([&](circt::arc::StateOp s) {
+      std::string sn;
+      if (auto names = s->getAttrOfType<mlir::ArrayAttr>("names")) {
+        if (!names.empty())
+          if (auto sa = mlir::dyn_cast<mlir::StringAttr>(names[0]))
+            sn = semantic::normalizeIdentifier(sa.getValue());
+      }
+      for (const auto &mav : model_.aggregateStateVars) {
+        if (mav.stableName == sn) {
+          opToAggVar[s.getOperation()] = &mav;
+          break;
+        }
+      }
+    });
+
+    unsigned bodyArgIdx = 0;
+    for (unsigned i = 0;
+         i < aggStateOp.getInputs().size() &&
+         bodyArgIdx < body.getNumArguments();
+         ++i) {
+      mlir::Value hwOperand = aggStateOp.getInputs()[i];
+      mlir::Value bodyArg = body.getArgument(bodyArgIdx);
+
+      if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(hwOperand)) {
+        if (blockArg.getOwner() == hwModule_.getBodyBlock() &&
+            blockArg.getArgNumber() < model_.inputPorts.size()) {
+          argMap[bodyArg] =
+              "s->input_" +
+              model_.inputPorts[blockArg.getArgNumber()].name;
+        } else {
+          argMap[bodyArg] = "/* unknown_hw_arg */0";
+        }
+      } else if (hwOperand.getDefiningOp()) {
+        auto aggIt = opToAggVar.find(hwOperand.getDefiningOp());
+        if (aggIt != opToAggVar.end()) {
+          argMap[bodyArg] = "s->" + aggIt->second->stableName;
+        } else {
+          auto svIt = opToStateVar.find(hwOperand.getDefiningOp());
+          if (svIt != opToStateVar.end()) {
+            argMap[bodyArg] = "s->" + svIt->second->stableName;
+          } else {
+            argMap[bodyArg] = "/* unresolved_operand */0";
+          }
+        }
+      } else {
+        argMap[bodyArg] = "/* unresolved_operand */0";
+      }
+      ++bodyArgIdx;
+    }
+
+    mlir::Value outputVal = outputOp.getOutputs().front();
+    mlir::Operation *outputDef = outputVal.getDefiningOp();
+
+    bool isArrayCreate =
+        outputDef &&
+        outputDef->getName().getStringRef() == "hw.array_create";
+
+    if (isArrayCreate) {
+      auto operands = outputDef->getOperands();
+      os << "  " << etype << " next_" << av->stableName << "[" << depth
+         << "];\n";
+      for (unsigned k = 0; k < depth && k < operands.size(); ++k) {
+        unsigned srcIdx = operands.size() - 1 - k;
+        std::string elemExpr = renderArcExpr(operands[srcIdx], argMap);
+        os << "  next_" << av->stableName << "[" << k << "] = (" << etype
+           << ")(" << elemExpr << ");\n";
+      }
+    } else {
+      os << "  /* aggregate '" << av->stableName
+         << "': non-array_create output pattern, skipped */\n";
+      continue;
+    }
+
+    std::string rstSig, enSig;
+    if (av->hasReset && aggStateOp.getReset()) {
+      if (auto arg = mlir::dyn_cast<mlir::BlockArgument>(
+              aggStateOp.getReset())) {
+        if (arg.getOwner() == hwModule_.getBodyBlock() &&
+            arg.getArgNumber() < model_.inputPorts.size())
+          rstSig = "s->input_" +
+                   model_.inputPorts[arg.getArgNumber()].name;
+      }
+    }
+    if (av->hasEnable && aggStateOp.getEnable()) {
+      if (auto arg = mlir::dyn_cast<mlir::BlockArgument>(
+              aggStateOp.getEnable())) {
+        if (arg.getOwner() == hwModule_.getBodyBlock() &&
+            arg.getArgNumber() < model_.inputPorts.size())
+          enSig = "s->input_" +
+                  model_.inputPorts[arg.getArgNumber()].name;
+      }
+    }
+
+    if (!rstSig.empty()) {
+      os << "  if (" << rstSig << ") {\n";
+      os << "    for (unsigned __k = 0; __k < " << depth
+         << "; ++__k) s->" << av->stableName << "[__k] = (" << etype
+         << ")0;\n";
+      if (!enSig.empty()) {
+        os << "  } else if (" << enSig << ") {\n";
+      } else {
+        os << "  } else {\n";
+      }
+      os << "    for (unsigned __k = 0; __k < " << depth
+         << "; ++__k) s->" << av->stableName << "[__k] = next_"
+         << av->stableName << "[__k];\n";
+      os << "  }\n";
+    } else if (!enSig.empty()) {
+      os << "  if (" << enSig << ") {\n";
+      os << "    for (unsigned __k = 0; __k < " << depth
+         << "; ++__k) s->" << av->stableName << "[__k] = next_"
+         << av->stableName << "[__k];\n";
+      os << "  }\n";
+    } else {
+      os << "  for (unsigned __k = 0; __k < " << depth << "; ++__k) s->"
+         << av->stableName << "[__k] = next_" << av->stableName
+         << "[__k];\n";
+    }
   }
 
   // Phase 3: update edge and post_edge_comb output shadows
