@@ -12,6 +12,7 @@
 #include "circt/Dialect/Arc/ArcOps.h"
 #include "circt/Dialect/Comb/CombDialect.h"
 #include "circt/Dialect/HW/HWOps.h"
+#include "circt/Dialect/Seq/SeqOps.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/StringExtras.h"
@@ -444,6 +445,42 @@ std::string CModelEmitter::renderExpr(mlir::Value val) {
     return "/* unresolved_arc_state */0";
   }
 
+  if (opName == "seq.firmem.read_port") {
+    auto readPort = mlir::cast<circt::seq::FirMemReadOp>(def);
+    auto firMem = readPort.getMemory().getDefiningOp<circt::seq::FirMemOp>();
+    if (!firMem)
+      return "/* firmem_read_no_mem */0";
+
+    std::string memName;
+    // Find the MemoryVar index for this FirMemOp
+    if (hwModule_) {
+      unsigned memIdx = 0;
+      hwModule_.walk([&](circt::seq::FirMemOp fm) {
+        if (fm.getOperation() == firMem.getOperation()) {
+          if (memIdx < model_.memoryVars.size())
+            memName = model_.memoryVars[memIdx].stableName;
+        }
+        ++memIdx;
+      });
+    }
+    if (memName.empty())
+      return "/* firmem_read_unresolved */0";
+
+    unsigned depth = firMem.getType().getDepth();
+    std::string addrExpr = renderExpr(readPort.getAddress());
+    if (depth > 0) {
+      if (readPort.getEnable()) {
+        std::string enExpr = renderExpr(readPort.getEnable());
+        return "(" + enExpr + " ? s->" + memName + "[(" + legalCType(32) +
+               ")(" + addrExpr + ") % " + std::to_string(depth) +
+               "] : 0)";
+      }
+      return "s->" + memName + "[(" + legalCType(32) + ")(" + addrExpr +
+             ") % " + std::to_string(depth) + "]";
+    }
+    return "0";
+  }
+
   return "/* unsupported:" + opName.str() + " */0";
   }();
   exprCache_[val] = result;
@@ -769,7 +806,21 @@ void CModelEmitter::emitEvalClock(llvm::raw_string_ostream &os,
       domainAggs.push_back(&av);
   }
 
-  if (domainStates.empty() && domainAggs.empty()) {
+  bool hasMemoryInDomain = false;
+  for (const auto &mv : model_.memoryVars) {
+    if (mv.clockDomain == clockDomain)
+      hasMemoryInDomain = true;
+  }
+
+  bool hasEdgeOutputs = false;
+  for (const auto &binding : model_.outputs) {
+    if (binding.visibility == semantic::OutputVisibility::Edge ||
+        binding.visibility == semantic::OutputVisibility::PostEdgeComb)
+      hasEdgeOutputs = true;
+  }
+
+  if (domainStates.empty() && domainAggs.empty() && !hasMemoryInDomain &&
+      !hasEdgeOutputs) {
     os << "  (void)s;\n}\n\n";
     return;
   }
@@ -1056,7 +1107,45 @@ void CModelEmitter::emitEvalClock(llvm::raw_string_ostream &os,
     }
   }
 
-  // Phase 3: update edge and post_edge_comb output shadows
+  // Phase 3: memory writes (seq.firmem.write_port)
+  if (hwModule_) {
+    hwModule_.walk([&](circt::seq::FirMemWriteOp wp) {
+      auto firMem = wp.getMemory().getDefiningOp<circt::seq::FirMemOp>();
+      if (!firMem)
+        return;
+
+      std::string memName;
+      unsigned memIdx = 0;
+      hwModule_.walk([&](circt::seq::FirMemOp fm) {
+        if (fm.getOperation() == firMem.getOperation()) {
+          if (memIdx < model_.memoryVars.size())
+            memName = model_.memoryVars[memIdx].stableName;
+        }
+        ++memIdx;
+      });
+      if (memName.empty())
+        return;
+
+      unsigned depth = firMem.getType().getDepth();
+      unsigned elemW = firMem.getType().getWidth();
+      std::string addrExpr = renderExpr(wp.getAddress());
+      std::string dataExpr = renderExpr(wp.getData());
+
+      if (wp.getEnable()) {
+        std::string enExpr = renderExpr(wp.getEnable());
+        os << "  if (" << enExpr << ") ";
+      } else {
+        os << "  ";
+      }
+      if (depth > 0) {
+        os << "s->" << memName << "[(" << legalCType(32) << ")(" << addrExpr
+           << ") % " << depth << "] = (" << legalCType(elemW) << ")("
+           << dataExpr << ");\n";
+      }
+    });
+  }
+
+  // Phase 4: update edge and post_edge_comb output shadows
   if (auto outputOp = mlir::dyn_cast<circt::hw::OutputOp>(
           hwModule_.getBodyBlock()->getTerminator())) {
     for (auto [idx, operand] : llvm::enumerate(outputOp.getOperands())) {
@@ -1074,10 +1163,19 @@ void CModelEmitter::emitEvalClock(llvm::raw_string_ostream &os,
             }
           }
           if (isMemory) {
-            os << "  /* TODO: memory-derived edge output '"
-               << model_.outputPorts[idx].name
-               << "' from '" << binding.sourceEntity
-               << "' -- requires address/index resolution */\n";
+            // Resolve memory read address for edge output
+            std::string readExpr = renderExpr(operand);
+            if (readExpr.find("/* unsupported") == std::string::npos &&
+                readExpr.find("/* firmem_read") == std::string::npos) {
+              const auto &oport = model_.outputPorts[idx];
+              os << "  s->output_" << oport.name << " = ("
+                 << legalCType(oport.width) << ")(" << readExpr << ");\n";
+            } else {
+              os << "  /* TODO: memory-derived edge output '"
+                 << model_.outputPorts[idx].name
+                 << "' from '" << binding.sourceEntity
+                 << "' -- requires address/index resolution */\n";
+            }
           } else {
             os << "  s->output_" << model_.outputPorts[idx].name
                << " = s->" << binding.sourceEntity << ";\n";

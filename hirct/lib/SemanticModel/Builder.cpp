@@ -447,6 +447,52 @@ FailureOr<ModuleModel> buildModuleModel(hw::HWModuleOp hwModule) {
     statefulOps.insert(writePort.getOperation());
   });
 
+  // seq.firmem (Seq dialect) — same contract as arc.memory but pre-lowering
+  hwModule.walk([&](seq::FirMemOp firMem) {
+    auto firMemType = firMem.getType();
+    MemoryVar memoryVar;
+    memoryVar.stableName =
+        normalizeIdentifier("memory_" + llvm::utostr(nextMemoryIndex));
+    memoryVar.depth = firMemType.getDepth();
+    memoryVar.elementWidth = firMemType.getWidth();
+    memoryVar.addressWidth =
+        llvm::Log2_64_Ceil(std::max<uint64_t>(firMemType.getDepth(), 1));
+    memoryIndices[firMem.getResult()] = nextMemoryIndex;
+    statefulOps.insert(firMem.getOperation());
+    statefulEntityNames[firMem.getOperation()] = memoryVar.stableName;
+    nextMemoryIndex++;
+    model.memoryVars.push_back(std::move(memoryVar));
+  });
+
+  hwModule.walk([&](seq::FirMemReadOp readPort) {
+    auto it = memoryIndices.find(readPort.getMemory());
+    if (it == memoryIndices.end())
+      return;
+    auto &memoryVar = model.memoryVars[it->second];
+    memoryVar.hasReadPort = true;
+    memoryVar.readPortCount++;
+    if (readPort.getClk()) {
+      memoryVar.clockDomain =
+          traceClockName(readPort.getClk(), model.inputPorts, hwModule);
+      addUniqueClock(model.clockDomains, memoryVar.clockDomain);
+    }
+    statefulOps.insert(readPort.getOperation());
+    statefulEntityNames[readPort.getOperation()] = memoryVar.stableName;
+  });
+
+  hwModule.walk([&](seq::FirMemWriteOp writePort) {
+    auto it = memoryIndices.find(writePort.getMemory());
+    if (it == memoryIndices.end())
+      return;
+    auto &memoryVar = model.memoryVars[it->second];
+    memoryVar.hasWritePort = true;
+    memoryVar.writePortCount++;
+    memoryVar.clockDomain =
+        traceClockName(writePort.getClk(), model.inputPorts, hwModule);
+    addUniqueClock(model.clockDomains, memoryVar.clockDomain);
+    statefulOps.insert(writePort.getOperation());
+  });
+
   auto touchesStateful = [&](Value v) -> bool {
     llvm::SmallVector<Value, 16> worklist;
     llvm::DenseSet<Value> visited;
@@ -484,7 +530,8 @@ FailureOr<ModuleModel> buildModuleModel(hw::HWModuleOp hwModule) {
         if (isa<arc::StateOp>(def)) {
           binding.sourceKind = "state";
           binding.visibility = OutputVisibility::Edge;
-        } else if (isa<arc::MemoryReadPortOp>(def)) {
+        } else if (isa<arc::MemoryReadPortOp>(def) ||
+                   isa<seq::FirMemReadOp>(def)) {
           binding.sourceKind = "memory_read";
           binding.visibility = OutputVisibility::Edge;
         } else {

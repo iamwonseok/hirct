@@ -28,3 +28,18 @@
 // CHECK-CLK-CPP: CounterArc_eval_comb
 //
 // CHECK-BAD-TOP: Error: top module not found: MissingTop
+//
+// Memory module (seq.firmem) — should produce memory array and clock logic
+// RUN: %hirct-gen %S/../../fixtures/FirmemBasic.mlir -o %t_mem --export-cmodel
+// RUN: test -f %t_mem/FirmemBasic.h
+// RUN: test -f %t_mem/FirmemBasic.cpp
+// RUN: %FileCheck %s --check-prefix=CHECK-MEM-H < %t_mem/FirmemBasic.h
+// RUN: %FileCheck %s --check-prefix=CHECK-MEM-CPP < %t_mem/FirmemBasic.cpp
+//
+// CHECK-MEM-H: FirmemBasic_state
+// CHECK-MEM-H: memory_0[16]
+// CHECK-MEM-H: eval_clock
+//
+// CHECK-MEM-CPP: FirmemBasic_eval_clock
+// CHECK-MEM-CPP: memory_0[
+// CHECK-MEM-CPP-NOT: unsupported:seq.firmem
