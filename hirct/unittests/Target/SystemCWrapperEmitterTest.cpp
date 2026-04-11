@@ -460,6 +460,88 @@ TEST_F(SystemCWrapperFixture,
 }
 
 // ---------------------------------------------------------------------------
+// Contract: multi-clock module is rejected by wrapper v1
+// ---------------------------------------------------------------------------
+
+TEST_F(SystemCWrapperFixture, WrapperV1_RejectsMultiClock) {
+  hirct::semantic::ModuleModel model;
+  model.moduleName = "DualClk";
+  model.inputPorts.push_back({"clk_a", true, 1});
+  model.inputPorts.push_back({"clk_b", true, 1});
+  model.inputPorts.push_back({"d", true, 8});
+  model.outputPorts.push_back({"qa", false, 8});
+  model.outputPorts.push_back({"qb", false, 8});
+  model.clockDomains.push_back("clk_a");
+  model.clockDomains.push_back("clk_b");
+
+  auto reason = hirct::getWrapperV1UnsupportedReason(model);
+  ASSERT_TRUE(reason.has_value())
+      << "multi-clock module must be rejected by wrapper v1";
+  EXPECT_NE(reason->find("single-clock"), std::string::npos)
+      << "rejection reason must mention single-clock constraint";
+}
+
+// ---------------------------------------------------------------------------
+// Contract: wide (>64-bit) port module is rejected by wrapper v1
+// ---------------------------------------------------------------------------
+
+TEST_F(SystemCWrapperFixture, WrapperV1_RejectsWideInputPort) {
+  hirct::semantic::ModuleModel model;
+  model.moduleName = "WideIn";
+  model.inputPorts.push_back({"din", true, 128});
+  model.outputPorts.push_back({"dout", false, 8});
+
+  auto reason = hirct::getWrapperV1UnsupportedReason(model);
+  ASSERT_TRUE(reason.has_value())
+      << ">64-bit input port must be rejected by wrapper v1";
+  EXPECT_NE(reason->find("64 bits"), std::string::npos)
+      << "rejection reason must mention 64-bit constraint";
+}
+
+TEST_F(SystemCWrapperFixture, WrapperV1_RejectsWideOutputPort) {
+  hirct::semantic::ModuleModel model;
+  model.moduleName = "WideOut";
+  model.inputPorts.push_back({"din", true, 8});
+  model.outputPorts.push_back({"dout", false, 256});
+
+  auto reason = hirct::getWrapperV1UnsupportedReason(model);
+  ASSERT_TRUE(reason.has_value())
+      << ">64-bit output port must be rejected by wrapper v1";
+  EXPECT_NE(reason->find("64 bits"), std::string::npos)
+      << "rejection reason must mention 64-bit constraint";
+}
+
+// ---------------------------------------------------------------------------
+// Contract: supported single-clock <=64-bit model passes v1 check
+// ---------------------------------------------------------------------------
+
+TEST_F(SystemCWrapperFixture, WrapperV1_AcceptsSingleClockNarrow) {
+  hirct::semantic::ModuleModel model;
+  model.moduleName = "GoodDut";
+  model.inputPorts.push_back({"clk", true, 1});
+  model.inputPorts.push_back({"d", true, 64});
+  model.outputPorts.push_back({"q", false, 64});
+  model.clockDomains.push_back("clk");
+
+  auto reason = hirct::getWrapperV1UnsupportedReason(model);
+  EXPECT_FALSE(reason.has_value())
+      << "single-clock <=64-bit model must be accepted: "
+      << reason.value_or("");
+}
+
+TEST_F(SystemCWrapperFixture, WrapperV1_AcceptsCombOnly) {
+  hirct::semantic::ModuleModel model;
+  model.moduleName = "CombDut";
+  model.inputPorts.push_back({"a", true, 32});
+  model.outputPorts.push_back({"y", false, 32});
+
+  auto reason = hirct::getWrapperV1UnsupportedReason(model);
+  EXPECT_FALSE(reason.has_value())
+      << "comb-only <=64-bit model must be accepted: "
+      << reason.value_or("");
+}
+
+// ---------------------------------------------------------------------------
 // Smoke: CombOnly wrapper + C model compile together
 // ---------------------------------------------------------------------------
 

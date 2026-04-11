@@ -11,6 +11,7 @@
 
 #include "hirct/Target/CModelEmitter.h"
 
+#include <optional>
 #include <string>
 
 namespace hirct {
@@ -39,6 +40,9 @@ private:
 };
 
 bool writeArtifact(const SystemCWrapperArtifact &artifact);
+
+std::optional<std::string>
+getWrapperV1UnsupportedReason(const semantic::ModuleModel &model);
 
 } // namespace hirct
 

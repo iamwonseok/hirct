@@ -83,7 +83,7 @@ struct Options {
 
 void print_usage(const char *prog) {
   std::cout << "Usage: " << prog
-            << " [options] <input.v>\n\n"
+            << " [options] <input.v | input.mlir>\n\n"
                "Options:\n"
                "  -o <dir>          Output directory (default: output)\n"
                "  --only <filter>   Generate only matching modules\n"
@@ -105,8 +105,9 @@ void print_usage(const char *prog) {
                "  --run-pass <pass>          Alias for --pipeline; run a single named pass\n"
                "  --pipeline-checkpoint-dir <dir>  Save IR after each pass as {N}_{name}.mlir\n"
                "  --dump-ir                  Print final IR to stdout after pipeline and exit\n"
-               "  --export-cmodel            Export semantic C model (header + impl)\n"
-               "  --export-systemc-wrapper   Export thin SystemC wrapper (requires --export-cmodel)\n"
+               "  --export-cmodel            Export C model (.mlir input only, single-top)\n"
+               "  --export-systemc-wrapper   Export thin SystemC wrapper (requires --export-cmodel,\n"
+               "                             v1: single-clock, <=64-bit I/O)\n"
                "  --timing          Enable PassManager timing statistics\n"
                "  --verbose         Enable verbose output\n"
                "  --help            Show this help message\n";
@@ -1037,6 +1038,11 @@ int main(int argc, char *argv[]) {
     }
 
     if (opts.export_systemc_wrapper) {
+      auto unsupported = hirct::getWrapperV1UnsupportedReason(model);
+      if (unsupported) {
+        std::cerr << *unsupported << "\n";
+        return 1;
+      }
       hirct::SystemCWrapperEmitter wrapperEmitter(model, cmodelOpts);
       auto wrapperArtifact = wrapperEmitter.emit();
       if (!hirct::writeArtifact(wrapperArtifact)) {

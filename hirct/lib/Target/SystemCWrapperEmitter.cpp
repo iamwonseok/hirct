@@ -23,6 +23,8 @@
 
 #include "llvm/Support/raw_ostream.h"
 
+#include <optional>
+
 namespace hirct {
 
 namespace {
@@ -194,6 +196,33 @@ void SystemCWrapperEmitter::emitWrapperImpl(llvm::raw_string_ostream &os) {
     }
     os << "}\n";
   }
+}
+
+std::optional<std::string>
+getWrapperV1UnsupportedReason(const semantic::ModuleModel &model) {
+  if (model.clockDomains.size() > 1) {
+    return "error: SystemC wrapper v1 does not support multi-clock modules "
+           "(found " +
+           std::to_string(model.clockDomains.size()) +
+           " clock domains); only single-clock modules are supported";
+  }
+
+  for (const auto &port : model.inputPorts) {
+    if (port.width > 64) {
+      return "error: SystemC wrapper v1 does not support ports wider than "
+             "64 bits (port '" +
+             port.name + "' is " + std::to_string(port.width) + " bits)";
+    }
+  }
+  for (const auto &port : model.outputPorts) {
+    if (port.width > 64) {
+      return "error: SystemC wrapper v1 does not support ports wider than "
+             "64 bits (port '" +
+             port.name + "' is " + std::to_string(port.width) + " bits)";
+    }
+  }
+
+  return std::nullopt;
 }
 
 bool writeArtifact(const SystemCWrapperArtifact &artifact) {

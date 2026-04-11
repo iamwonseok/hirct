@@ -1,8 +1,9 @@
 // Test: --export-systemc-wrapper generates SystemC wrapper alongside C model
 //
 // Wrapper requires C model, so both must be produced.
-// Using clocked module (single-clock, <=64-bit) within KL-19 scope.
+// v1 scope (KL-20): single-clock, <=64-bit I/O only.
 //
+// --- Happy path: single-clock, <=64-bit (supported) ---
 // RUN: %hirct-gen %S/../../fixtures/CounterArc.mlir -o %t --export-cmodel --export-systemc-wrapper
 // RUN: test -f %t/CounterArc.h
 // RUN: test -f %t/CounterArc.cpp
@@ -17,3 +18,11 @@
 //
 // CHECK-WI: eval_method
 // CHECK-WI: clock_method
+//
+// --- Negative: multi-clock module must be rejected ---
+// RUN: not %hirct-gen %S/../../fixtures/DualClkArc.mlir -o %t/mc --export-cmodel --export-systemc-wrapper 2>&1 | %FileCheck %s --check-prefix=CHECK-MC-ERR
+// CHECK-MC-ERR: error: SystemC wrapper v1 does not support multi-clock modules (found 2 clock domains); only single-clock modules are supported
+//
+// --- Negative: wide (>64-bit) port module must be rejected ---
+// RUN: not %hirct-gen %S/../../fixtures/WidePortArc.mlir -o %t/wp --export-cmodel --export-systemc-wrapper 2>&1 | %FileCheck %s --check-prefix=CHECK-WP-ERR
+// CHECK-WP-ERR: error: SystemC wrapper v1 does not support ports wider than 64 bits (port 'din' is 128 bits)
