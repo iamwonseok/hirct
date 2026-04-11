@@ -233,15 +233,20 @@ std::string emit_op_expr(
     e = oss.str();
   } else if (auto par = mlir::dyn_cast<circt::comb::ParityOp>(op)) {
     unsigned src_w = w_of(par.getInput());
-    if (src_w > 64)
+    std::string src_e = expr(par.getInput());
+    if (src_w > 64) {
+      unsigned nWords = (src_w + 63) / 64;
+      std::string parts;
+      for (unsigned i = 0; i < nWords; ++i) {
+        if (i > 0)
+          parts += " ^ ";
+        parts += "__builtin_parityll(" + src_e + "[" + std::to_string(i) + "])";
+      }
+      e = "static_cast<bool>((" + parts + ") & 1)";
+    } else {
       e = "static_cast<bool>(__builtin_parityll(static_cast<uint64_t>(" +
-          expr(par.getInput()) +
-          ")) ^ __builtin_parityll(static_cast<uint64_t>("
-          "static_cast<unsigned __int128>(" +
-          expr(par.getInput()) + ") >> 64)))";
-    else
-      e = "static_cast<bool>(__builtin_parityll(static_cast<uint64_t>(" +
-          expr(par.getInput()) + ")))";
+          src_e + ")))";
+    }
   } else if (auto icmp = mlir::dyn_cast<circt::comb::ICmpOp>(op)) {
     std::string lhs = expr(icmp.getLhs());
     std::string rhs = expr(icmp.getRhs());
