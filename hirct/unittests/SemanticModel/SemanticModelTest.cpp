@@ -2086,6 +2086,34 @@ TEST_F(SemanticModelFixture, AggregateStateHasResetAndEnable) {
   EXPECT_EQ(av.elementWidth, 8u);
 }
 
+TEST_F(SemanticModelFixture, AggregateStateNonzeroInitValue) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @arr_id(%arg0: !hw.array<4xi8>) -> !hw.array<4xi8> {
+        arc.output %arg0 : !hw.array<4xi8>
+      }
+      hw.module @AggNzInit(in %clk : i1, in %rst : i1,
+                           out q : !hw.array<4xi8>) {
+        %c = seq.to_clock %clk
+        %0 = arc.state @arr_id(%0) clock %c reset %rst latency 1
+              {names = ["arr"], initial_value = 117901063 : i32} : (!hw.array<4xi8>) -> !hw.array<4xi8>
+        hw.output %0 : !hw.array<4xi8>
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+  auto model = hirct::semantic::buildModuleModel(*module, "AggNzInit");
+  ASSERT_TRUE(succeeded(model));
+
+  ASSERT_EQ(model->aggregateStateVars.size(), 1u);
+  auto &av = model->aggregateStateVars[0];
+  EXPECT_TRUE(av.hasConstantInit) << "aggregate must detect initial_value attr";
+  EXPECT_EQ(av.initValue, "117901063") << "must preserve packed init value";
+  EXPECT_TRUE(av.hasReset) << "must detect reset signal";
+  EXPECT_EQ(av.numElements, 4u);
+  EXPECT_EQ(av.elementWidth, 8u);
+}
+
 TEST_F(SemanticModelFixture, EvtLogIfStateHasReset) {
   auto fixtureRoot = getFixtureRoot();
   auto path = fixtureRoot / "ncs_core_evt_log_if_arc.mlir";

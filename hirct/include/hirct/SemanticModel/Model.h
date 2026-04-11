@@ -103,6 +103,8 @@ struct AggregateStateVar {
   bool updateStyleDetermined = false;
   bool hasEnable = false;
   bool hasReset = false;
+  bool hasConstantInit = false;
+  std::string initValue;
   std::optional<OpaqueExprRef> enableRef;
   std::optional<OpaqueExprRef> resetRef;
 };

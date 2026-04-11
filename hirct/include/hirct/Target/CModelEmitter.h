@@ -62,6 +62,9 @@ private:
                         const semantic::PortInfo &port);
   void emitWideOutputApi(llvm::raw_string_ostream &os,
                          const semantic::PortInfo &port);
+  void emitAggregateInitLiterals(llvm::raw_string_ostream &os,
+                                 const semantic::AggregateStateVar &aggVar,
+                                 llvm::StringRef indent);
 
   static constexpr unsigned kMaxInlineDepth = 16;
 

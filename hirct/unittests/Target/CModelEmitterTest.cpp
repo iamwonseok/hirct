@@ -5713,4 +5713,223 @@ int main() {
   std::system("rm -rf /tmp/hirct_genmodel_aggnzrstlgen");
 }
 
+// ---------------------------------------------------------------------------
+// CModelEmitter: Aggregate nonzero init in _initialize and eval_clock reset
+// ---------------------------------------------------------------------------
+
+TEST_F(CModelEmitterFixture, CModelEmitter_AggregateNonzeroInitInitialize) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @arr_id(%arg0: !hw.array<4xi8>) -> !hw.array<4xi8> {
+        arc.output %arg0 : !hw.array<4xi8>
+      }
+      hw.module @AggNzInitCM(in %clk : i1, in %rst : i1, in %d : i8,
+                             out q : i8) {
+        %c = seq.to_clock %clk
+        %0 = arc.state @arr_id(%0) clock %c reset %rst latency 1
+              {names = ["arr"], initial_value = 117901063 : i32} : (!hw.array<4xi8>) -> !hw.array<4xi8>
+        %idx = hw.constant 0 : i2
+        %elem = hw.array_get %0[%idx] : !hw.array<4xi8>, i2
+        hw.output %elem : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("AggNzInitCM");
+  ASSERT_TRUE(hwModule);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "AggNzInitCM");
+  ASSERT_TRUE(succeeded(model));
+
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/hirct_cm_aggnzinit";
+  hirct::CModelEmitter emitter(*model, opts, hwModule);
+  auto artifact = emitter.emit();
+
+  // _initialize must set arr[0..3] to element-sliced values from 117901063
+  // 117901063 = 0x07070707 -> each element is 7
+  EXPECT_NE(artifact.implContent.find("arr[0] = (uint8_t)7"),
+            std::string::npos)
+      << "_initialize must set arr[0] to 7; got:\n"
+      << artifact.implContent;
+  EXPECT_NE(artifact.implContent.find("arr[3] = (uint8_t)7"),
+            std::string::npos)
+      << "_initialize must set arr[3] to 7; got:\n"
+      << artifact.implContent;
+}
+
+TEST_F(CModelEmitterFixture, CModelEmitter_EvalClockAggregateNonzeroResetEnable) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @AggNzEwArc(%old: !hw.array<4xi8>) -> !hw.array<4xi8> {
+        %c0 = hw.constant 0 : i2
+        %c1 = hw.constant 1 : i2
+        %c2 = hw.constant 2 : i2
+        %c3 = hw.constant 3 : i2
+        %c1_8 = hw.constant 1 : i8
+        %e0 = hw.array_get %old[%c0] : !hw.array<4xi8>, i2
+        %e1 = hw.array_get %old[%c1] : !hw.array<4xi8>, i2
+        %e2 = hw.array_get %old[%c2] : !hw.array<4xi8>, i2
+        %e3 = hw.array_get %old[%c3] : !hw.array<4xi8>, i2
+        %n0 = comb.add %e0, %c1_8 : i8
+        %n1 = comb.add %e1, %c1_8 : i8
+        %n2 = comb.add %e2, %c1_8 : i8
+        %n3 = comb.add %e3, %c1_8 : i8
+        %result = hw.array_create %n3, %n2, %n1, %n0 : i8
+        arc.output %result : !hw.array<4xi8>
+      }
+      hw.module @AggNzRstEnCM(in %clk : i1, in %rst : i1, in %en : i1,
+                               out q : i8) {
+        %c = seq.to_clock %clk
+        %0 = arc.state @AggNzEwArc(%0) clock %c enable %en reset %rst latency 1
+              {names = ["arr"], initial_value = 84215045 : i32} : (!hw.array<4xi8>) -> !hw.array<4xi8>
+        %idx = hw.constant 0 : i2
+        %elem = hw.array_get %0[%idx] : !hw.array<4xi8>, i2
+        hw.output %elem : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("AggNzRstEnCM");
+  ASSERT_TRUE(hwModule);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "AggNzRstEnCM");
+  ASSERT_TRUE(succeeded(model));
+
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/hirct_cm_aggnzrsten";
+  hirct::CModelEmitter emitter(*model, opts, hwModule);
+  auto artifact = emitter.emit();
+
+  // eval_clock reset branch must use nonzero init, not zero
+  // 84215045 = 0x05050505 -> each element is 5
+  auto evalPos = artifact.implContent.find("AggNzRstEnCM_eval_clk(");
+  ASSERT_NE(evalPos, std::string::npos) << "must have eval_clk function";
+  auto evalBody = artifact.implContent.substr(evalPos);
+
+  EXPECT_NE(evalBody.find("(uint8_t)5"), std::string::npos)
+      << "eval_clock reset branch must use nonzero init value 5; got:\n"
+      << evalBody;
+
+  auto rstIfPos = evalBody.find("if (s->input_rst)");
+  ASSERT_NE(rstIfPos, std::string::npos) << "must have reset if-branch";
+  auto resetBranch = evalBody.substr(rstIfPos,
+      evalBody.find("} else", rstIfPos) - rstIfPos);
+  EXPECT_EQ(resetBranch.find("= (uint8_t)0;"), std::string::npos)
+      << "eval_clock reset branch must NOT assign zero for nonzero-init aggregate; got:\n"
+      << resetBranch;
+}
+
+TEST_F(CModelEmitterFixture, CModelEmitter_AggregateNonzeroInitRuntime) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @AggNzRtArc(%old: !hw.array<4xi8>) -> !hw.array<4xi8> {
+        %c0 = hw.constant 0 : i2
+        %c1 = hw.constant 1 : i2
+        %c2 = hw.constant 2 : i2
+        %c3 = hw.constant 3 : i2
+        %c1_8 = hw.constant 1 : i8
+        %e0 = hw.array_get %old[%c0] : !hw.array<4xi8>, i2
+        %e1 = hw.array_get %old[%c1] : !hw.array<4xi8>, i2
+        %e2 = hw.array_get %old[%c2] : !hw.array<4xi8>, i2
+        %e3 = hw.array_get %old[%c3] : !hw.array<4xi8>, i2
+        %n0 = comb.add %e0, %c1_8 : i8
+        %n1 = comb.add %e1, %c1_8 : i8
+        %n2 = comb.add %e2, %c1_8 : i8
+        %n3 = comb.add %e3, %c1_8 : i8
+        %result = hw.array_create %n3, %n2, %n1, %n0 : i8
+        arc.output %result : !hw.array<4xi8>
+      }
+      hw.module @AggNzRtCM(in %clk : i1, in %rst : i1, in %en : i1,
+                            out q0 : i8) {
+        %c = seq.to_clock %clk
+        %0 = arc.state @AggNzRtArc(%0) clock %c enable %en reset %rst latency 1
+              {names = ["arr"], initial_value = 84215045 : i32} : (!hw.array<4xi8>) -> !hw.array<4xi8>
+        %idx = hw.constant 0 : i2
+        %elem = hw.array_get %0[%idx] : !hw.array<4xi8>, i2
+        hw.output %elem : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("AggNzRtCM");
+  ASSERT_TRUE(hwModule);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "AggNzRtCM");
+  ASSERT_TRUE(succeeded(model));
+
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/hirct_cm_aggnzrt";
+  hirct::CModelEmitter emitter(*model, opts, hwModule);
+  auto artifact = emitter.emit();
+
+  std::system("mkdir -p /tmp/hirct_cm_aggnzrt");
+  {
+    std::ofstream hf("/tmp/hirct_cm_aggnzrt/AggNzRtCM.h");
+    hf << artifact.headerContent;
+  }
+  {
+    std::ofstream cf("/tmp/hirct_cm_aggnzrt/AggNzRtCM.cpp");
+    cf << artifact.implContent;
+  }
+  {
+    std::ofstream drv("/tmp/hirct_cm_aggnzrt/driver.cpp");
+    drv << R"(
+#include "AggNzRtCM.h"
+#include <cassert>
+#include <cstdio>
+int main() {
+  AggNzRtCM_state s;
+  AggNzRtCM_initialize(&s);
+
+  // After _initialize, arr[0] must be 5 (not 0)
+  assert(s.arr[0] == 5 && "initialize must set arr[0] to 5");
+  assert(s.arr[1] == 5 && "initialize must set arr[1] to 5");
+  assert(s.arr[2] == 5 && "initialize must set arr[2] to 5");
+  assert(s.arr[3] == 5 && "initialize must set arr[3] to 5");
+
+  // eval_clk with rst=1 -> reset to init values
+  s.input_rst = 1;
+  s.input_en = 1;
+  AggNzRtCM_eval_clk(&s);
+  assert(s.arr[0] == 5 && "reset must restore arr[0] to 5");
+
+  // eval_clk with rst=0 en=0 -> hold
+  s.input_rst = 0;
+  s.input_en = 0;
+  AggNzRtCM_eval_clk(&s);
+  assert(s.arr[0] == 5 && "en=0 must hold arr[0]");
+
+  // Re-assert reset
+  s.input_rst = 1;
+  AggNzRtCM_eval_clk(&s);
+  assert(s.arr[0] == 5 && "re-reset must restore to 5, not 0");
+
+  printf("PASS: CModelEmitter AggregateNonzeroInit\n");
+  return 0;
+}
+)";
+  }
+
+  int rc = std::system(
+      "c++ -std=c++17 -o /tmp/hirct_cm_aggnzrt/test "
+      "-I/tmp/hirct_cm_aggnzrt "
+      "/tmp/hirct_cm_aggnzrt/AggNzRtCM.cpp "
+      "/tmp/hirct_cm_aggnzrt/driver.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "AggNzRtCM must compile with driver";
+
+  if (rc == 0) {
+    int run_rc = std::system("/tmp/hirct_cm_aggnzrt/test");
+    EXPECT_EQ(run_rc, 0) << "AggNzRtCM runtime assertions failed";
+  }
+
+  std::system("rm -rf /tmp/hirct_cm_aggnzrt");
+}
+
 } // namespace

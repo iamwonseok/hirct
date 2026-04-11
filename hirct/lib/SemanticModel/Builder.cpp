@@ -353,6 +353,13 @@ FailureOr<ModuleModel> buildModuleModel(hw::HWModuleOp hwModule) {
           classifyAggregateUpdateStyle(arcDef, numElements, styleDetermined);
       aggVar.updateStyleDetermined = styleDetermined;
 
+      if (auto initAttr = state->getAttrOfType<IntegerAttr>("initial_value")) {
+        aggVar.hasConstantInit = true;
+        llvm::SmallString<32> buf;
+        initAttr.getValue().toStringUnsigned(buf);
+        aggVar.initValue = std::string(buf);
+      }
+
       if (auto enableVal = state.getEnable()) {
         aggVar.hasEnable = true;
         aggVar.enableRef = buildOpaqueRef(enableVal);

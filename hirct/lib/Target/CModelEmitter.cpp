@@ -12,6 +12,7 @@
 #include "circt/Dialect/Arc/ArcOps.h"
 #include "circt/Dialect/Comb/CombDialect.h"
 #include "circt/Dialect/HW/HWOps.h"
+#include "llvm/ADT/APInt.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
@@ -597,6 +598,28 @@ void CModelEmitter::emitEvalComb(llvm::raw_string_ostream &os) {
   os << "}\n\n";
 }
 
+void CModelEmitter::emitAggregateInitLiterals(
+    llvm::raw_string_ostream &os, const semantic::AggregateStateVar &aggVar,
+    llvm::StringRef indent) {
+  unsigned totalBits = aggVar.numElements * aggVar.elementWidth;
+  llvm::APInt packed(std::max(totalBits, 1u), aggVar.initValue, 10);
+  if (packed.getBitWidth() < totalBits)
+    packed = packed.zext(totalBits);
+  else if (packed.getBitWidth() > totalBits)
+    packed = packed.trunc(totalBits);
+
+  uint64_t elemMask =
+      aggVar.elementWidth >= 64 ? ~0ULL : ((1ULL << aggVar.elementWidth) - 1);
+  std::string etype = legalCType(aggVar.elementWidth);
+  for (unsigned k = 0; k < aggVar.numElements; ++k) {
+    uint64_t elemVal =
+        packed.extractBits(aggVar.elementWidth, k * aggVar.elementWidth)
+            .getZExtValue();
+    os << indent << "s->" << aggVar.stableName << "[" << k << "] = (" << etype
+       << ")" << elemVal << ";\n";
+  }
+}
+
 void CModelEmitter::emitImpl(llvm::raw_string_ostream &os) {
   const auto &mod = model_.moduleName;
 
@@ -627,9 +650,14 @@ void CModelEmitter::emitImpl(llvm::raw_string_ostream &os) {
       os << "  s->" << sv.stableName << " = 0;\n";
   }
   for (const auto &aggVar : model_.aggregateStateVars) {
-    if (aggVar.numElements > 0)
+    if (aggVar.numElements == 0)
+      continue;
+    if (aggVar.hasConstantInit && !aggVar.initValue.empty()) {
+      emitAggregateInitLiterals(os, aggVar, "  ");
+    } else {
       os << "  for (size_t i = 0; i < " << aggVar.numElements << "; ++i) s->"
          << aggVar.stableName << "[i] = 0;\n";
+    }
   }
   for (const auto &mem : model_.memoryVars)
     os << "  for (size_t i = 0; i < " << mem.depth << "; ++i) s->"
@@ -925,9 +953,13 @@ void CModelEmitter::emitEvalClock(llvm::raw_string_ostream &os,
 
     if (!rstSig.empty()) {
       os << "  if (" << rstSig << ") {\n";
-      os << "    for (unsigned __k = 0; __k < " << depth
-         << "; ++__k) s->" << av->stableName << "[__k] = (" << etype
-         << ")0;\n";
+      if (av->hasConstantInit && !av->initValue.empty()) {
+        emitAggregateInitLiterals(os, *av, "    ");
+      } else {
+        os << "    for (unsigned __k = 0; __k < " << depth
+           << "; ++__k) s->" << av->stableName << "[__k] = (" << etype
+           << ")0;\n";
+      }
       if (!enSig.empty()) {
         os << "  } else if (" << enSig << ") {\n";
       } else {
