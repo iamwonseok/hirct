@@ -63,6 +63,9 @@ struct PortInfo {
   std::string name;
   bool isInput = false;
   unsigned width = 0;
+  bool isAggregate = false;
+  unsigned numElements = 0;
+  unsigned elementWidth = 0;
 
   bool isWide() const { return width > 64; }
   unsigned wordCount() const { return isWide() ? (width + 63) / 64 : 0; }

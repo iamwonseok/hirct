@@ -167,6 +167,9 @@ void CModelEmitter::emitHeader(llvm::raw_string_ostream &os) {
   for (const auto &port : model_.outputPorts) {
     if (port.isWide())
       os << wideStorageDecl(port, "output_");
+    else if (port.isAggregate)
+      os << "  " << legalCType(port.elementWidth) << " output_" << port.name
+         << "[" << port.numElements << "];\n";
     else
       os << "  " << legalCType(port.width) << " output_" << port.name << ";\n";
   }
@@ -199,6 +202,9 @@ void CModelEmitter::emitHeader(llvm::raw_string_ostream &os) {
   for (const auto &port : model_.outputPorts) {
     if (port.isWide())
       emitWideOutputApi(os, port);
+    else if (port.isAggregate)
+      os << "void " << mod << "_get_" << port.name << "(const " << mod
+         << "_state *s, " << legalCType(port.elementWidth) << " *dst, size_t count);\n";
     else
       os << legalCType(port.width) << " " << mod << "_get_" << port.name
          << "(const " << mod << "_state *s);\n";
@@ -265,6 +271,15 @@ void CModelEmitter::emitGetters(llvm::raw_string_ostream &os) {
       os << "size_t " << mod << "_get_" << port.name
          << "_word_count(void) {\n"
          << "  return " << words << ";\n}\n\n";
+    } else if (port.isAggregate) {
+      os << "void " << mod << "_get_" << port.name << "(const " << mod
+         << "_state *s, " << legalCType(port.elementWidth)
+         << " *dst, size_t count) {\n"
+         << "  size_t n = count < " << port.numElements << " ? count : "
+         << port.numElements << ";\n"
+         << "  memcpy(dst, s->output_" << port.name << ", n * sizeof("
+         << legalCType(port.elementWidth) << "));\n"
+         << "}\n\n";
     } else {
       os << legalCType(port.width) << " " << mod << "_get_" << port.name
          << "(const " << mod << "_state *s) {\n"
@@ -679,6 +694,11 @@ void CModelEmitter::emitEvalComb(llvm::raw_string_ostream &os) {
       emittedAnything = true;
       continue;
     }
+    if (oport.isAggregate) {
+      os << "  /* TODO: aggregate comb output `" << oport.name << "` */\n";
+      emittedAnything = true;
+      continue;
+    }
     std::string expr = renderExpr(operand);
     os << "  s->output_" << oport.name << " = ("
        << legalCType(oport.width) << ")(" << expr << ");\n";
@@ -735,6 +755,9 @@ void CModelEmitter::emitImpl(llvm::raw_string_ostream &os) {
   }
   for (const auto &port : model_.outputPorts) {
     if (port.isWide())
+      os << "  memset(s->output_" << port.name << ", 0, sizeof(s->output_"
+         << port.name << "));\n";
+    else if (port.isAggregate)
       os << "  memset(s->output_" << port.name << ", 0, sizeof(s->output_"
          << port.name << "));\n";
     else
@@ -1214,15 +1237,24 @@ void CModelEmitter::emitEvalClock(llvm::raw_string_ostream &os,
                << model_.outputPorts[idx].name
                << "' from '" << binding.sourceEntity
                << "' -- requires address/index resolution */\n";
+          } else if (model_.outputPorts[idx].isAggregate) {
+            os << "  memcpy(s->output_" << model_.outputPorts[idx].name
+               << ", s->" << binding.sourceEntity << ", sizeof(s->output_"
+               << model_.outputPorts[idx].name << "));\n";
           } else {
             os << "  s->output_" << model_.outputPorts[idx].name
                << " = s->" << binding.sourceEntity << ";\n";
           }
         }
       } else if (binding.visibility == semantic::OutputVisibility::PostEdgeComb) {
-        std::string expr = renderExpr(operand);
-        os << "  s->output_" << model_.outputPorts[idx].name << " = ("
-           << legalCType(model_.outputPorts[idx].width) << ")(" << expr << ");\n";
+        if (model_.outputPorts[idx].isAggregate) {
+          os << "  /* TODO: aggregate post-edge-comb output `"
+             << model_.outputPorts[idx].name << "` */\n";
+        } else {
+          std::string expr = renderExpr(operand);
+          os << "  s->output_" << model_.outputPorts[idx].name << " = ("
+             << legalCType(model_.outputPorts[idx].width) << ")(" << expr << ");\n";
+        }
       }
     }
   }

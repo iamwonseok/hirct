@@ -294,6 +294,11 @@ FailureOr<ModuleModel> buildModuleModel(hw::HWModuleOp hwModule) {
     info.name = normalizeIdentifier(port.getName());
     info.isInput = port.isInput();
     info.width = getTypeWidth(port.type);
+    if (auto arrayType = dyn_cast<hw::ArrayType>(port.type)) {
+      info.isAggregate = true;
+      info.numElements = arrayType.getNumElements();
+      info.elementWidth = getTypeWidth(arrayType.getElementType());
+    }
     if (info.isInput)
       model.inputPorts.push_back(info);
     else

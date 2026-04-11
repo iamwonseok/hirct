@@ -1,0 +1,20 @@
+// Test: --export-cmodel handles aggregate (array) output ports correctly.
+// The generated C model must declare array outputs as C arrays (not scalars)
+// and use memcpy for aggregate state -> output assignment in eval_clock.
+//
+// RUN: %hirct-gen %S/../../../tests/fixtures/aggregate_state_arc.mlir \
+// RUN:   -o %t --export-cmodel
+// RUN: test -f %t/AggMod.h
+// RUN: test -f %t/AggMod.cpp
+//
+// Header: output_q must be an array, not a scalar
+// RUN: %FileCheck %s --check-prefix=CHECK-H < %t/AggMod.h
+// CHECK-H: output_q[4]
+// CHECK-H-NOT: uint32_t output_q;
+//
+// Impl: eval_clock must use memcpy, not scalar assignment
+// RUN: %FileCheck %s --check-prefix=CHECK-CPP < %t/AggMod.cpp
+// CHECK-CPP: memcpy(s->output_q, s->arr_reg, sizeof(s->output_q))
+//
+// Must compile cleanly as C++
+// RUN: c++ -std=c++17 -fsyntax-only -Werror -I%t %t/AggMod.cpp
