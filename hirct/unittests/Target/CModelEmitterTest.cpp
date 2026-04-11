@@ -6211,4 +6211,314 @@ int main() {
   std::system("rm -rf /tmp/hirct_cm_aggindirre");
 }
 
+// ---------------------------------------------------------------------------
+// CModelEmitter: Large-width aggregate (>128-bit total) nonzero init coverage
+// 17 x i8 = 136 bits, every element = 0xAB = 171
+// packed decimal = 58416474095415694810088967901698373430187
+// ---------------------------------------------------------------------------
+
+TEST_F(CModelEmitterFixture,
+       CModelEmitter_AggregateNonzeroInitLargeWidthInitialize) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @arr17_id(%arg0: !hw.array<17xi8>) -> !hw.array<17xi8> {
+        arc.output %arg0 : !hw.array<17xi8>
+      }
+      hw.module @AggNzLgInitCM(in %clk : i1, in %rst : i1,
+                                out q : i8) {
+        %c = seq.to_clock %clk
+        %0 = arc.state @arr17_id(%0) clock %c reset %rst latency 1
+              {names = ["arr"], initial_value = 58416474095415694810088967901698373430187 : i136} : (!hw.array<17xi8>) -> !hw.array<17xi8>
+        %idx = hw.constant 0 : i5
+        %elem = hw.array_get %0[%idx] : !hw.array<17xi8>, i5
+        hw.output %elem : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("AggNzLgInitCM");
+  ASSERT_TRUE(hwModule);
+
+  auto model =
+      hirct::semantic::buildModuleModel(*module, "AggNzLgInitCM");
+  ASSERT_TRUE(succeeded(model));
+
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/hirct_cm_aggnzlginit";
+  hirct::CModelEmitter emitter(*model, opts, hwModule);
+  auto artifact = emitter.emit();
+
+  EXPECT_NE(artifact.implContent.find("arr[0] = (uint8_t)171"),
+            std::string::npos)
+      << "_initialize must set arr[0] to 171 (0xAB); got:\n"
+      << artifact.implContent;
+  EXPECT_NE(artifact.implContent.find("arr[16] = (uint8_t)171"),
+            std::string::npos)
+      << "_initialize must set arr[16] to 171 (0xAB); got:\n"
+      << artifact.implContent;
+
+  for (unsigned k = 0; k < 17; ++k) {
+    std::string needle =
+        "arr[" + std::to_string(k) + "] = (uint8_t)171";
+    EXPECT_NE(artifact.implContent.find(needle), std::string::npos)
+        << "_initialize must set arr[" << k << "] to 171; got:\n"
+        << artifact.implContent;
+  }
+}
+
+TEST_F(CModelEmitterFixture,
+       CModelEmitter_EvalClockAggregateNonzeroInitLargeWidthReset) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @AggNzLgEwArc(%old: !hw.array<17xi8>) -> !hw.array<17xi8> {
+        %c0 = hw.constant 0 : i5
+        %c1 = hw.constant 1 : i5
+        %c2 = hw.constant 2 : i5
+        %c3 = hw.constant 3 : i5
+        %c4 = hw.constant 4 : i5
+        %c5 = hw.constant 5 : i5
+        %c6 = hw.constant 6 : i5
+        %c7 = hw.constant 7 : i5
+        %c8 = hw.constant 8 : i5
+        %c9 = hw.constant 9 : i5
+        %c10 = hw.constant 10 : i5
+        %c11 = hw.constant 11 : i5
+        %c12 = hw.constant 12 : i5
+        %c13 = hw.constant 13 : i5
+        %c14 = hw.constant 14 : i5
+        %c15 = hw.constant 15 : i5
+        %c16 = hw.constant 16 : i5
+        %e0 = hw.array_get %old[%c0] : !hw.array<17xi8>, i5
+        %e1 = hw.array_get %old[%c1] : !hw.array<17xi8>, i5
+        %e2 = hw.array_get %old[%c2] : !hw.array<17xi8>, i5
+        %e3 = hw.array_get %old[%c3] : !hw.array<17xi8>, i5
+        %e4 = hw.array_get %old[%c4] : !hw.array<17xi8>, i5
+        %e5 = hw.array_get %old[%c5] : !hw.array<17xi8>, i5
+        %e6 = hw.array_get %old[%c6] : !hw.array<17xi8>, i5
+        %e7 = hw.array_get %old[%c7] : !hw.array<17xi8>, i5
+        %e8 = hw.array_get %old[%c8] : !hw.array<17xi8>, i5
+        %e9 = hw.array_get %old[%c9] : !hw.array<17xi8>, i5
+        %e10 = hw.array_get %old[%c10] : !hw.array<17xi8>, i5
+        %e11 = hw.array_get %old[%c11] : !hw.array<17xi8>, i5
+        %e12 = hw.array_get %old[%c12] : !hw.array<17xi8>, i5
+        %e13 = hw.array_get %old[%c13] : !hw.array<17xi8>, i5
+        %e14 = hw.array_get %old[%c14] : !hw.array<17xi8>, i5
+        %e15 = hw.array_get %old[%c15] : !hw.array<17xi8>, i5
+        %e16 = hw.array_get %old[%c16] : !hw.array<17xi8>, i5
+        %result = hw.array_create %e16, %e15, %e14, %e13, %e12, %e11, %e10, %e9, %e8, %e7, %e6, %e5, %e4, %e3, %e2, %e1, %e0 : i8
+        arc.output %result : !hw.array<17xi8>
+      }
+      hw.module @AggNzLgRstCM(in %clk : i1, in %rst : i1,
+                                out q : i8) {
+        %c = seq.to_clock %clk
+        %0 = arc.state @AggNzLgEwArc(%0) clock %c reset %rst latency 1
+              {names = ["arr"], initial_value = 58416474095415694810088967901698373430187 : i136} : (!hw.array<17xi8>) -> !hw.array<17xi8>
+        %idx = hw.constant 0 : i5
+        %elem = hw.array_get %0[%idx] : !hw.array<17xi8>, i5
+        hw.output %elem : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("AggNzLgRstCM");
+  ASSERT_TRUE(hwModule);
+
+  auto model =
+      hirct::semantic::buildModuleModel(*module, "AggNzLgRstCM");
+  ASSERT_TRUE(succeeded(model));
+
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/hirct_cm_aggnzlgrst";
+  hirct::CModelEmitter emitter(*model, opts, hwModule);
+  auto artifact = emitter.emit();
+
+  auto evalPos = artifact.implContent.find("AggNzLgRstCM_eval_clk(");
+  ASSERT_NE(evalPos, std::string::npos) << "must have eval_clk function";
+  auto evalBody = artifact.implContent.substr(evalPos);
+
+  EXPECT_NE(evalBody.find("(uint8_t)171"), std::string::npos)
+      << "eval_clock reset branch must use nonzero init value 171; got:\n"
+      << evalBody;
+
+  auto rstIfPos = evalBody.find("if (s->input_rst)");
+  ASSERT_NE(rstIfPos, std::string::npos) << "must have reset if-branch";
+  auto resetBranch =
+      evalBody.substr(rstIfPos, evalBody.find("} else", rstIfPos) - rstIfPos);
+  EXPECT_EQ(resetBranch.find("__k] = (uint8_t)0;"), std::string::npos)
+      << "eval_clock reset branch must NOT zero-assign for nonzero-init "
+         "large-width aggregate; got:\n"
+      << resetBranch;
+
+  for (unsigned k = 0; k < 17; ++k) {
+    std::string needle =
+        "arr[" + std::to_string(k) + "] = (uint8_t)171";
+    EXPECT_NE(resetBranch.find(needle), std::string::npos)
+        << "eval_clock reset must set arr[" << k << "] to 171; got:\n"
+        << resetBranch;
+  }
+}
+
+TEST_F(CModelEmitterFixture,
+       CModelEmitter_AggregateNonzeroInitLargeWidthRuntime) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @AggNzLgRtArc(%old: !hw.array<17xi8>) -> !hw.array<17xi8> {
+        %c0 = hw.constant 0 : i5
+        %c1_8 = hw.constant 1 : i8
+        %e0 = hw.array_get %old[%c0] : !hw.array<17xi8>, i5
+        %n0 = comb.add %e0, %c1_8 : i8
+        %c1 = hw.constant 1 : i5
+        %e1 = hw.array_get %old[%c1] : !hw.array<17xi8>, i5
+        %n1 = comb.add %e1, %c1_8 : i8
+        %c2 = hw.constant 2 : i5
+        %e2 = hw.array_get %old[%c2] : !hw.array<17xi8>, i5
+        %n2 = comb.add %e2, %c1_8 : i8
+        %c3 = hw.constant 3 : i5
+        %e3 = hw.array_get %old[%c3] : !hw.array<17xi8>, i5
+        %n3 = comb.add %e3, %c1_8 : i8
+        %c4 = hw.constant 4 : i5
+        %e4 = hw.array_get %old[%c4] : !hw.array<17xi8>, i5
+        %n4 = comb.add %e4, %c1_8 : i8
+        %c5 = hw.constant 5 : i5
+        %e5 = hw.array_get %old[%c5] : !hw.array<17xi8>, i5
+        %n5 = comb.add %e5, %c1_8 : i8
+        %c6 = hw.constant 6 : i5
+        %e6 = hw.array_get %old[%c6] : !hw.array<17xi8>, i5
+        %n6 = comb.add %e6, %c1_8 : i8
+        %c7 = hw.constant 7 : i5
+        %e7 = hw.array_get %old[%c7] : !hw.array<17xi8>, i5
+        %n7 = comb.add %e7, %c1_8 : i8
+        %c8 = hw.constant 8 : i5
+        %e8 = hw.array_get %old[%c8] : !hw.array<17xi8>, i5
+        %n8 = comb.add %e8, %c1_8 : i8
+        %c9 = hw.constant 9 : i5
+        %e9 = hw.array_get %old[%c9] : !hw.array<17xi8>, i5
+        %n9 = comb.add %e9, %c1_8 : i8
+        %c10 = hw.constant 10 : i5
+        %e10 = hw.array_get %old[%c10] : !hw.array<17xi8>, i5
+        %n10 = comb.add %e10, %c1_8 : i8
+        %c11 = hw.constant 11 : i5
+        %e11 = hw.array_get %old[%c11] : !hw.array<17xi8>, i5
+        %n11 = comb.add %e11, %c1_8 : i8
+        %c12 = hw.constant 12 : i5
+        %e12 = hw.array_get %old[%c12] : !hw.array<17xi8>, i5
+        %n12 = comb.add %e12, %c1_8 : i8
+        %c13 = hw.constant 13 : i5
+        %e13 = hw.array_get %old[%c13] : !hw.array<17xi8>, i5
+        %n13 = comb.add %e13, %c1_8 : i8
+        %c14 = hw.constant 14 : i5
+        %e14 = hw.array_get %old[%c14] : !hw.array<17xi8>, i5
+        %n14 = comb.add %e14, %c1_8 : i8
+        %c15 = hw.constant 15 : i5
+        %e15 = hw.array_get %old[%c15] : !hw.array<17xi8>, i5
+        %n15 = comb.add %e15, %c1_8 : i8
+        %c16 = hw.constant 16 : i5
+        %e16 = hw.array_get %old[%c16] : !hw.array<17xi8>, i5
+        %n16 = comb.add %e16, %c1_8 : i8
+        %result = hw.array_create %n16, %n15, %n14, %n13, %n12, %n11, %n10, %n9, %n8, %n7, %n6, %n5, %n4, %n3, %n2, %n1, %n0 : i8
+        arc.output %result : !hw.array<17xi8>
+      }
+      hw.module @AggNzLgRtCM(in %clk : i1, in %rst : i1, in %en : i1,
+                               out q0 : i8, out q16 : i8) {
+        %c = seq.to_clock %clk
+        %0 = arc.state @AggNzLgRtArc(%0) clock %c enable %en reset %rst latency 1
+              {names = ["arr"], initial_value = 58416474095415694810088967901698373430187 : i136} : (!hw.array<17xi8>) -> !hw.array<17xi8>
+        %idx0 = hw.constant 0 : i5
+        %idx16 = hw.constant 16 : i5
+        %e0 = hw.array_get %0[%idx0] : !hw.array<17xi8>, i5
+        %e16 = hw.array_get %0[%idx16] : !hw.array<17xi8>, i5
+        hw.output %e0, %e16 : i8, i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto hwModule =
+      module->lookupSymbol<circt::hw::HWModuleOp>("AggNzLgRtCM");
+  ASSERT_TRUE(hwModule);
+
+  auto model =
+      hirct::semantic::buildModuleModel(*module, "AggNzLgRtCM");
+  ASSERT_TRUE(succeeded(model));
+
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/hirct_cm_aggnzlgrt";
+  hirct::CModelEmitter emitter(*model, opts, hwModule);
+  auto artifact = emitter.emit();
+
+  std::system("mkdir -p /tmp/hirct_cm_aggnzlgrt");
+  {
+    std::ofstream hf("/tmp/hirct_cm_aggnzlgrt/AggNzLgRtCM.h");
+    hf << artifact.headerContent;
+  }
+  {
+    std::ofstream cf("/tmp/hirct_cm_aggnzlgrt/AggNzLgRtCM.cpp");
+    cf << artifact.implContent;
+  }
+  {
+    std::ofstream drv("/tmp/hirct_cm_aggnzlgrt/driver.cpp");
+    drv << R"DRV(
+#include "AggNzLgRtCM.h"
+#include <cassert>
+#include <cstdio>
+int main() {
+  AggNzLgRtCM_state s;
+  AggNzLgRtCM_initialize(&s);
+
+  // After _initialize, all 17 elements must be 171 (0xAB)
+  for (int i = 0; i < 17; ++i)
+    assert(s.arr[i] == 171 && "initialize must set arr[i] to 171");
+
+  // eval_clk with rst=1 -> reset to init values
+  s.input_rst = 1;
+  s.input_en = 1;
+  AggNzLgRtCM_eval_clk(&s);
+  assert(s.arr[0] == 171 && "reset: arr[0] must be 171");
+  assert(s.arr[16] == 171 && "reset: arr[16] must be 171");
+
+  // rst=0, en=1 -> update (each element increments by 1)
+  s.input_rst = 0;
+  s.input_en = 1;
+  AggNzLgRtCM_eval_clk(&s);
+  assert(s.arr[0] == 172 && "en=1: arr[0] must be 172");
+  assert(s.arr[16] == 172 && "en=1: arr[16] must be 172");
+
+  // rst=0, en=0 -> hold
+  s.input_en = 0;
+  AggNzLgRtCM_eval_clk(&s);
+  assert(s.arr[0] == 172 && "en=0: arr[0] must hold at 172");
+  assert(s.arr[16] == 172 && "en=0: arr[16] must hold at 172");
+
+  // Re-assert reset
+  s.input_rst = 1;
+  s.input_en = 1;
+  AggNzLgRtCM_eval_clk(&s);
+  assert(s.arr[0] == 171 && "re-reset: arr[0] must restore to 171");
+  assert(s.arr[16] == 171 && "re-reset: arr[16] must restore to 171");
+
+  printf("PASS: CModelEmitter AggregateNonzeroInitLargeWidthRuntime\n");
+  return 0;
+}
+)DRV";
+  }
+
+  int rc = std::system(
+      "c++ -std=c++17 -o /tmp/hirct_cm_aggnzlgrt/test "
+      "-I/tmp/hirct_cm_aggnzlgrt "
+      "/tmp/hirct_cm_aggnzlgrt/AggNzLgRtCM.cpp "
+      "/tmp/hirct_cm_aggnzlgrt/driver.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "AggNzLgRtCM must compile with driver";
+
+  if (rc == 0) {
+    int run_rc = std::system("/tmp/hirct_cm_aggnzlgrt/test");
+    EXPECT_EQ(run_rc, 0) << "AggNzLgRtCM runtime assertions failed";
+  }
+
+  std::system("rm -rf /tmp/hirct_cm_aggnzlgrt");
+}
+
 } // namespace
