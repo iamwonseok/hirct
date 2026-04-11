@@ -6521,4 +6521,161 @@ int main() {
   std::system("rm -rf /tmp/hirct_cm_aggnzlgrt");
 }
 
+// ---------------------------------------------------------------------------
+// Exporter API contract: artifact layout
+// ---------------------------------------------------------------------------
+
+TEST_F(CModelEmitterFixture, CModelEmitter_ArtifactLayoutContract) {
+  auto model = buildCounterModel();
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/hirct_layout_test";
+  hirct::CModelEmitter emitter(model, opts);
+  auto artifact = emitter.emit();
+
+  // Artifact must carry module name metadata
+  EXPECT_EQ(artifact.moduleName, "Counter");
+
+  // Artifact must carry output root metadata
+  EXPECT_EQ(artifact.outputRoot, "/tmp/hirct_layout_test");
+
+  // Layout contract: <outputRoot>/<moduleName><suffix>
+  EXPECT_EQ(artifact.headerPath, "/tmp/hirct_layout_test/Counter.h");
+  EXPECT_EQ(artifact.implPath, "/tmp/hirct_layout_test/Counter.cpp");
+
+  // Paths must be consistent with metadata
+  std::string expectedHeader =
+      artifact.outputRoot + "/" + artifact.moduleName + ".h";
+  std::string expectedImpl =
+      artifact.outputRoot + "/" + artifact.moduleName + ".cpp";
+  EXPECT_EQ(artifact.headerPath, expectedHeader);
+  EXPECT_EQ(artifact.implPath, expectedImpl);
+}
+
+TEST_F(CModelEmitterFixture, CModelEmitter_ArtifactBundleCarriesMetadata) {
+  auto model = buildCounterModel();
+  hirct::CModelOptions opts;
+  opts.outputDir = "/out/cmodel";
+  opts.headerSuffix = ".hh";
+  opts.implSuffix = ".cc";
+  hirct::CModelEmitter emitter(model, opts);
+  auto artifact = emitter.emit();
+
+  // Metadata must be present regardless of suffix choice
+  EXPECT_EQ(artifact.moduleName, "Counter");
+  EXPECT_EQ(artifact.outputRoot, "/out/cmodel");
+
+  // Custom suffixes must be honored in layout
+  EXPECT_EQ(artifact.headerPath, "/out/cmodel/Counter.hh");
+  EXPECT_EQ(artifact.implPath, "/out/cmodel/Counter.cc");
+
+  // Content must not be empty
+  EXPECT_FALSE(artifact.headerContent.empty());
+  EXPECT_FALSE(artifact.implContent.empty());
+}
+
+TEST_F(CModelEmitterFixture, CModelEmitter_LayoutDeterministic) {
+  auto model = buildCounterModel();
+  hirct::CModelOptions opts;
+  opts.outputDir = "/deterministic";
+  hirct::CModelEmitter emitter1(model, opts);
+  auto a1 = emitter1.emit();
+
+  hirct::CModelEmitter emitter2(model, opts);
+  auto a2 = emitter2.emit();
+
+  EXPECT_EQ(a1.moduleName, a2.moduleName);
+  EXPECT_EQ(a1.outputRoot, a2.outputRoot);
+  EXPECT_EQ(a1.headerPath, a2.headerPath);
+  EXPECT_EQ(a1.implPath, a2.implPath);
+  EXPECT_EQ(a1.headerContent, a2.headerContent);
+  EXPECT_EQ(a1.implContent, a2.implContent);
+}
+
+TEST_F(CModelEmitterFixture, CModelEmitter_EmitToLayoutCompiles) {
+  auto model = buildCounterModel();
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/hirct_layout_compile";
+  hirct::CModelEmitter emitter(model, opts);
+  auto artifact = emitter.emit();
+
+  std::system("mkdir -p /tmp/hirct_layout_compile");
+
+  // Write using artifact's own path metadata
+  {
+    std::ofstream hf(artifact.headerPath);
+    hf << artifact.headerContent;
+  }
+  {
+    std::ofstream cf(artifact.implPath);
+    cf << artifact.implContent;
+  }
+
+  // Impl must include header by moduleName (layout contract)
+  std::string expectedInclude =
+      std::string("#include \"") + artifact.moduleName + ".h\"";
+  EXPECT_NE(artifact.implContent.find(expectedInclude), std::string::npos)
+      << "impl must include header using moduleName-based filename";
+
+  std::string compileCmd =
+      "c++ -std=c++17 -fsyntax-only -Werror -I/tmp/hirct_layout_compile " +
+      artifact.implPath + " 2>&1";
+  int result = std::system(compileCmd.c_str());
+  EXPECT_EQ(result, 0) << "artifact written via layout contract must compile";
+
+  std::system("rm -rf /tmp/hirct_layout_compile");
+}
+
+TEST_F(CModelEmitterFixture, CModelEmitter_WriteArtifactHelper) {
+  auto model = buildCounterModel();
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/hirct_write_helper";
+  hirct::CModelEmitter emitter(model, opts);
+  auto artifact = emitter.emit();
+
+  std::system("mkdir -p /tmp/hirct_write_helper");
+
+  bool ok = hirct::writeArtifact(artifact);
+  EXPECT_TRUE(ok) << "writeArtifact must succeed for valid artifact";
+
+  // Files must exist at layout paths
+  EXPECT_TRUE(std::filesystem::exists(artifact.headerPath))
+      << "header file must exist at layout path";
+  EXPECT_TRUE(std::filesystem::exists(artifact.implPath))
+      << "impl file must exist at layout path";
+
+  // Content must match
+  {
+    std::ifstream hf(artifact.headerPath);
+    std::string content((std::istreambuf_iterator<char>(hf)),
+                        std::istreambuf_iterator<char>());
+    EXPECT_EQ(content, artifact.headerContent);
+  }
+  {
+    std::ifstream cf(artifact.implPath);
+    std::string content((std::istreambuf_iterator<char>(cf)),
+                        std::istreambuf_iterator<char>());
+    EXPECT_EQ(content, artifact.implContent);
+  }
+
+  // Written artifact must compile
+  std::string compileCmd =
+      "c++ -std=c++17 -fsyntax-only -Werror -I/tmp/hirct_write_helper " +
+      artifact.implPath + " 2>&1";
+  int result = std::system(compileCmd.c_str());
+  EXPECT_EQ(result, 0) << "written artifact must compile";
+
+  std::system("rm -rf /tmp/hirct_write_helper");
+}
+
+TEST_F(CModelEmitterFixture, CModelEmitter_WriteArtifactFailsOnBadDir) {
+  auto model = buildCounterModel();
+  hirct::CModelOptions opts;
+  opts.outputDir = "/nonexistent/deeply/nested/path";
+  hirct::CModelEmitter emitter(model, opts);
+  auto artifact = emitter.emit();
+
+  bool ok = hirct::writeArtifact(artifact);
+  EXPECT_FALSE(ok) << "writeArtifact must return false for nonexistent dir";
+}
+
 } // namespace

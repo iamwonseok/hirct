@@ -25,6 +25,8 @@ struct CModelOptions {
 };
 
 struct CModelArtifact {
+  std::string moduleName;
+  std::string outputRoot;
   std::string headerPath;
   std::string implPath;
   std::string headerContent;
@@ -72,6 +74,8 @@ private:
   CModelOptions options_;
   circt::hw::HWModuleOp hwModule_;
 };
+
+bool writeArtifact(const CModelArtifact &artifact);
 
 } // namespace hirct
 

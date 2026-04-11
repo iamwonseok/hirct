@@ -75,6 +75,8 @@ CModelEmitter::CModelEmitter(const semantic::ModuleModel &model,
 
 CModelArtifact CModelEmitter::emit() {
   CModelArtifact artifact;
+  artifact.moduleName = model_.moduleName;
+  artifact.outputRoot = options_.outputDir;
   artifact.headerPath =
       options_.outputDir + "/" + model_.moduleName + options_.headerSuffix;
   artifact.implPath =
@@ -1191,6 +1193,27 @@ std::string CModelEmitter::inlineArcCall(
   };
 
   return renderInBody(outputOp.getOutputs()[resultIdx]);
+}
+
+bool writeArtifact(const CModelArtifact &artifact) {
+  std::error_code ec;
+  llvm::raw_fd_ostream headerOS(artifact.headerPath, ec);
+  if (ec)
+    return false;
+  headerOS << artifact.headerContent;
+  headerOS.close();
+  if (headerOS.has_error())
+    return false;
+
+  llvm::raw_fd_ostream implOS(artifact.implPath, ec);
+  if (ec)
+    return false;
+  implOS << artifact.implContent;
+  implOS.close();
+  if (implOS.has_error())
+    return false;
+
+  return true;
 }
 
 } // namespace hirct
