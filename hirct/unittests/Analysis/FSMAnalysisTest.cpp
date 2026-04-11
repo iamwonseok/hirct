@@ -128,6 +128,44 @@ hw.module @PureComb(in %a : i8, in %b : i8, out sum : i8) {
 }
 )mlir";
 
+// ceq variant: Verilog `case` statements compile to ICmpPredicate::ceq
+static const char *CEQ_FSM_MLIR = R"mlir(
+module {
+hw.module @CeqFSM(in %clk : !seq.clock, in %rst : i1,
+                    in %go : i1,
+                    out active : i1) {
+  %c0_i2 = hw.constant 0 : i2
+  %c1_i2 = hw.constant 1 : i2
+  %c2_i2 = hw.constant 2 : i2
+  %true = hw.constant true
+  %state = seq.compreg %next_state, %clk reset %rst, %c0_i2 : i2
+  %is_s0 = comb.icmp ceq %state, %c0_i2 : i2
+  %is_s1 = comb.icmp ceq %state, %c1_i2 : i2
+  %is_s2 = comb.icmp ceq %state, %c2_i2 : i2
+  %s0_next = comb.mux %go, %c1_i2, %c0_i2 : i2
+  %ns2 = comb.mux %is_s2, %c0_i2, %state : i2
+  %ns1 = comb.mux %is_s1, %c2_i2, %ns2 : i2
+  %next_state = comb.mux %is_s0, %s0_next, %ns1 : i2
+  %not_s0 = comb.xor %is_s0, %true : i1
+  hw.output %not_s0 : i1
+}
+}
+)mlir";
+
+TEST_F(FSMAnalysisTest, CeqPredicateDetected) {
+  auto ceq_mod = mlir::parseSourceString<mlir::ModuleOp>(CEQ_FSM_MLIR, &ctx_);
+  ASSERT_TRUE(ceq_mod);
+  circt::hw::HWModuleOp ceq_hw;
+  ceq_mod->walk([&](circt::hw::HWModuleOp op) {
+    if (op.getName() == "CeqFSM")
+      ceq_hw = op;
+  });
+  ASSERT_TRUE(ceq_hw);
+  auto fsm_views = hirct::identify_fsm_registers(ceq_hw);
+  ASSERT_EQ(fsm_views.size(), 1u);
+  EXPECT_EQ(fsm_views[0].states.size(), 3u);
+}
+
 TEST(FSMAnalysis, NoFSMReturnsEmpty) {
   mlir::MLIRContext ctx;
   ctx.allowUnregisteredDialects();

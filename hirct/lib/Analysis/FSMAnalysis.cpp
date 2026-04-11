@@ -212,7 +212,9 @@ std::vector<FSMView> identify_fsm_registers(circt::hw::HWModuleOp module) {
       auto icmp = mlir::dyn_cast<circt::comb::ICmpOp>(user);
       if (!icmp)
         continue;
-      if (icmp.getPredicate() != circt::comb::ICmpPredicate::eq)
+      auto pred = icmp.getPredicate();
+      if (pred != circt::comb::ICmpPredicate::eq &&
+          pred != circt::comb::ICmpPredicate::ceq)
         continue;
 
       mlir::Value other;
