@@ -1,0 +1,32 @@
+// Test: non-port reset signal resolution in multi-clock module.
+// Verifies that non-port reset produces correct reset branches in
+// per-domain step functions (step_clka, step_clkb).
+//
+// RUN: %hirct-gen %S/../../fixtures/NonPortResetSigMultiClock.mlir -o %t --only model
+// RUN: cat %t/cmodel/NonPortResetSigMultiClock.cpp | %FileCheck %s --check-prefix=CHECK-CPP
+// RUN: g++ -std=c++17 -fsyntax-only -I%t/cmodel %t/cmodel/NonPortResetSigMultiClock.cpp
+//
+// eval_comb(): internal reset signal stored into rst_sig_ members
+// CHECK-CPP-LABEL: void NonPortResetSigMultiClock::eval_comb()
+// CHECK-CPP:       rst_sig_ssa_regA = ((t0) & 1ULL) != 0;
+// CHECK-CPP:       rst_sig_ssa_regB = ((t0) & 1ULL) != 0;
+//
+// step_clka(): narrow reg must check rst_sig_ and assign reset value (42)
+// CHECK-CPP-LABEL: void NonPortResetSigMultiClock::step_clka()
+// CHECK-CPP:       if (rst_sig_ssa_regA)
+// CHECK-CPP-NEXT:    reg_ssa_regA = 42;
+// CHECK-CPP-NEXT:  else
+// CHECK-CPP:         reg_ssa_regA = next_ssa_regA;
+//
+// step_clkb(): wide reg must check rst_sig_ and assign per-word reset value
+// CHECK-CPP-LABEL: void NonPortResetSigMultiClock::step_clkb()
+// CHECK-CPP:       if (rst_sig_ssa_regB) {
+// CHECK-CPP-NEXT:    reg_ssa_regB[0] = static_cast<uint64_t>(12302652056653603379ULL);
+// CHECK-CPP:         reg_ssa_regB[1] = static_cast<uint64_t>(0);
+// CHECK-CPP:       } else {
+// CHECK-CPP-NEXT:    for (unsigned __k = 0; __k < 2; ++__k) reg_ssa_regB[__k] = next_ssa_regB[__k];
+//
+// do_reset(): rst_sig_ members initialized to false
+// CHECK-CPP-LABEL: void NonPortResetSigMultiClock::do_reset()
+// CHECK-CPP:       rst_sig_ssa_regA = false;
+// CHECK-CPP:       rst_sig_ssa_regB = false;

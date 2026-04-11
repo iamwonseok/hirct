@@ -305,6 +305,8 @@ bool GenModel::emit_header(const std::string &dir) {
         ofs << "  " << ctype << " reg_" << reg_ident << ";\n";
         ofs << "  " << ctype << " next_" << reg_ident << ";\n";
       }
+      if (reg.reset && !mlir::isa<mlir::BlockArgument>(reg.reset))
+        ofs << "  bool rst_sig_" << reg_ident << ";\n";
     }
 
     for (auto stateOp : arc_states) {
@@ -564,6 +566,8 @@ void GenModel::emit_reset(std::ofstream &ofs, const std::string &name) {
       ofs << "  next_" << reg_ident << " = static_cast<" << ctype << ">("
           << reset_val << ");\n";
     }
+    if (reg.reset && !mlir::isa<mlir::BlockArgument>(reg.reset))
+      ofs << "  rst_sig_" << reg_ident << " = false;\n";
   }
 
   for (auto stateOp : arc_states) {
@@ -1213,6 +1217,13 @@ void GenModel::emit_eval_comb(std::ofstream &ofs,
               << cpp_type_for_width(w) << ">((" << data_e << ") & "
               << width_mask_expr(w) << ");\n";
       }
+      if (reg.getReset() &&
+          !mlir::isa<mlir::BlockArgument>(reg.getReset())) {
+        std::string rst_e = expr(reg.getReset());
+        if (!rst_e.empty())
+          ofs << "  rst_sig_" << ri << " = ((" << rst_e
+              << ") & 1ULL) != 0;\n";
+      }
     } else if (auto reg = mlir::dyn_cast<circt::seq::CompRegOp>(op_ptr)) {
       std::string ri = reg_ident_from_val(reg.getResult());
       if (ri.empty())
@@ -1245,6 +1256,13 @@ void GenModel::emit_eval_comb(std::ofstream &ofs,
                 << cpp_type_for_width(w) << ">((" << data_e << ") & "
                 << width_mask_expr(w) << ");\n";
         }
+      }
+      if (reg.getReset() &&
+          !mlir::isa<mlir::BlockArgument>(reg.getReset())) {
+        std::string rst_e = expr(reg.getReset());
+        if (!rst_e.empty())
+          ofs << "  rst_sig_" << ri << " = ((" << rst_e
+              << ") & 1ULL) != 0;\n";
       }
     } else if (auto state = mlir::dyn_cast<circt::arc::StateOp>(op_ptr)) {
       std::string ri = reg_ident_from_val(state.getResult(0));
@@ -1758,10 +1776,7 @@ void GenModel::emit_step(std::ofstream &ofs, const std::string &name) {
           << reg_ident << "[__k] = next_" << reg_ident << "[__k];\n";
     } else if (reg.width > 64) {
       unsigned words = getWordCount(reg.width);
-      ofs << "  for (unsigned __k = 0; __k < " << words << "; ++__k) reg_"
-          << reg_ident << "[__k] = next_" << reg_ident << "[__k];\n";
-    } else {
-      if (reg.is_async && reg.reset) {
+      if (reg.reset) {
         std::string rst_sig;
         if (auto arg = mlir::dyn_cast<mlir::BlockArgument>(reg.reset)) {
           auto port_list = hw_module_.getPortList();
@@ -1769,16 +1784,50 @@ void GenModel::emit_step(std::ofstream &ofs, const std::string &name) {
           if (idx < port_list.size())
             rst_sig = port_list[idx].getName().str();
         }
+        if (rst_sig.empty() && !mlir::isa<mlir::BlockArgument>(reg.reset))
+          rst_sig = "rst_sig_" + reg_ident;
+        if (!rst_sig.empty()) {
+          llvm::SmallVector<std::string> resetWords(words, "0");
+          if (reg.reset_value) {
+            if (auto c =
+                    reg.reset_value.getDefiningOp<circt::hw::ConstantOp>()) {
+              resetWords =
+                  extractWideScalarWordLiterals(c.getValue(), reg.width);
+            }
+          }
+          ofs << "  if (" << rst_sig << ") {\n";
+          for (unsigned k = 0; k < words; ++k) {
+            ofs << "    reg_" << reg_ident << "[" << k
+                << "] = static_cast<uint64_t>(" << resetWords[k] << ");\n";
+          }
+          ofs << "  } else {\n";
+          ofs << "    for (unsigned __k = 0; __k < " << words
+              << "; ++__k) reg_" << reg_ident << "[__k] = next_" << reg_ident
+              << "[__k];\n";
+          ofs << "  }\n";
+        } else {
+          ofs << "  for (unsigned __k = 0; __k < " << words << "; ++__k) reg_"
+              << reg_ident << "[__k] = next_" << reg_ident << "[__k];\n";
+        }
+      } else {
+        ofs << "  for (unsigned __k = 0; __k < " << words << "; ++__k) reg_"
+            << reg_ident << "[__k] = next_" << reg_ident << "[__k];\n";
+      }
+    } else {
+      if (reg.reset) {
+        std::string rst_sig;
+        if (auto arg = mlir::dyn_cast<mlir::BlockArgument>(reg.reset)) {
+          auto port_list = hw_module_.getPortList();
+          unsigned idx = arg.getArgNumber();
+          if (idx < port_list.size())
+            rst_sig = port_list[idx].getName().str();
+        }
+        if (rst_sig.empty() && !mlir::isa<mlir::BlockArgument>(reg.reset))
+          rst_sig = "rst_sig_" + reg_ident;
         std::string rst_val = "0";
         if (reg.reset_value) {
           if (auto c =
                   reg.reset_value.getDefiningOp<circt::hw::ConstantOp>()) {
-            if (reg.width > 64) {
-              llvm::errs()
-                  << "GenModel: wide register >64 bits (width=" << reg.width
-                  << "), truncating reset value to uint64_t in module '"
-                  << hw_module_.getName().str() << "'\n";
-            }
             uint64_t rv = c.getValue().zextOrTrunc(64).getZExtValue();
             rst_val = std::to_string(rv);
             if (rv >
@@ -2022,10 +2071,7 @@ void GenModel::emit_domain_step(std::ofstream &ofs,
           << reg_ident << "[__k] = next_" << reg_ident << "[__k];\n";
     } else if (reg.width > 64) {
       unsigned words = getWordCount(reg.width);
-      ofs << "  for (unsigned __k = 0; __k < " << words << "; ++__k) reg_"
-          << reg_ident << "[__k] = next_" << reg_ident << "[__k];\n";
-    } else {
-      if (reg.is_async && reg.reset) {
+      if (reg.reset) {
         std::string rst_sig;
         if (auto arg = mlir::dyn_cast<mlir::BlockArgument>(reg.reset)) {
           auto port_list = hw_module_.getPortList();
@@ -2033,6 +2079,46 @@ void GenModel::emit_domain_step(std::ofstream &ofs,
           if (idx < port_list.size())
             rst_sig = port_list[idx].getName().str();
         }
+        if (rst_sig.empty() && !mlir::isa<mlir::BlockArgument>(reg.reset))
+          rst_sig = "rst_sig_" + reg_ident;
+        if (!rst_sig.empty()) {
+          llvm::SmallVector<std::string> resetWords(words, "0");
+          if (reg.reset_value) {
+            if (auto c =
+                    reg.reset_value.getDefiningOp<circt::hw::ConstantOp>()) {
+              resetWords =
+                  extractWideScalarWordLiterals(c.getValue(), reg.width);
+            }
+          }
+          ofs << "  if (" << rst_sig << ") {\n";
+          for (unsigned k = 0; k < words; ++k) {
+            ofs << "    reg_" << reg_ident << "[" << k
+                << "] = static_cast<uint64_t>(" << resetWords[k] << ");\n";
+          }
+          ofs << "  } else {\n";
+          ofs << "    for (unsigned __k = 0; __k < " << words
+              << "; ++__k) reg_" << reg_ident << "[__k] = next_" << reg_ident
+              << "[__k];\n";
+          ofs << "  }\n";
+        } else {
+          ofs << "  for (unsigned __k = 0; __k < " << words << "; ++__k) reg_"
+              << reg_ident << "[__k] = next_" << reg_ident << "[__k];\n";
+        }
+      } else {
+        ofs << "  for (unsigned __k = 0; __k < " << words << "; ++__k) reg_"
+            << reg_ident << "[__k] = next_" << reg_ident << "[__k];\n";
+      }
+    } else {
+      if (reg.reset) {
+        std::string rst_sig;
+        if (auto arg = mlir::dyn_cast<mlir::BlockArgument>(reg.reset)) {
+          auto port_list = hw_module_.getPortList();
+          unsigned idx = arg.getArgNumber();
+          if (idx < port_list.size())
+            rst_sig = port_list[idx].getName().str();
+        }
+        if (rst_sig.empty() && !mlir::isa<mlir::BlockArgument>(reg.reset))
+          rst_sig = "rst_sig_" + reg_ident;
         std::string rst_val = "0";
         if (reg.reset_value) {
           if (auto c =

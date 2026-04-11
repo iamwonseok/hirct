@@ -1,0 +1,28 @@
+// Test: wide register reset semantics (> 64 bits) in single-clock module.
+// Verifies both async firreg and sync compreg emit per-word reset branches.
+//
+// RUN: %hirct-gen %S/../../fixtures/AsyncResetWideReg.mlir -o %t --only model
+// RUN: cat %t/cmodel/AsyncResetWideReg.cpp | %FileCheck %s --check-prefix=CHECK-CPP
+// RUN: g++ -std=c++17 -fsyntax-only -I%t/cmodel %t/cmodel/AsyncResetWideReg.cpp
+//
+// step(): wide async-reset firreg must check reset signal and assign per-word
+// CHECK-CPP-LABEL: void AsyncResetWideReg::step()
+// CHECK-CPP:       if (reset) {
+// CHECK-CPP-NEXT:    reg_ssa_reg__async[0] = static_cast<uint64_t>(14627333965257922168ULL);
+// CHECK-CPP:         reg_ssa_reg__async[1] = static_cast<uint64_t>(170);
+// CHECK-CPP:       } else {
+// CHECK-CPP-NEXT:    for (unsigned __k = 0; __k < 2; ++__k) reg_ssa_reg__async[__k] = next_ssa_reg__async[__k];
+//
+// step(): wide sync-reset compreg must also check reset signal and assign per-word
+// CHECK-CPP:       if (reset) {
+// CHECK-CPP-NEXT:    reg_ssa_reg__sync[0] = static_cast<uint64_t>(16045690981097406465ULL);
+// CHECK-CPP:         reg_ssa_reg__sync[1] = static_cast<uint64_t>(187);
+// CHECK-CPP:       } else {
+// CHECK-CPP-NEXT:    for (unsigned __k = 0; __k < 2; ++__k) reg_ssa_reg__sync[__k] = next_ssa_reg__sync[__k];
+//
+// do_reset(): wide register per-word initialization (existing behavior)
+// CHECK-CPP-LABEL: void AsyncResetWideReg::do_reset()
+// CHECK-CPP:       reg_ssa_reg__async[0] = static_cast<uint64_t>(14627333965257922168ULL);
+// CHECK-CPP:       reg_ssa_reg__async[1] = static_cast<uint64_t>(170);
+// CHECK-CPP:       reg_ssa_reg__sync[0] = static_cast<uint64_t>(16045690981097406465ULL);
+// CHECK-CPP:       reg_ssa_reg__sync[1] = static_cast<uint64_t>(187);

@@ -1,0 +1,36 @@
+// Test: non-port reset signal resolution for seq.compreg registers.
+// When reset is derived from internal combinational logic (not a module port),
+// the codegen must still emit reset branches in step().
+//
+// RUN: %hirct-gen %S/../../fixtures/NonPortResetSig.mlir -o %t --only model
+// RUN: cat %t/cmodel/NonPortResetSig.cpp | %FileCheck %s --check-prefix=CHECK-CPP
+// RUN: cat %t/cmodel/NonPortResetSig.h | %FileCheck %s --check-prefix=CHECK-HDR
+// RUN: g++ -std=c++17 -fsyntax-only -I%t/cmodel %t/cmodel/NonPortResetSig.cpp
+//
+// Header: non-port reset must produce rst_sig_ member variables
+// CHECK-HDR:       bool rst_sig_ssa_reg__narrow;
+// CHECK-HDR:       bool rst_sig_ssa_reg__wide;
+//
+// eval_comb(): internal reset signal must be stored into rst_sig_ members
+// CHECK-CPP-LABEL: void NonPortResetSig::eval_comb()
+// CHECK-CPP:       rst_sig_ssa_reg__narrow = ((t0) & 1ULL) != 0;
+// CHECK-CPP:       rst_sig_ssa_reg__wide = ((t0) & 1ULL) != 0;
+//
+// step(): narrow reg must check rst_sig_ and assign reset value (42)
+// CHECK-CPP-LABEL: void NonPortResetSig::step()
+// CHECK-CPP:       if (rst_sig_ssa_reg__narrow)
+// CHECK-CPP-NEXT:    reg_ssa_reg__narrow = 42;
+// CHECK-CPP-NEXT:  else
+// CHECK-CPP:         reg_ssa_reg__narrow = next_ssa_reg__narrow;
+//
+// step(): wide reg must check rst_sig_ and assign per-word reset value
+// CHECK-CPP:       if (rst_sig_ssa_reg__wide) {
+// CHECK-CPP-NEXT:    reg_ssa_reg__wide[0] = static_cast<uint64_t>(12302652056653603379ULL);
+// CHECK-CPP:         reg_ssa_reg__wide[1] = static_cast<uint64_t>(0);
+// CHECK-CPP:       } else {
+// CHECK-CPP-NEXT:    for (unsigned __k = 0; __k < 2; ++__k) reg_ssa_reg__wide[__k] = next_ssa_reg__wide[__k];
+//
+// do_reset(): rst_sig_ members must be initialized to false
+// CHECK-CPP-LABEL: void NonPortResetSig::do_reset()
+// CHECK-CPP:       rst_sig_ssa_reg__narrow = false;
+// CHECK-CPP:       rst_sig_ssa_reg__wide = false;
