@@ -6678,4 +6678,345 @@ TEST_F(CModelEmitterFixture, CModelEmitter_WriteArtifactFailsOnBadDir) {
   EXPECT_FALSE(ok) << "writeArtifact must return false for nonexistent dir";
 }
 
+// ---------------------------------------------------------------------------
+// Runtime Smoke Tests: host-facing core C model seam
+// ---------------------------------------------------------------------------
+
+TEST_F(CModelEmitterFixture, CModelEmitter_RuntimeSmoke_CombOnly) {
+  auto module = parseInline(R"mlir(
+    module {
+      hw.module @CombAdd(in %a : i8, in %b : i8, out sum : i8) {
+        %0 = comb.add %a, %b : i8
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "CombAdd");
+  ASSERT_TRUE(succeeded(model));
+  auto hwModule = (*module).lookupSymbol<circt::hw::HWModuleOp>("CombAdd");
+  ASSERT_TRUE(hwModule);
+
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/hirct_rt_combonly";
+  hirct::CModelEmitter emitter(*model, opts, hwModule);
+  auto artifact = emitter.emit();
+
+  std::system("mkdir -p /tmp/hirct_rt_combonly");
+  ASSERT_TRUE(hirct::writeArtifact(artifact));
+
+  // Host driver: exercises the canonical call sequence for comb-only modules:
+  //   1. include generated header
+  //   2. allocate state struct
+  //   3. initialize
+  //   4. set inputs via generated setters
+  //   5. eval_comb
+  //   6. read outputs via generated getters
+  {
+    std::ofstream df("/tmp/hirct_rt_combonly/driver.cpp");
+    df << R"DRV(
+#include "CombAdd.h"
+#include <cassert>
+#include <cstdio>
+int main() {
+  // Step 1: allocate state
+  CombAdd_state s;
+
+  // Step 2: initialize -- zeroes all fields
+  CombAdd_initialize(&s);
+  assert(CombAdd_get_sum(&s) == 0 && "after init, output must be 0");
+
+  // Step 3: set inputs via generated setters
+  CombAdd_set_a(&s, 10);
+  CombAdd_set_b(&s, 20);
+
+  // Step 4: evaluate combinational logic
+  CombAdd_eval_comb(&s);
+
+  // Step 5: read output via generated getter
+  assert(CombAdd_get_sum(&s) == 30 && "10 + 20 must be 30");
+
+  // Step 6: change inputs and re-evaluate
+  CombAdd_set_a(&s, 200);
+  CombAdd_set_b(&s, 55);
+  CombAdd_eval_comb(&s);
+  assert(CombAdd_get_sum(&s) == 255 && "200 + 55 must be 255");
+
+  // Step 7: overflow behavior (uint8_t wraps)
+  CombAdd_set_a(&s, 200);
+  CombAdd_set_b(&s, 100);
+  CombAdd_eval_comb(&s);
+  assert(CombAdd_get_sum(&s) == 44 && "200 + 100 must wrap to 44");
+
+  printf("PASS: CModelEmitter_RuntimeSmoke_CombOnly\n");
+  return 0;
+}
+)DRV";
+  }
+
+  int rc = std::system(
+      "c++ -std=c++17 -O0 -Werror "
+      "-I/tmp/hirct_rt_combonly "
+      "/tmp/hirct_rt_combonly/CombAdd.cpp "
+      "/tmp/hirct_rt_combonly/driver.cpp "
+      "-o /tmp/hirct_rt_combonly/test 2>&1");
+  ASSERT_EQ(rc, 0) << "CombOnly smoke must compile";
+
+  int run_rc = std::system("/tmp/hirct_rt_combonly/test");
+  EXPECT_EQ(run_rc, 0) << "CombOnly runtime: init->set->eval_comb->get";
+
+  std::system("rm -rf /tmp/hirct_rt_combonly");
+}
+
+TEST_F(CModelEmitterFixture, CModelEmitter_RuntimeSmoke_CounterLike) {
+  auto module = parseInline(R"mlir(
+    module {
+      arc.define @fc_ctr(%arg0: i8, %arg1: i1, %arg2: i1) -> i8 {
+        %c1_i8 = hw.constant 1 : i8
+        %c0_i8 = hw.constant 0 : i8
+        %0 = comb.add %arg0, %c1_i8 : i8
+        %1 = comb.mux %arg1, %arg0, %0 : i8
+        %2 = comb.mux %arg2, %c0_i8, %1 : i8
+        arc.output %2 : i8
+      }
+      arc.define @clk_arc(%arg0: i1) -> !seq.clock {
+        %0 = seq.to_clock %arg0
+        arc.output %0 : !seq.clock
+      }
+      hw.module @SmkCtr(in %clk : i1, in %rst : i1, in %en : i1,
+                        out count : i8) {
+        %clock = arc.call @clk_arc(%clk) : (i1) -> !seq.clock
+        %0 = arc.state @fc_ctr(%0, %en, %rst) clock %clock latency 1 {names = ["count_reg"]} : (i8, i1, i1) -> i8
+        hw.output %0 : i8
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "SmkCtr");
+  ASSERT_TRUE(succeeded(model));
+  auto hwModule = (*module).lookupSymbol<circt::hw::HWModuleOp>("SmkCtr");
+  ASSERT_TRUE(hwModule);
+
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/hirct_rt_ctrlike";
+  hirct::CModelEmitter emitter(*model, opts, hwModule);
+  auto artifact = emitter.emit();
+
+  std::system("mkdir -p /tmp/hirct_rt_ctrlike");
+  ASSERT_TRUE(hirct::writeArtifact(artifact));
+
+  // Host driver: exercises the canonical call sequence for sequential modules:
+  //   1. include generated header
+  //   2. allocate state struct
+  //   3. initialize
+  //   4. set inputs
+  //   5. eval_comb (update pre-edge combinational outputs)
+  //   6. eval_<clock> (advance sequential state)
+  //   7. eval_comb again (safe host sequence for post-edge outputs)
+  //   8. read outputs
+  {
+    std::ofstream df("/tmp/hirct_rt_ctrlike/driver.cpp");
+    df << R"DRV(
+#include "SmkCtr.h"
+#include <cassert>
+#include <cstdio>
+int main() {
+  // Allocate + initialize
+  SmkCtr_state s;
+  SmkCtr_initialize(&s);
+  assert(s.count_reg == 0 && "state must init to 0");
+  assert(SmkCtr_get_count(&s) == 0 && "output must init to 0");
+
+  // --- Cycle 1: rst=0, en=0 -> counter increments ---
+  SmkCtr_set_rst(&s, 0);
+  SmkCtr_set_en(&s, 0);
+  SmkCtr_eval_comb(&s);       // pre-edge combinational evaluation
+  SmkCtr_eval_clk(&s);        // advance state: count_reg = 0+1 = 1
+  SmkCtr_eval_comb(&s);       // post-edge combinational evaluation
+  assert(s.count_reg == 1 && "cycle 1: count_reg must be 1");
+  assert(SmkCtr_get_count(&s) == 1 && "cycle 1: output must be 1");
+
+  // --- Cycle 2: still counting ---
+  SmkCtr_eval_clk(&s);
+  SmkCtr_eval_comb(&s);
+  assert(s.count_reg == 2 && "cycle 2: count_reg must be 2");
+
+  // --- Cycle 3: en=1 -> hold ---
+  SmkCtr_set_en(&s, 1);
+  SmkCtr_eval_clk(&s);
+  SmkCtr_eval_comb(&s);
+  assert(s.count_reg == 2 && "cycle 3: hold, count_reg must stay 2");
+
+  // --- Cycle 4: rst=1 -> reset ---
+  SmkCtr_set_rst(&s, 1);
+  SmkCtr_eval_clk(&s);
+  SmkCtr_eval_comb(&s);
+  assert(s.count_reg == 0 && "cycle 4: reset, count_reg must be 0");
+  assert(SmkCtr_get_count(&s) == 0 && "cycle 4: output must be 0");
+
+  // --- Cycle 5: release reset, resume counting ---
+  SmkCtr_set_rst(&s, 0);
+  SmkCtr_set_en(&s, 0);
+  SmkCtr_eval_clk(&s);
+  SmkCtr_eval_comb(&s);
+  assert(s.count_reg == 1 && "cycle 5: resumed, count_reg must be 1");
+
+  printf("PASS: CModelEmitter_RuntimeSmoke_CounterLike\n");
+  return 0;
+}
+)DRV";
+  }
+
+  int rc = std::system(
+      "c++ -std=c++17 -O0 -Werror "
+      "-I/tmp/hirct_rt_ctrlike "
+      "/tmp/hirct_rt_ctrlike/SmkCtr.cpp "
+      "/tmp/hirct_rt_ctrlike/driver.cpp "
+      "-o /tmp/hirct_rt_ctrlike/test 2>&1");
+  ASSERT_EQ(rc, 0) << "CounterLike smoke must compile";
+
+  int run_rc = std::system("/tmp/hirct_rt_ctrlike/test");
+  EXPECT_EQ(run_rc, 0) << "CounterLike runtime: full call sequence";
+
+  std::system("rm -rf /tmp/hirct_rt_ctrlike");
+}
+
+TEST_F(CModelEmitterFixture, CModelEmitter_RuntimeSmoke_HostApiContract) {
+  // This test verifies the host-facing API contract:
+  //   - writeArtifact() produces files that form a self-contained compilation unit
+  //   - The host only needs: #include "<Module>.h"
+  //   - The host calls: <Module>_initialize, <Module>_set_*, <Module>_eval_comb,
+  //     <Module>_eval_<clk>, <Module>_get_*
+  //   - No other headers or libraries are required
+  auto module = parseInline(R"mlir(
+    module {
+      hw.module @ApiChk(in %x : i16, in %y : i16, out result : i16) {
+        %0 = comb.add %x, %y : i16
+        hw.output %0 : i16
+      }
+    }
+  )mlir");
+  ASSERT_TRUE(module);
+
+  auto model = hirct::semantic::buildModuleModel(*module, "ApiChk");
+  ASSERT_TRUE(succeeded(model));
+  auto hwModule = (*module).lookupSymbol<circt::hw::HWModuleOp>("ApiChk");
+  ASSERT_TRUE(hwModule);
+
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/hirct_rt_apichk";
+  hirct::CModelEmitter emitter(*model, opts, hwModule);
+  auto artifact = emitter.emit();
+
+  // Verify API surface in header
+  EXPECT_NE(artifact.headerContent.find("ApiChk_state"), std::string::npos)
+      << "header must declare state struct";
+  EXPECT_NE(artifact.headerContent.find("ApiChk_initialize"), std::string::npos)
+      << "header must declare initialize";
+  EXPECT_NE(artifact.headerContent.find("ApiChk_set_x"), std::string::npos)
+      << "header must declare input setter";
+  EXPECT_NE(artifact.headerContent.find("ApiChk_set_y"), std::string::npos)
+      << "header must declare input setter";
+  EXPECT_NE(artifact.headerContent.find("ApiChk_eval_comb"), std::string::npos)
+      << "header must declare eval_comb";
+  EXPECT_NE(artifact.headerContent.find("ApiChk_get_result"), std::string::npos)
+      << "header must declare output getter";
+
+  // Write via writeArtifact and compile+run
+  std::system("mkdir -p /tmp/hirct_rt_apichk");
+  ASSERT_TRUE(hirct::writeArtifact(artifact));
+
+  {
+    std::ofstream df("/tmp/hirct_rt_apichk/driver.cpp");
+    df << R"DRV(
+#include "ApiChk.h"
+#include <cassert>
+#include <cstdio>
+int main() {
+  ApiChk_state s;
+  ApiChk_initialize(&s);
+  ApiChk_set_x(&s, 1000);
+  ApiChk_set_y(&s, 2000);
+  ApiChk_eval_comb(&s);
+  assert(ApiChk_get_result(&s) == 3000 && "1000+2000 must be 3000");
+  printf("PASS: HostApiContract\n");
+  return 0;
+}
+)DRV";
+  }
+
+  int rc = std::system(
+      "c++ -std=c++17 -O0 -Werror "
+      "-I/tmp/hirct_rt_apichk "
+      "/tmp/hirct_rt_apichk/ApiChk.cpp "
+      "/tmp/hirct_rt_apichk/driver.cpp "
+      "-o /tmp/hirct_rt_apichk/test 2>&1");
+  ASSERT_EQ(rc, 0) << "HostApiContract: artifact bundle must compile standalone";
+
+  int run_rc = std::system("/tmp/hirct_rt_apichk/test");
+  EXPECT_EQ(run_rc, 0) << "HostApiContract: compiled artifact must run correctly";
+
+  std::system("rm -rf /tmp/hirct_rt_apichk");
+}
+
+TEST_F(CModelEmitterFixture, CModelEmitter_RuntimeSmoke_AggregateCompileOnly) {
+  // Verify aggregate path artifacts compile alongside scalar path
+  // without runtime execution to keep this lightweight
+  hirct::semantic::ModuleModel model;
+  model.moduleName = "AggSmoke";
+  model.inputPorts.push_back({"clk", true, 1});
+  model.inputPorts.push_back({"rst", true, 1});
+  model.inputPorts.push_back({"din", true, 8});
+  model.outputPorts.push_back({"dout", false, 8});
+
+  hirct::semantic::StateVar sv;
+  sv.stableName = "scalar_reg";
+  sv.width = 8;
+  sv.clockDomain = "clk";
+  sv.hasConstantInit = false;
+  sv.stateOpIndex = 0;
+  model.stateVars.push_back(sv);
+
+  hirct::semantic::AggregateStateVar av;
+  av.stableName = "arr";
+  av.numElements = 4;
+  av.elementWidth = 8;
+  av.width = 32;
+  av.clockDomain = "clk";
+  av.hasReset = false;
+  av.hasEnable = false;
+  av.hasConstantInit = false;
+  model.aggregateStateVars.push_back(av);
+
+  model.clockDomains.push_back("clk");
+
+  hirct::semantic::OutputBinding ob;
+  ob.visibility = hirct::semantic::OutputVisibility::Edge;
+  ob.sourceEntity = "scalar_reg";
+  model.outputs.push_back(ob);
+
+  hirct::CModelOptions opts;
+  opts.outputDir = "/tmp/hirct_rt_aggsmk";
+  hirct::CModelEmitter emitter(model, opts);
+  auto artifact = emitter.emit();
+
+  // Struct must contain both scalar and aggregate storage
+  EXPECT_NE(artifact.headerContent.find("scalar_reg"), std::string::npos);
+  EXPECT_NE(artifact.headerContent.find("arr[4]"), std::string::npos);
+
+  // Must compile
+  std::system("mkdir -p /tmp/hirct_rt_aggsmk");
+  ASSERT_TRUE(hirct::writeArtifact(artifact));
+
+  int rc = std::system(
+      "c++ -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_rt_aggsmk "
+      "/tmp/hirct_rt_aggsmk/AggSmoke.cpp 2>&1");
+  EXPECT_EQ(rc, 0) << "Aggregate + scalar mixed artifact must compile";
+
+  std::system("rm -rf /tmp/hirct_rt_aggsmk");
+}
+
 } // namespace
