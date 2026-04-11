@@ -73,6 +73,47 @@ static bool hasNonzeroArrayInit(const llvm::SmallVector<std::string> &inits) {
   return llvm::any_of(inits, [](const std::string &s) { return s != "0"; });
 }
 
+/// Extract per-element reset values from a hw register whose reset_value is
+/// an hw.array_create of constants.  Falls back to all-zeros when the
+/// defining op is absent or not a recognisable constant pattern.
+static llvm::SmallVector<std::string>
+extractHwArrayResetValues(mlir::Value resetValue, unsigned depth,
+                          unsigned elemW) {
+  llvm::SmallVector<std::string> inits(depth, "0");
+  if (!resetValue || depth == 0 || elemW == 0 || elemW > 64)
+    return inits;
+  auto *defOp = resetValue.getDefiningOp();
+  if (!defOp)
+    return inits;
+  if (auto ac = mlir::dyn_cast<circt::hw::ArrayCreateOp>(defOp)) {
+    auto operands = ac.getOperands();
+    for (unsigned k = 0; k < depth && k < operands.size(); ++k) {
+      unsigned srcIdx = operands.size() - 1 - k;
+      if (auto cOp =
+              operands[srcIdx].getDefiningOp<circt::hw::ConstantOp>()) {
+        uint64_t uv = cOp.getValue().zextOrTrunc(64).getZExtValue();
+        std::string s = std::to_string(uv);
+        if (uv > static_cast<uint64_t>(std::numeric_limits<long long>::max()))
+          s += "ULL";
+        inits[k] = std::move(s);
+      }
+    }
+  } else if (auto ac =
+                 mlir::dyn_cast<circt::hw::AggregateConstantOp>(defOp)) {
+    auto fields = ac.getFields();
+    for (unsigned k = 0; k < depth && k < fields.size(); ++k) {
+      if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(fields[k])) {
+        uint64_t uv = intAttr.getValue().zextOrTrunc(64).getZExtValue();
+        std::string s = std::to_string(uv);
+        if (uv > static_cast<uint64_t>(std::numeric_limits<long long>::max()))
+          s += "ULL";
+        inits[k] = std::move(s);
+      }
+    }
+  }
+  return inits;
+}
+
 static unsigned getWordCount(unsigned width) {
   return width == 0 ? 1 : (width + 63) / 64;
 }
@@ -520,10 +561,20 @@ void GenModel::emit_reset(std::ofstream &ofs, const std::string &name) {
       if (elem_w == 0)
         elem_w = 1;
       std::string etype = hirct::cpp_type_for_width(elem_w);
-      ofs << "  for (unsigned __k = 0; __k < " << depth << "; ++__k) { "
-          << "reg_" << reg_ident << "[__k] = static_cast<" << etype
-          << ">(0); next_" << reg_ident << "[__k] = static_cast<" << etype
-          << ">(0); }\n";
+      auto arrInits = extractHwArrayResetValues(reg.reset_value, depth, elem_w);
+      if (hasNonzeroArrayInit(arrInits)) {
+        for (unsigned k = 0; k < depth; ++k) {
+          ofs << "  reg_" << reg_ident << "[" << k << "] = static_cast<"
+              << etype << ">(" << arrInits[k] << "); next_" << reg_ident << "["
+              << k << "] = static_cast<" << etype << ">(" << arrInits[k]
+              << ");\n";
+        }
+      } else {
+        ofs << "  for (unsigned __k = 0; __k < " << depth << "; ++__k) { "
+            << "reg_" << reg_ident << "[__k] = static_cast<" << etype
+            << ">(0); next_" << reg_ident << "[__k] = static_cast<" << etype
+            << ">(0); }\n";
+      }
     } else if (reg.width > 64) {
       llvm::SmallVector<std::string> resetWords(getWordCount(reg.width), "0");
       if (reg.reset_value) {
@@ -1772,8 +1823,42 @@ void GenModel::emit_step(std::ofstream &ofs, const std::string &name) {
       if (elem_w == 0)
         elem_w = 1;
       std::string etype = hirct::cpp_type_for_width(elem_w);
-      ofs << "  for (unsigned __k = 0; __k < " << depth << "; ++__k) reg_"
-          << reg_ident << "[__k] = next_" << reg_ident << "[__k];\n";
+      if (reg.reset) {
+        std::string rst_sig;
+        if (auto arg = mlir::dyn_cast<mlir::BlockArgument>(reg.reset)) {
+          auto port_list = hw_module_.getPortList();
+          unsigned idx = arg.getArgNumber();
+          if (idx < port_list.size())
+            rst_sig = port_list[idx].getName().str();
+        }
+        if (rst_sig.empty() && !mlir::isa<mlir::BlockArgument>(reg.reset))
+          rst_sig = "rst_sig_" + reg_ident;
+        if (!rst_sig.empty()) {
+          auto arrInits =
+              extractHwArrayResetValues(reg.reset_value, depth, elem_w);
+          ofs << "  if (" << rst_sig << ") {\n";
+          if (hasNonzeroArrayInit(arrInits)) {
+            for (unsigned k = 0; k < depth; ++k)
+              ofs << "    reg_" << reg_ident << "[" << k << "] = static_cast<"
+                  << etype << ">(" << arrInits[k] << ");\n";
+          } else {
+            ofs << "    for (unsigned __k = 0; __k < " << depth
+                << "; ++__k) reg_" << reg_ident << "[__k] = static_cast<"
+                << etype << ">(0);\n";
+          }
+          ofs << "  } else {\n";
+          ofs << "    for (unsigned __k = 0; __k < " << depth
+              << "; ++__k) reg_" << reg_ident << "[__k] = next_" << reg_ident
+              << "[__k];\n";
+          ofs << "  }\n";
+        } else {
+          ofs << "  for (unsigned __k = 0; __k < " << depth << "; ++__k) reg_"
+              << reg_ident << "[__k] = next_" << reg_ident << "[__k];\n";
+        }
+      } else {
+        ofs << "  for (unsigned __k = 0; __k < " << depth << "; ++__k) reg_"
+            << reg_ident << "[__k] = next_" << reg_ident << "[__k];\n";
+      }
     } else if (reg.width > 64) {
       unsigned words = getWordCount(reg.width);
       if (reg.reset) {
@@ -2067,8 +2152,46 @@ void GenModel::emit_domain_step(std::ofstream &ofs,
     if (auto arr_ty =
             mlir::dyn_cast<circt::hw::ArrayType>(reg_result_type)) {
       unsigned depth = arr_ty.getNumElements();
-      ofs << "  for (unsigned __k = 0; __k < " << depth << "; ++__k) reg_"
-          << reg_ident << "[__k] = next_" << reg_ident << "[__k];\n";
+      unsigned elem_w = hirct::get_type_width(arr_ty.getElementType());
+      if (elem_w == 0)
+        elem_w = 1;
+      std::string etype = hirct::cpp_type_for_width(elem_w);
+      if (reg.reset) {
+        std::string rst_sig;
+        if (auto arg = mlir::dyn_cast<mlir::BlockArgument>(reg.reset)) {
+          auto port_list = hw_module_.getPortList();
+          unsigned idx = arg.getArgNumber();
+          if (idx < port_list.size())
+            rst_sig = port_list[idx].getName().str();
+        }
+        if (rst_sig.empty() && !mlir::isa<mlir::BlockArgument>(reg.reset))
+          rst_sig = "rst_sig_" + reg_ident;
+        if (!rst_sig.empty()) {
+          auto arrInits =
+              extractHwArrayResetValues(reg.reset_value, depth, elem_w);
+          ofs << "  if (" << rst_sig << ") {\n";
+          if (hasNonzeroArrayInit(arrInits)) {
+            for (unsigned k = 0; k < depth; ++k)
+              ofs << "    reg_" << reg_ident << "[" << k << "] = static_cast<"
+                  << etype << ">(" << arrInits[k] << ");\n";
+          } else {
+            ofs << "    for (unsigned __k = 0; __k < " << depth
+                << "; ++__k) reg_" << reg_ident << "[__k] = static_cast<"
+                << etype << ">(0);\n";
+          }
+          ofs << "  } else {\n";
+          ofs << "    for (unsigned __k = 0; __k < " << depth
+              << "; ++__k) reg_" << reg_ident << "[__k] = next_" << reg_ident
+              << "[__k];\n";
+          ofs << "  }\n";
+        } else {
+          ofs << "  for (unsigned __k = 0; __k < " << depth << "; ++__k) reg_"
+              << reg_ident << "[__k] = next_" << reg_ident << "[__k];\n";
+        }
+      } else {
+        ofs << "  for (unsigned __k = 0; __k < " << depth << "; ++__k) reg_"
+            << reg_ident << "[__k] = next_" << reg_ident << "[__k];\n";
+      }
     } else if (reg.width > 64) {
       unsigned words = getWordCount(reg.width);
       if (reg.reset) {

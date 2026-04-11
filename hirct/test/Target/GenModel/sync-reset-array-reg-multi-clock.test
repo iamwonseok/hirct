@@ -1,0 +1,28 @@
+// Test: array-type register reset semantics in multi-clock module.
+// Verifies that each domain step emits a reset branch for array-typed compreg,
+// and that do_reset() applies per-element reset values.
+//
+// RUN: %hirct-gen %S/../../fixtures/SyncResetArrayRegMultiClock.mlir -o %t --only model
+// RUN: cat %t/cmodel/SyncResetArrayRegMultiClock.cpp | %FileCheck %s --check-prefix=CHECK-CPP
+// RUN: g++ -std=c++17 -fsyntax-only -I%t/cmodel %t/cmodel/SyncResetArrayRegMultiClock.cpp
+//
+// step_clka(): array compreg on clkA domain must check reset
+// CHECK-CPP-LABEL: void SyncResetArrayRegMultiClock::step_clka()
+// CHECK-CPP:       if (reset) {
+// CHECK-CPP-NEXT:    reg_ssa_arr__regA[0] = static_cast<uint8_t>(42);
+// CHECK-CPP-NEXT:    reg_ssa_arr__regA[1] = static_cast<uint8_t>(0);
+// CHECK-CPP-NEXT:  } else {
+// CHECK-CPP:         reg_ssa_arr__regA[__k] = next_ssa_arr__regA[__k];
+//
+// step_clkb(): array compreg on clkB domain must check reset
+// CHECK-CPP-LABEL: void SyncResetArrayRegMultiClock::step_clkb()
+// CHECK-CPP:       if (reset) {
+// CHECK-CPP-NEXT:    reg_ssa_arr__regB[0] = static_cast<uint16_t>(1000);
+// CHECK-CPP-NEXT:    reg_ssa_arr__regB[1] = static_cast<uint16_t>(0);
+// CHECK-CPP-NEXT:  } else {
+// CHECK-CPP:         reg_ssa_arr__regB[__k] = next_ssa_arr__regB[__k];
+//
+// do_reset(): must use per-element reset values
+// CHECK-CPP-LABEL: void SyncResetArrayRegMultiClock::do_reset()
+// CHECK-CPP:       reg_ssa_arr__regA[0] = static_cast<uint8_t>(42)
+// CHECK-CPP:       reg_ssa_arr__regB[0] = static_cast<uint16_t>(1000)
