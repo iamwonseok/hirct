@@ -19,11 +19,13 @@ class GenDPIC {
 public:
   explicit GenDPIC(circt::hw::HWModuleOp hw_module, mlir::ModuleOp mlir_module);
   bool emit(const std::string &output_dir);
+  const std::string &last_error_reason() const { return last_error_reason_; }
 
 private:
   circt::hw::HWModuleOp hw_module_;
   mlir::ModuleOp mlir_module_;
   std::string module_name_;
+  std::string last_error_reason_;
   hirct::ClockDomainMapView cdm_view_;
 
   std::string dpi_c_type_for_width(int width) const;

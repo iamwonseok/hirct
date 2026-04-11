@@ -555,8 +555,10 @@ struct EmitterResults {
   bool makefile_skipped = false;
   bool verify_ok = false;
   bool verify_skipped = false;
+  std::string verify_reason;
   bool dpic_ok = false;
   bool dpic_skipped = false;
+  std::string dpic_reason;
   bool wrapper_ok = false;
   bool wrapper_skipped = false;
   bool format_ok = false;
@@ -602,11 +604,17 @@ bool write_meta_json(const std::string &path, const std::string &top,
       << "\"},\n";
   ofs << "    \"gen-verify\": {\"result\": \""
       << status(results.verify_ok, results.verify_skipped)
-      << "\", \"reason\": \"" << (results.verify_skipped ? skip_reason : "")
+      << "\", \"reason\": \""
+      << json_escape(!results.verify_reason.empty()
+                         ? results.verify_reason
+                         : (results.verify_skipped ? skip_reason : ""))
       << "\"},\n";
   ofs << "    \"gen-dpic\": {\"result\": \""
       << status(results.dpic_ok, results.dpic_skipped) << "\", \"reason\": \""
-      << (results.dpic_skipped ? skip_reason : "") << "\"},\n";
+      << json_escape(!results.dpic_reason.empty()
+                         ? results.dpic_reason
+                         : (results.dpic_skipped ? skip_reason : ""))
+      << "\"},\n";
   ofs << "    \"gen-wrapper\": {\"result\": \""
       << status(results.wrapper_ok, results.wrapper_skipped)
       << "\", \"reason\": \"" << (results.wrapper_skipped ? skip_reason : "")
@@ -1189,6 +1197,12 @@ int main(int argc, char *argv[]) {
   if (emitter_allowed(allowed, "verify")) {
     hirct::GenVerify gen_verify(top_hw);
     results.verify_ok = gen_verify.emit(mod_output_dir);
+    if (!results.verify_ok) {
+      results.verify_reason = gen_verify.last_error_reason();
+      if (results.verify_reason.find("unsupported port width") !=
+          std::string::npos)
+        results.verify_skipped = true;
+    }
   } else {
     results.verify_skipped = true;
   }
@@ -1196,6 +1210,12 @@ int main(int argc, char *argv[]) {
   if (emitter_allowed(allowed, "dpic")) {
     hirct::GenDPIC gen_dpic(top_hw, *mlir_module);
     results.dpic_ok = gen_dpic.emit(mod_output_dir);
+    if (!results.dpic_ok) {
+      results.dpic_reason = gen_dpic.last_error_reason();
+      if (results.dpic_reason.find("unsupported port width") !=
+          std::string::npos)
+        results.dpic_skipped = true;
+    }
   } else {
     results.dpic_skipped = true;
   }
@@ -1259,9 +1279,9 @@ int main(int argc, char *argv[]) {
   if (emitter_allowed(allowed, "makefile"))
     all_ok &= results.makefile_ok;
   if (emitter_allowed(allowed, "verify"))
-    all_ok &= results.verify_ok;
+    all_ok &= (results.verify_skipped || results.verify_ok);
   if (emitter_allowed(allowed, "dpic"))
-    all_ok &= results.dpic_ok;
+    all_ok &= (results.dpic_skipped || results.dpic_ok);
   if (emitter_allowed(allowed, "wrapper"))
     all_ok &= results.wrapper_ok;
   if (emitter_allowed(allowed, "format"))

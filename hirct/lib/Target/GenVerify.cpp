@@ -70,6 +70,8 @@ std::string GenVerify::random_expr_for_width(int width) const {
 }
 
 bool GenVerify::emit(const std::string &output_dir) {
+  last_error_reason_.clear();
+
   struct SimplePort {
     std::string name;
     int width;
@@ -91,7 +93,8 @@ bool GenVerify::emit(const std::string &output_dir) {
   }
 
   if (out_ports.empty()) {
-    std::cerr << "GenVerify: no output ports to compare\n";
+    last_error_reason_ = "no output ports to compare";
+    std::cerr << "GenVerify: " << last_error_reason_ << "\n";
     return false;
   }
 
@@ -167,8 +170,9 @@ bool GenVerify::emit(const std::string &output_dir) {
       continue;
     std::string ctype = cpp_type_for_width(p.width);
     if (ctype.empty()) {
-      std::cerr << "GenVerify: unsupported input width " << p.width << " for "
-                << p.name << "\n";
+      last_error_reason_ = "unsupported port width >64 (port: " + p.name +
+                           ", width: " + std::to_string(p.width) + ")";
+      std::cerr << "GenVerify: " << last_error_reason_ << "\n";
       return false;
     }
     ofs << "    " << ctype << " in_" << p.name << " = static_cast<" << ctype

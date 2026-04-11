@@ -66,9 +66,12 @@ std::string GenDPIC::func_prefix() const {
 // ---------------------------------------------------------------------------
 
 bool GenDPIC::emit(const std::string &output_dir) {
+  last_error_reason_.clear();
+
   std::string dpi_dir = output_dir + "/dpi";
   if (mkdir(dpi_dir.c_str(), 0755) != 0 && errno != EEXIST) {
-    std::cerr << "GenDPIC: cannot create directory: " << dpi_dir << ": "
+    last_error_reason_ = "cannot create dpi directory";
+    std::cerr << "GenDPIC: " << last_error_reason_ << ": " << dpi_dir << ": "
               << strerror(errno) << "\n";
     return false;
   }
@@ -196,8 +199,9 @@ bool GenDPIC::emit_header(const std::string &dir) {
       continue;
     std::string ctype = dpi_c_type_for_width(static_cast<int>(p.width));
     if (ctype.empty()) {
-      std::cerr << "GenDPIC: unsupported width " << p.width << " for port "
-                << p.name << "\n";
+      last_error_reason_ = "unsupported port width >64 (port: " + p.name +
+                           ", width: " + std::to_string(p.width) + ")";
+      std::cerr << "GenDPIC: " << last_error_reason_ << "\n";
       return false;
     }
     if (p.is_input) {
@@ -272,8 +276,9 @@ bool GenDPIC::emit_impl(const std::string &dir) {
       continue;
     std::string ctype = dpi_c_type_for_width(static_cast<int>(p.width));
     if (ctype.empty()) {
-      std::cerr << "GenDPIC: unsupported width " << p.width << " for port "
-                << p.name << "\n";
+      last_error_reason_ = "unsupported port width >64 (port: " + p.name +
+                           ", width: " + std::to_string(p.width) + ")";
+      std::cerr << "GenDPIC: " << last_error_reason_ << "\n";
       return false;
     }
     if (p.is_input) {
@@ -398,8 +403,9 @@ bool GenDPIC::emit_sv(const std::string &dir) {
       continue;
     std::string svtype = sv_dpi_type_for_width(static_cast<int>(p.width));
     if (svtype.empty()) {
-      std::cerr << "GenDPIC: unsupported width " << p.width << " for port "
-                << p.name << "\n";
+      last_error_reason_ = "unsupported port width >64 (port: " + p.name +
+                           ", width: " + std::to_string(p.width) + ")";
+      std::cerr << "GenDPIC: " << last_error_reason_ << "\n";
       return false;
     }
     if (p.is_input) {

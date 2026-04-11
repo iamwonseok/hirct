@@ -1,0 +1,17 @@
+// Test: hirct-gen gracefully skips gen-verify/gen-dpic for >64-bit ports instead
+// of hard-failing, and records the reason in meta.json.
+//
+// RUN: %hirct-gen %S/../../fixtures/ParityWide.mlir -o %t 2>&1 | %FileCheck %s --check-prefix=CHECK-STDERR
+// RUN: cat %t/meta.json | %FileCheck %s --check-prefix=CHECK-META
+//
+// The pipeline must succeed (exit 0) even though verify/dpic cannot handle wide ports.
+//
+// CHECK-STDERR: GenVerify: unsupported port width >64
+// CHECK-STDERR: GenDPIC: unsupported port width >64
+// CHECK-STDERR: Generated artifacts for ParityWide
+//
+// gen-model must pass; gen-verify and gen-dpic must be skipped with reason.
+//
+// CHECK-META: "gen-model": {"result": "pass"
+// CHECK-META: "gen-verify": {"result": "skipped", "reason": "unsupported port width >64
+// CHECK-META: "gen-dpic": {"result": "skipped", "reason": "unsupported port width >64
