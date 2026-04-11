@@ -43,6 +43,10 @@ _resolve_sub("%FileCheck", config)
 
 # Make LLVM utility tools (e.g. 'not') available on PATH for RUN lines.
 _not_path = shutil.which("not")
+if _not_path is None and hasattr(config, "llvm_tools_dir"):
+    _candidate = os.path.join(config.llvm_tools_dir, "not")
+    if os.path.isfile(_candidate):
+        _not_path = _candidate
 if _not_path is None:
     import glob as _glob
 
