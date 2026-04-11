@@ -11,3 +11,9 @@ add_library(hirctCModelEmitter CModelEmitter.cpp)
 target_link_libraries(hirctCModelEmitter PUBLIC
     hirctSemanticModel
 )
+
+add_library(hirctSystemCWrapperEmitter SystemCWrapperEmitter.cpp)
+target_link_libraries(hirctSystemCWrapperEmitter PUBLIC
+    hirctCModelEmitter
+    hirctSemanticModel
+)

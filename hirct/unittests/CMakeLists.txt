@@ -5,5 +5,5 @@ add_subdirectory(Target)
 
 add_custom_target(check-hirct-unit
   COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
-  DEPENDS FSMAnalysisTest SemanticModelTest GenFuncModelTest CModelEmitterTest
+  DEPENDS FSMAnalysisTest SemanticModelTest GenFuncModelTest CModelEmitterTest SystemCWrapperEmitterTest
   COMMENT "Running HIRCT unit tests")

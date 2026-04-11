@@ -4,6 +4,32 @@
 > **규칙**: lit 테스트에서 이 파일을 참조하여 XFAIL 판정. XPASS(예상 실패가 통과) = WARN (CI는 Green 유지).
 > **분류 기준**: hirct-convention.md §5 "실패 분류 체계" 참조
 
+## KL-19. SystemCWrapperEmitter v1 범위 제한
+
+**카테고리**: SystemC wrapper / exporter scope  
+**영향 타겟**: `SystemCWrapperEmitter` 기반 wrapper 생성 경로  
+**심각도**: Medium (wrapper 사용 범위 제한, C model core에는 영향 없음)  
+**등록일**: 2026-04-09
+
+**설명**:
+현재 `SystemCWrapperEmitter`는 **single-top / single-clock / 64비트 이하 포트**를 우선 지원하는 얇은 wrapper 계층이다.
+
+- **single-clock 우선**: `clock_method()`는 단일 SystemC clock 포트를 기준으로 `eval_<clock>() -> eval_comb()` 호출 순서를 고정한다. multi-clock 일반화는 backlog다.
+- **wide port 미일반화**: C model core는 `width > 64` 포트에 대해 `_set_<port>_word(s)` / `_get_<port>_word(s)` API를 제공하지만, 현재 wrapper는 이 word-based API까지 아직 연결하지 않는다.
+- **single-top 전제**: hierarchical multi-module export 자체가 아직 v1 범위 밖이므로 wrapper도 flatten 또는 single-top semantic scope를 전제로 한다.
+
+**우회 방법**:
+- wrapper가 필요한 경우 `single-clock` + `<=64-bit I/O` top에 우선 적용
+- wide I/O가 필요한 경우 현재는 generated C model API를 직접 사용
+- hierarchical/multi-module은 flatten 또는 single-top 정리 후 사용
+
+**해결 계획**:
+- 중기: wide I/O word API 연결
+- 중기: multi-clock wrapper generalization
+- 장기: hierarchical export seam 확정 후 wrapper 확장
+
+---
+
 ## Hybrid Cross-Validation Baseline (2026-02-23)
 
 - Baseline 고정(Task 1 시점): `make build && ninja -C build check-hirct` -> `44/44 PASS` (exit 0)
