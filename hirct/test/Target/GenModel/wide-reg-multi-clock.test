@@ -1,0 +1,20 @@
+// Test: wide scalar registers (> 64 bits) in multi-clock modules must use
+// word-wise copy in emit_domain_step, not scalar assignment.
+//
+// Regression test for WideConstant batch: emit_domain_step gap.
+// Without the fix, generated step_pclk() emits:
+//   reg_ssa_reg128 = next_ssa_reg128;
+// which fails to compile because reg_ssa_reg128 is uint64_t[2].
+//
+// RUN: %hirct-gen %S/../../fixtures/MultiClockWideReg.mlir -o %t --only model
+// RUN: cat %t/cmodel/MultiClockWideReg.h | %FileCheck %s --check-prefix=CHECK-H
+// RUN: cat %t/cmodel/MultiClockWideReg.cpp | %FileCheck %s --check-prefix=CHECK-CPP
+// RUN: g++ -std=c++17 -fsyntax-only -I%t/cmodel %t/cmodel/MultiClockWideReg.cpp
+//
+// Verify wide scalar register is stored as per-word array.
+// CHECK-H: uint64_t reg_ssa_reg128[2];
+// CHECK-H: uint64_t next_ssa_reg128[2];
+//
+// Verify step_pclk() uses word-level copy (not scalar assignment).
+// CHECK-CPP-LABEL: void MultiClockWideReg::step_pclk()
+// CHECK-CPP: for (unsigned __k = 0; __k < 2; ++__k) reg_ssa_reg128[__k] = next_ssa_reg128[__k];
