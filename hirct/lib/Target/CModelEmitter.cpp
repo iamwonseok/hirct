@@ -143,6 +143,110 @@ CModelArtifact CModelEmitter::emit() {
   return artifact;
 }
 
+void CModelEmitter::emitChildIncludes(llvm::raw_string_ostream &os) {
+  llvm::SmallVector<std::string> seen;
+  for (const auto &child : childInstances_) {
+    bool dup = false;
+    for (const auto &s : seen)
+      if (s == child.childModuleName) { dup = true; break; }
+    if (dup) continue;
+    seen.push_back(child.childModuleName);
+    os << "#include \"" << child.childModuleName << options_.headerSuffix
+       << "\"\n";
+  }
+}
+
+void CModelEmitter::emitChildStateFields(llvm::raw_string_ostream &os) {
+  for (const auto &child : childInstances_)
+    os << "  " << child.childModuleName << "_state " << child.instanceName
+       << ";\n";
+}
+
+void CModelEmitter::emitChildInitCalls(llvm::raw_string_ostream &os) {
+  for (const auto &child : childInstances_)
+    os << "  " << child.childModuleName << "_initialize(&s->"
+       << child.instanceName << ");\n";
+}
+
+void CModelEmitter::emitChildEvalCombWiring(llvm::raw_string_ostream &os) {
+  if (childInstances_.empty() || !hwModule_)
+    return;
+
+  auto *bodyBlock = hwModule_.getBodyBlock();
+  unsigned childIdx = 0;
+  for (auto &op : bodyBlock->getOperations()) {
+    auto inst = mlir::dyn_cast<circt::hw::InstanceOp>(op);
+    if (!inst)
+      continue;
+    if (childIdx >= childInstances_.size())
+      break;
+    const auto &info = childInstances_[childIdx];
+    ++childIdx;
+
+    os << "  // --- child instance: " << info.instanceName << " ("
+       << info.childModuleName << ") ---\n";
+
+    // Set child inputs
+    for (unsigned i = 0; i < inst.getNumOperands() && i < info.inputPorts.size();
+         ++i) {
+      const auto &portPair = info.inputPorts[i];
+      if (portPair.second > 64) {
+        os << "  /* TODO: wide input " << portPair.first << " */\n";
+        continue;
+      }
+      std::string valExpr = renderExpr(inst.getOperand(i));
+      os << "  " << info.childModuleName << "_set_" << portPair.first
+         << "(&s->" << info.instanceName << ", (" << legalCType(portPair.second)
+         << ")(" << valExpr << "));\n";
+    }
+
+    // Call child eval_comb
+    os << "  " << info.childModuleName << "_eval_comb(&s->"
+       << info.instanceName << ");\n";
+
+    // Get child outputs → staged local bindings
+    for (unsigned i = 0; i < inst.getNumResults() && i < info.outputPorts.size();
+         ++i) {
+      const auto &portPair = info.outputPorts[i];
+      if (portPair.second > 64) {
+        os << "  /* TODO: wide output " << portPair.first << " */\n";
+        continue;
+      }
+      std::string localName =
+          info.instanceName + "_" + portPair.first;
+      os << "  " << legalCType(portPair.second) << " " << localName << " = "
+         << info.childModuleName << "_get_" << portPair.first << "(&s->"
+         << info.instanceName << ");\n";
+      exprCache_[inst.getResult(i)] = localName;
+    }
+  }
+}
+
+void CModelEmitter::emitChildEvalClockCalls(llvm::raw_string_ostream &os,
+                                            llvm::StringRef clockDomain) {
+  for (const auto &child : childInstances_) {
+    bool childHasDomain = false;
+    for (const auto &cd : child.clockDomains) {
+      if (cd == clockDomain) {
+        childHasDomain = true;
+        break;
+      }
+    }
+    if (!childHasDomain)
+      continue;
+    os << "  " << child.childModuleName << "_eval_" << clockDomain << "(&s->"
+       << child.instanceName << ");\n";
+  }
+}
+
+void CModelEmitter::preSeedInstanceBindings() {
+  // no-op: bindings are seeded during emitChildEvalCombWiring
+}
+
+void CModelEmitter::resetExprCacheForFunction() {
+  exprCache_.clear();
+}
+
 void CModelEmitter::emitHeader(llvm::raw_string_ostream &os) {
   const auto &mod = model_.moduleName;
 
@@ -150,7 +254,9 @@ void CModelEmitter::emitHeader(llvm::raw_string_ostream &os) {
   os << "#define " << mod << "_MODEL_H\n\n";
   os << "#include <stdint.h>\n";
   os << "#include <stddef.h>\n";
-  os << "#include <string.h>\n\n";
+  os << "#include <string.h>\n";
+  emitChildIncludes(os);
+  os << "\n";
   os << "#ifdef __cplusplus\n";
   os << "extern \"C\" {\n";
   os << "#endif\n\n";
@@ -186,6 +292,8 @@ void CModelEmitter::emitHeader(llvm::raw_string_ostream &os) {
   for (const auto &mem : model_.memoryVars)
     os << "  " << legalCType(mem.elementWidth) << " " << mem.stableName << "["
        << mem.depth << "];\n";
+
+  emitChildStateFields(os);
 
   os << "} " << mod << "_state;\n\n";
 
@@ -657,6 +765,8 @@ std::string CModelEmitter::renderArcExprCached(
 }
 
 void CModelEmitter::emitEvalComb(llvm::raw_string_ostream &os) {
+  resetExprCacheForFunction();
+
   const auto &mod = model_.moduleName;
   os << "void " << mod << "_eval_comb(" << mod << "_state *s) {\n";
 
@@ -671,12 +781,18 @@ void CModelEmitter::emitEvalComb(llvm::raw_string_ostream &os) {
       mlir::dyn_cast<circt::hw::OutputOp>(block->getTerminator());
 
   if (!outputOp) {
-    os << "  (void)s;\n";
+    emitChildEvalCombWiring(os);
+    if (childInstances_.empty())
+      os << "  (void)s;\n";
     os << "}\n\n";
     return;
   }
 
-  bool emittedAnything = false;
+  // Phase 1: child instance wiring (set → eval_comb → get → staged binding)
+  emitChildEvalCombWiring(os);
+
+  // Phase 2: parent's own combinational logic
+  bool emittedAnything = !childInstances_.empty();
   for (auto [idx, operand] : llvm::enumerate(outputOp.getOperands())) {
     if (idx >= model_.outputs.size())
       break;
@@ -782,6 +898,7 @@ void CModelEmitter::emitImpl(llvm::raw_string_ostream &os) {
   for (const auto &mem : model_.memoryVars)
     os << "  for (size_t i = 0; i < " << mem.depth << "; ++i) s->"
        << mem.stableName << "[i] = 0;\n";
+  emitChildInitCalls(os);
   os << "}\n\n";
 
   // setters
@@ -804,6 +921,8 @@ void CModelEmitter::emitImpl(llvm::raw_string_ostream &os) {
 
 void CModelEmitter::emitEvalClock(llvm::raw_string_ostream &os,
                                   llvm::StringRef clockDomain) {
+  resetExprCacheForFunction();
+
   const auto &mod = model_.moduleName;
   os << "void " << mod << "_eval_" << clockDomain << "(" << mod
      << "_state *s) {\n";
@@ -811,6 +930,35 @@ void CModelEmitter::emitEvalClock(llvm::raw_string_ostream &os,
   if (!hwModule_) {
     os << "  (void)s;\n}\n\n";
     return;
+  }
+
+  // Child eval_clock calls before parent's own sequential logic
+  emitChildEvalClockCalls(os, clockDomain);
+
+  // Build instance result → getter expression map for cross-module references.
+  // In eval_clock, exprCache_ is cleared, so we build a local map from
+  // hw.instance results to "{Child}_get_{port}(&s->{inst})" expressions.
+  llvm::DenseMap<mlir::Value, std::string> instanceResultMap;
+  if (!childInstances_.empty()) {
+    auto *bodyBlock = hwModule_.getBodyBlock();
+    unsigned childIdx = 0;
+    for (auto &op : bodyBlock->getOperations()) {
+      auto inst = mlir::dyn_cast<circt::hw::InstanceOp>(op);
+      if (!inst)
+        continue;
+      if (childIdx >= childInstances_.size())
+        break;
+      const auto &info = childInstances_[childIdx];
+      ++childIdx;
+      for (unsigned r = 0; r < inst.getNumResults() && r < info.outputPorts.size(); ++r) {
+        const auto &portPair = info.outputPorts[r];
+        if (portPair.second > 64)
+          continue;
+        instanceResultMap[inst.getResult(r)] =
+            info.childModuleName + "_get_" + portPair.first +
+            "(&s->" + info.instanceName + ")";
+      }
+    }
   }
 
   auto parentModule = hwModule_->getParentOfType<mlir::ModuleOp>();
@@ -918,7 +1066,12 @@ void CModelEmitter::emitEvalClock(llvm::raw_string_ostream &os,
           argMap[bodyArg] = "/* unknown_state_ref */0";
         }
       } else {
-        argMap[bodyArg] = "/* unresolved_operand */0";
+        auto instIt = instanceResultMap.find(hwOperand);
+        if (instIt != instanceResultMap.end()) {
+          argMap[bodyArg] = instIt->second;
+        } else {
+          argMap[bodyArg] = "/* unresolved_operand */0";
+        }
       }
       ++bodyArgIdx;
     }
@@ -1037,7 +1190,12 @@ void CModelEmitter::emitEvalClock(llvm::raw_string_ostream &os,
           if (svIt != opToStateVar.end()) {
             argMap[bodyArg] = "s->" + svIt->second->stableName;
           } else {
-            argMap[bodyArg] = "/* unresolved_operand */0";
+            auto instIt = instanceResultMap.find(hwOperand);
+            if (instIt != instanceResultMap.end()) {
+              argMap[bodyArg] = instIt->second;
+            } else {
+              argMap[bodyArg] = "/* unresolved_operand */0";
+            }
           }
         }
       } else {

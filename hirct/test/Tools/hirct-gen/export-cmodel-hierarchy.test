@@ -55,3 +55,42 @@
 // Wrapper artifacts must not be generated
 // RUN: test ! -f %t_hierwrap/Top_sc_wrapper.h
 // RUN: test ! -f %t_hierwrap/Top_sc_wrapper.cpp
+//
+// ============================================================================
+// M3 Batch 2: parent-child integration
+// ============================================================================
+//
+// --- HierSimple Batch2: parent includes child, embeds state, calls init/eval ---
+// RUN: rm -rf %t_b2_simple
+// RUN: %hirct-gen %S/../../fixtures/HierSimple.mlir -o %t_b2_simple --export-cmodel --top Top
+// RUN: %FileCheck %s --check-prefix=CHECK-B2-ROOT-H < %t_b2_simple/Top.h
+// RUN: %FileCheck %s --check-prefix=CHECK-B2-ROOT-CPP < %t_b2_simple/Top.cpp
+//
+// Parent header includes child header
+// CHECK-B2-ROOT-H: #include "Adder8.h"
+// Parent state embeds child state
+// CHECK-B2-ROOT-H: Adder8_state add0
+//
+// Parent initialize calls child initialize
+// CHECK-B2-ROOT-CPP: Adder8_initialize(&s->add0)
+// Parent eval_comb calls child set/eval/get
+// CHECK-B2-ROOT-CPP: Adder8_set_a(&s->add0
+// CHECK-B2-ROOT-CPP: Adder8_set_b(&s->add0
+// CHECK-B2-ROOT-CPP: Adder8_eval_comb(&s->add0)
+// CHECK-B2-ROOT-CPP: Adder8_get_sum(&s->add0)
+//
+// --- HierCrossRef: staged binding, child output used in parent comb logic ---
+// RUN: rm -rf %t_b2_xref
+// RUN: %hirct-gen %S/../../fixtures/HierCrossRef.mlir -o %t_b2_xref --export-cmodel --top Top
+// RUN: %FileCheck %s --check-prefix=CHECK-B2-XREF-H < %t_b2_xref/Top.h
+// RUN: %FileCheck %s --check-prefix=CHECK-B2-XREF-CPP < %t_b2_xref/Top.cpp
+//
+// CHECK-B2-XREF-H: #include "Adder8.h"
+// CHECK-B2-XREF-H: Adder8_state add0
+//
+// Staged binding: child output read into local variable
+// CHECK-B2-XREF-CPP: add0_sum = Adder8_get_sum(&s->add0)
+// Parent comb logic must NOT contain /* unsupported:hw.instance */0
+// CHECK-B2-XREF-CPP-NOT: unsupported:hw.instance
+// Parent output expression must reference the staged local (add0_sum)
+// CHECK-B2-XREF-CPP: add0_sum

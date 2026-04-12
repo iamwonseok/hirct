@@ -1130,6 +1130,8 @@ int main(int argc, char *argv[]) {
     hirct::semantic::ModuleModel rootModel;
     bool rootModelBuilt = false;
 
+    llvm::DenseMap<llvm::StringRef, hirct::semantic::ModuleModel> modelMap;
+
     for (auto mod : postOrder) {
       auto modelResult = hirct::semantic::buildModuleModel(mod);
       if (mlir::failed(modelResult)) {
@@ -1139,8 +1141,36 @@ int main(int argc, char *argv[]) {
         break;
       }
       auto &model = *modelResult;
+      modelMap[mod.getSymName()] = model;
 
       hirct::CModelEmitter emitter(model, cmodelOpts, mod);
+
+      // Collect child instance info for parent-child integration
+      llvm::SmallVector<hirct::ChildInstanceInfo> children;
+      auto *bodyBlock = mod.getBodyBlock();
+      for (auto &op : bodyBlock->getOperations()) {
+        auto inst = mlir::dyn_cast<circt::hw::InstanceOp>(op);
+        if (!inst)
+          continue;
+        auto childName = inst.getModuleName();
+        auto childIt = modelMap.find(childName);
+        if (childIt == modelMap.end())
+          continue;
+        const auto &childModel = childIt->second;
+
+        hirct::ChildInstanceInfo info;
+        info.instanceName = inst.getInstanceName().str();
+        info.childModuleName = childName.str();
+        for (const auto &p : childModel.inputPorts)
+          info.inputPorts.push_back({p.name, p.width});
+        for (const auto &p : childModel.outputPorts)
+          info.outputPorts.push_back({p.name, p.width});
+        for (const auto &cd : childModel.clockDomains)
+          info.clockDomains.push_back(cd);
+        children.push_back(std::move(info));
+      }
+      emitter.setChildInstances(std::move(children));
+
       auto artifact = emitter.emit();
       if (!hirct::writeArtifact(artifact)) {
         std::cerr << "Error: failed to write C model artifact for "

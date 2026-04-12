@@ -24,6 +24,14 @@ struct CModelOptions {
   std::string implSuffix = ".cpp";
 };
 
+struct ChildInstanceInfo {
+  std::string instanceName;
+  std::string childModuleName;
+  llvm::SmallVector<std::pair<std::string, unsigned>> inputPorts;
+  llvm::SmallVector<std::pair<std::string, unsigned>> outputPorts;
+  llvm::SmallVector<std::string> clockDomains;
+};
+
 struct CModelArtifact {
   std::string moduleName;
   std::string outputRoot;
@@ -38,6 +46,10 @@ public:
   explicit CModelEmitter(const semantic::ModuleModel &model,
                          const CModelOptions &options,
                          circt::hw::HWModuleOp hwModule = nullptr);
+
+  void setChildInstances(llvm::SmallVector<ChildInstanceInfo> children) {
+    childInstances_ = std::move(children);
+  }
 
   CModelArtifact emit();
 
@@ -79,9 +91,19 @@ private:
 
   static constexpr unsigned kMaxInlineDepth = 16;
 
+  void emitChildIncludes(llvm::raw_string_ostream &os);
+  void emitChildStateFields(llvm::raw_string_ostream &os);
+  void emitChildInitCalls(llvm::raw_string_ostream &os);
+  void emitChildEvalCombWiring(llvm::raw_string_ostream &os);
+  void emitChildEvalClockCalls(llvm::raw_string_ostream &os,
+                               llvm::StringRef clockDomain);
+  void preSeedInstanceBindings();
+  void resetExprCacheForFunction();
+
   const semantic::ModuleModel &model_;
   CModelOptions options_;
   circt::hw::HWModuleOp hwModule_;
+  llvm::SmallVector<ChildInstanceInfo> childInstances_;
   llvm::DenseMap<mlir::Value, std::string> exprCache_;
 };
 

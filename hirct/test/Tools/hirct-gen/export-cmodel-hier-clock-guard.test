@@ -1,0 +1,37 @@
+// Test: M3 Batch 2 stabilization — clocked parent + comb-only child
+// Verifies that parent's eval_{clock} does NOT emit {Child}_eval_{clock}
+// when the child has no clock domain.
+
+// RUN: rm -rf %t
+// RUN: %hirct-gen %S/../../fixtures/HierClockedParentCombChild.mlir -o %t --export-cmodel --top Top
+// RUN: test -f %t/Top.h
+// RUN: test -f %t/Top.cpp
+// RUN: test -f %t/Adder8.h
+// RUN: test -f %t/Adder8.cpp
+//
+// Parent must have eval_clk (parent has clock domain "clk")
+// RUN: %FileCheck %s --check-prefix=CHECK-HAS-EVAL-CLK < %t/Top.cpp
+// CHECK-HAS-EVAL-CLK: Top_eval_clk
+//
+// Parent eval_clk must NOT call Adder8_eval_clk (child is comb-only)
+// RUN: %FileCheck %s --check-prefix=CHECK-NO-CHILD-EVAL-CLK < %t/Top.cpp
+// CHECK-NO-CHILD-EVAL-CLK-NOT: Adder8_eval_clk
+//
+// Child header must NOT declare eval_clk (child is comb-only)
+// RUN: %FileCheck %s --check-prefix=CHECK-CHILD-NO-CLK < %t/Adder8.h
+// CHECK-CHILD-NO-CLK-NOT: Adder8_eval_clk
+//
+// Parent eval_comb still calls child set/eval/get
+// RUN: %FileCheck %s --check-prefix=CHECK-COMB-WIRING < %t/Top.cpp
+// CHECK-COMB-WIRING: Adder8_set_a(&s->add0
+// CHECK-COMB-WIRING: Adder8_eval_comb(&s->add0)
+// CHECK-COMB-WIRING: Adder8_get_sum(&s->add0)
+//
+// M3 Batch 2 blocker fix: clocked parent sequential path must resolve child
+// output operands — no unresolved_operand fallback in Top_eval_clk
+// RUN: %FileCheck %s --check-prefix=CHECK-NO-UNRESOLVED < %t/Top.cpp
+// CHECK-NO-UNRESOLVED-NOT: unresolved_operand
+//
+// Top_eval_clk must reference child output via getter in next-state expr
+// RUN: %FileCheck %s --check-prefix=CHECK-CLK-CHILD-REF < %t/Top.cpp
+// CHECK-CLK-CHILD-REF: Adder8_get_sum(&s->add0)
