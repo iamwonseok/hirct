@@ -11,9 +11,9 @@
 **상세 문서**: `docs/v1-scope.md`
 
 **v1 경계 요약**:
-- **지원**: Arc MLIR 입력 → single-top/flattened C model export + thin SystemC wrapper export
+- **지원**: Arc MLIR (`.mlir`) 입력 → 단일 모듈 선택 C model export + thin SystemC wrapper export. exporter 자체는 flatten을 수행하지 않으며, 이미 lowered/flattened된 `.mlir`을 전제로 한다
 - **미지원**: hierarchical multi-module general export, multi-clock wrapper, wide (>64-bit) wrapper I/O word-API 바인딩, non-flattened hierarchy 보존
-- **CLI**: `--export-cmodel`은 `.mlir` 필수, `--export-systemc-wrapper`는 `--export-cmodel` 필수, invalid `--top`은 error exit
+- **CLI**: `--export-cmodel`은 `.mlir` 필수 (code-guard-backed), `--export-systemc-wrapper`는 `--export-cmodel` 필수 (code-guard-backed), invalid `--top`은 error exit (test-backed)
 
 **XFAIL 연결**:
 - `test/Target/GenModel/multi-module.test` — hierarchical export 미지원
@@ -35,7 +35,7 @@
 
 - **single-clock 우선**: `clock_method()`는 단일 SystemC clock 포트를 기준으로 `eval_<clock>() -> eval_comb()` 호출 순서를 고정한다. multi-clock 일반화는 backlog다.
 - **wide port 미일반화**: C model core는 `width > 64` 포트에 대해 `_set_<port>_word(s)` / `_get_<port>_word(s)` API를 제공하지만, 현재 wrapper는 이 word-based API까지 아직 연결하지 않는다.
-- **single-top 전제**: hierarchical multi-module export 자체가 아직 v1 범위 밖이므로 wrapper도 flatten 또는 single-top semantic scope를 전제로 한다.
+- **single-top 전제**: hierarchical multi-module export 자체가 아직 v1 범위 밖이므로 wrapper도 단일 모듈 선택(single-top) semantic scope를 전제로 한다. 입력 `.mlir`이 이미 flattened/lowered 상태일 것을 기대하며, exporter가 자동으로 flatten을 수행하지는 않는다.
 
 **CLI guard (2026-04-11)**:
 - `getWrapperV1UnsupportedReason()` 헬퍼가 multi-clock(clockDomains > 1) 또는 wide port(> 64-bit)를 감지하면 명시적 에러 메시지와 함께 non-zero exit
