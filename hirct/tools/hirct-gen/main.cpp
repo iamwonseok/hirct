@@ -1028,30 +1028,150 @@ int main(int argc, char *argv[]) {
     if (!target_hw)
       target_hw = hw_mods.back();
 
-    auto modelResult = hirct::semantic::buildModuleModel(target_hw);
-    if (mlir::failed(modelResult)) {
-      std::cerr << "Error: semantic model build failed for "
-                << target_hw.getSymName().str() << "\n";
-      return 1;
-    }
-    auto &model = *modelResult;
+    mlir::SymbolTable symTable(*mlir_module);
 
+    // --- M3 Batch 1: hierarchy traversal, cycle detection, leaf-first emit ---
+    // Phase 1: Collect reachable module graph from root via DFS.
+    //          Detect module-level cycles (3-color DFS) and self-instantiation.
+    //          Produce post-order (leaf-first) list of unique modules to emit.
+    enum Color { White, Gray, Black };
+    llvm::DenseMap<circt::hw::HWModuleOp, Color> colorMap;
+    std::vector<circt::hw::HWModuleOp> postOrder;
+    llvm::DenseSet<mlir::StringAttr> visited;
+    bool hasCycle = false;
+    std::string cycleDiag;
+
+    std::function<bool(circt::hw::HWModuleOp, std::vector<std::string> &)>
+        dfsVisit = [&](circt::hw::HWModuleOp mod,
+                       std::vector<std::string> &path) -> bool {
+      std::string modName = mod.getSymName().str();
+      colorMap[mod] = Gray;
+      path.push_back(modName);
+
+      auto *bodyBlock = mod.getBodyBlock();
+      for (auto &op : bodyBlock->getOperations()) {
+        auto inst = mlir::dyn_cast<circt::hw::InstanceOp>(op);
+        if (!inst)
+          continue;
+
+        auto childName = inst.getModuleName();
+        auto childHW = symTable.lookup<circt::hw::HWModuleOp>(childName);
+        if (!childHW) {
+          inst.emitError("dangling instance reference: module '")
+              << childName << "' not found";
+          hasCycle = true;
+          path.pop_back();
+          return false;
+        }
+
+        if (childName == mod.getSymNameAttr().getValue()) {
+          inst.emitError("module '")
+              << modName << "' instantiates itself (self-instantiation)";
+          inst.emitRemark(
+              "self-instantiation is not supported in hierarchical C "
+              "model export");
+          hasCycle = true;
+          path.pop_back();
+          return false;
+        }
+
+        Color c = colorMap.lookup(childHW);
+        if (c == Gray) {
+          cycleDiag = "";
+          bool inCycle = false;
+          for (const auto &p : path) {
+            if (p == childName.str())
+              inCycle = true;
+            if (inCycle) {
+              if (!cycleDiag.empty())
+                cycleDiag += " -> ";
+              cycleDiag += p;
+            }
+          }
+          cycleDiag += " -> " + childName.str();
+          inst.emitError("module instantiation cycle detected: ")
+              << cycleDiag;
+          inst.emitRemark(
+              "hierarchical C model export requires a DAG; cyclic "
+              "instantiation is not supported");
+          hasCycle = true;
+          path.pop_back();
+          return false;
+        }
+
+        if (c == Black)
+          continue;
+
+        if (!dfsVisit(childHW, path))
+          return false;
+      }
+
+      colorMap[mod] = Black;
+      path.pop_back();
+
+      if (visited.insert(mod.getSymNameAttr()).second)
+        postOrder.push_back(mod);
+
+      return true;
+    };
+
+    std::vector<std::string> path;
+    dfsVisit(target_hw, path);
+
+    if (hasCycle)
+      return 1;
+
+    // Phase 2: Emit artifacts in post-order (leaf-first).
+    bool anyFailed = false;
     hirct::CModelOptions cmodelOpts;
     cmodelOpts.outputDir = opts.output_dir;
-    hirct::CModelEmitter emitter(model, cmodelOpts, target_hw);
-    auto artifact = emitter.emit();
-    if (!hirct::writeArtifact(artifact)) {
-      std::cerr << "Error: failed to write C model artifact\n";
-      return 1;
+
+    // Track root model for SystemC wrapper and final message
+    hirct::semantic::ModuleModel rootModel;
+    bool rootModelBuilt = false;
+
+    for (auto mod : postOrder) {
+      auto modelResult = hirct::semantic::buildModuleModel(mod);
+      if (mlir::failed(modelResult)) {
+        std::cerr << "Error: semantic model build failed for "
+                  << mod.getSymName().str() << "\n";
+        anyFailed = true;
+        break;
+      }
+      auto &model = *modelResult;
+
+      hirct::CModelEmitter emitter(model, cmodelOpts, mod);
+      auto artifact = emitter.emit();
+      if (!hirct::writeArtifact(artifact)) {
+        std::cerr << "Error: failed to write C model artifact for "
+                  << mod.getSymName().str() << "\n";
+        anyFailed = true;
+        break;
+      }
+
+      if (mod == target_hw) {
+        rootModel = model;
+        rootModelBuilt = true;
+      }
     }
 
-    if (opts.export_systemc_wrapper) {
-      auto unsupported = hirct::getWrapperV1UnsupportedReason(model);
+    if (anyFailed)
+      return 1;
+
+    if (opts.export_systemc_wrapper && rootModelBuilt) {
+      if (postOrder.size() > 1) {
+        std::cerr << "error: --export-systemc-wrapper is not supported for "
+                     "hierarchical C model export (multiple reachable modules "
+                     "from root); SystemC wrapper generation is deferred to a "
+                     "future milestone\n";
+        return 1;
+      }
+      auto unsupported = hirct::getWrapperV1UnsupportedReason(rootModel);
       if (unsupported) {
         std::cerr << *unsupported << "\n";
         return 1;
       }
-      hirct::SystemCWrapperEmitter wrapperEmitter(model, cmodelOpts);
+      hirct::SystemCWrapperEmitter wrapperEmitter(rootModel, cmodelOpts);
       auto wrapperArtifact = wrapperEmitter.emit();
       if (!hirct::writeArtifact(wrapperArtifact)) {
         std::cerr << "Error: failed to write SystemC wrapper artifact\n";
@@ -1059,7 +1179,8 @@ int main(int argc, char *argv[]) {
       }
     }
 
-    std::cout << "Exported C model for " << model.moduleName << " in "
+    std::cout << "Exported C model for "
+              << target_hw.getSymName().str() << " in "
               << opts.output_dir << "/\n";
     return 0;
   }

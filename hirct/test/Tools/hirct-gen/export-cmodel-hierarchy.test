@@ -1,0 +1,57 @@
+// Test: M3 Batch 1 — hierarchical C model export
+// Covers: hierarchy traversal, leaf-first emit, dedup, unreachable exclusion,
+//         cycle reject, self-instantiation reject.
+//
+// --- HierSimple: root + 1 child, both artifacts generated ---
+// RUN: rm -rf %t_simple
+// RUN: %hirct-gen %S/../../fixtures/HierSimple.mlir -o %t_simple --export-cmodel --top Top
+// RUN: test -f %t_simple/Top.h
+// RUN: test -f %t_simple/Top.cpp
+// RUN: test -f %t_simple/Adder8.h
+// RUN: test -f %t_simple/Adder8.cpp
+//
+// Both artifacts should contain valid state/eval_comb declarations
+// RUN: %FileCheck %s --check-prefix=CHECK-SIMPLE-ROOT-H < %t_simple/Top.h
+// RUN: %FileCheck %s --check-prefix=CHECK-SIMPLE-CHILD-H < %t_simple/Adder8.h
+// CHECK-SIMPLE-ROOT-H: Top_state
+// CHECK-SIMPLE-ROOT-H: Top_eval_comb
+// CHECK-SIMPLE-CHILD-H: Adder8_state
+// CHECK-SIMPLE-CHILD-H: Adder8_eval_comb
+//
+// --- HierDedup: same child instantiated twice, artifact generated once ---
+// RUN: rm -rf %t_dedup
+// RUN: %hirct-gen %S/../../fixtures/HierDedup.mlir -o %t_dedup --export-cmodel --top DedupTop
+// RUN: test -f %t_dedup/DedupTop.h
+// RUN: test -f %t_dedup/DedupTop.cpp
+// RUN: test -f %t_dedup/Adder8.h
+// RUN: test -f %t_dedup/Adder8.cpp
+//
+// --- HierUnreachable: Orphan module must NOT be exported ---
+// RUN: rm -rf %t_unreach
+// RUN: %hirct-gen %S/../../fixtures/HierUnreachable.mlir -o %t_unreach --export-cmodel --top UnreachTop
+// RUN: test -f %t_unreach/UnreachTop.h
+// RUN: test -f %t_unreach/Adder8.h
+// RUN: test ! -f %t_unreach/Orphan.h
+// RUN: test ! -f %t_unreach/Orphan.cpp
+//
+// --- HierCyclic: cyclic module instantiation must be rejected ---
+// RUN: rm -rf %t_cyclic
+// RUN: not %hirct-gen %S/../../fixtures/HierCyclic.mlir -o %t_cyclic --export-cmodel --top CycA 2>&1 | %FileCheck %s --check-prefix=CHECK-CYCLIC
+// CHECK-CYCLIC: module instantiation cycle detected
+// No artifacts should remain
+// RUN: test ! -f %t_cyclic/CycA.h
+// RUN: test ! -f %t_cyclic/CycB.h
+//
+// --- HierSelfInst: self-instantiation must be rejected ---
+// RUN: rm -rf %t_self
+// RUN: not %hirct-gen %S/../../fixtures/HierSelfInst.mlir -o %t_self --export-cmodel --top SelfMod 2>&1 | %FileCheck %s --check-prefix=CHECK-SELF
+// CHECK-SELF: instantiates itself (self-instantiation)
+// RUN: test ! -f %t_self/SelfMod.h
+//
+// --- HierWrapper: --export-systemc-wrapper must be rejected for hierarchical input ---
+// RUN: rm -rf %t_hierwrap
+// RUN: not %hirct-gen %S/../../fixtures/HierSimple.mlir -o %t_hierwrap --export-cmodel --export-systemc-wrapper --top Top 2>&1 | %FileCheck %s --check-prefix=CHECK-HIER-WRAP
+// CHECK-HIER-WRAP: error: --export-systemc-wrapper is not supported for hierarchical C model export
+// Wrapper artifacts must not be generated
+// RUN: test ! -f %t_hierwrap/Top_sc_wrapper.h
+// RUN: test ! -f %t_hierwrap/Top_sc_wrapper.cpp
