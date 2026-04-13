@@ -143,7 +143,7 @@ struct ModuleModel {
   llvm::SmallVector<PortInfo> outputPorts;
   llvm::SmallVector<std::string> clockDomains;
   llvm::SmallVector<StateVar> stateVars;
-  llvm::SmallVector<AggregateStateVar> aggregateStateVars;
+  llvm::SmallVector<AggregateStateVar, 0> aggregateStateVars;
   llvm::SmallVector<MemoryVar> memoryVars;
   llvm::SmallVector<OutputBinding> outputs;
   llvm::SmallVector<ClockBoundaryReason> boundaryReasons;
