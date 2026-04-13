@@ -1,27 +1,34 @@
-// XFAIL: *
-// Test GenModel: multi-module MLIR with hw.instance support
-// Known limitation: hierarchical multi-module export is not in v1 scope.
-// See: known-limitations.md KL-20, docs/v1-scope.md
+// Test: multi-module MLIR with hw.instance support
+// Verifies hierarchical export generates per-module artifacts with correct
+// parent-child integration via --export-cmodel.
 //
-// RUN: %hirct-gen %S/../../fixtures/MultiModule.mlir -o %t --only model
-// RUN: cat %t/cmodel/MultiModule.h | %FileCheck %s --check-prefix=CHECK-TOP
-// RUN: cat %t/cmodel/MultiModule.cpp | %FileCheck %s --check-prefix=CHECK-CPP
-// RUN: cat %t/Adder8/cmodel/Adder8.h | %FileCheck %s --check-prefix=CHECK-SUB
-// RUN: g++ -std=c++17 -c %t/Adder8/cmodel/Adder8.cpp -I %t/Adder8/cmodel -o %t/test_adder.o
-// RUN: g++ -std=c++17 -c %t/cmodel/MultiModule.cpp -I %t/cmodel -I %t -o %t/test_multi.o
+// Originally XFAIL for GenModel path (--only model). M3 Batch 3 closes this
+// by exercising the --export-cmodel hierarchical path.
 //
-// CHECK-TOP: AUTO-GENERATED
-// CHECK-TOP: class MultiModule
-// CHECK-TOP: uint8_t x
-// CHECK-TOP: uint8_t result
-// CHECK-TOP: Adder8 inst_add1
-// CHECK-TOP: Adder8 inst_add2
+// RUN: rm -rf %t
+// RUN: %hirct-gen %S/../../fixtures/MultiModule.mlir -o %t --export-cmodel --top MultiModule
+// RUN: test -f %t/MultiModule.h
+// RUN: test -f %t/MultiModule.cpp
+// RUN: test -f %t/Adder8.h
+// RUN: test -f %t/Adder8.cpp
 //
-// CHECK-CPP: inst_add1.eval_comb()
-// CHECK-CPP: inst_add2.eval_comb()
+// RUN: %FileCheck %s --check-prefix=CHECK-TOP < %t/MultiModule.h
+// RUN: %FileCheck %s --check-prefix=CHECK-CPP < %t/MultiModule.cpp
+// RUN: %FileCheck %s --check-prefix=CHECK-SUB < %t/Adder8.h
 //
-// CHECK-SUB: AUTO-GENERATED
-// CHECK-SUB: class Adder8
-// CHECK-SUB: uint8_t a
-// CHECK-SUB: uint8_t b
-// CHECK-SUB: uint8_t sum
+// Parent header includes child and embeds child state
+// CHECK-TOP: #include "Adder8.h"
+// CHECK-TOP: Adder8_state add1
+// CHECK-TOP: Adder8_state add2
+//
+// Parent eval_comb calls children in topo order (add1 before add2)
+// CHECK-CPP: Adder8_eval_comb(&s->add1)
+// CHECK-CPP: Adder8_eval_comb(&s->add2)
+//
+// Child header has its own state and eval
+// CHECK-SUB: Adder8_state
+// CHECK-SUB: Adder8_eval_comb
+//
+// Compile-check both artifacts
+// RUN: c++ -std=c++17 -fsyntax-only -I %t %t/Adder8.cpp
+// RUN: c++ -std=c++17 -fsyntax-only -I %t %t/MultiModule.cpp

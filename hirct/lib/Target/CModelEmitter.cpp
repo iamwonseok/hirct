@@ -172,16 +172,22 @@ void CModelEmitter::emitChildEvalCombWiring(llvm::raw_string_ostream &os) {
   if (childInstances_.empty() || !hwModule_)
     return;
 
+  // Build name→InstanceOp map from the body block for operand/result access
+  llvm::StringMap<circt::hw::InstanceOp> instMap;
   auto *bodyBlock = hwModule_.getBodyBlock();
-  unsigned childIdx = 0;
   for (auto &op : bodyBlock->getOperations()) {
     auto inst = mlir::dyn_cast<circt::hw::InstanceOp>(op);
     if (!inst)
       continue;
-    if (childIdx >= childInstances_.size())
-      break;
-    const auto &info = childInstances_[childIdx];
-    ++childIdx;
+    instMap[inst.getInstanceName()] = inst;
+  }
+
+  // Emit child wiring in childInstances_ order (topologically sorted by caller)
+  for (const auto &info : childInstances_) {
+    auto it = instMap.find(info.instanceName);
+    if (it == instMap.end())
+      continue;
+    circt::hw::InstanceOp inst = it->second;
 
     os << "  // --- child instance: " << info.instanceName << " ("
        << info.childModuleName << ") ---\n";
@@ -940,16 +946,19 @@ void CModelEmitter::emitEvalClock(llvm::raw_string_ostream &os,
   // hw.instance results to "{Child}_get_{port}(&s->{inst})" expressions.
   llvm::DenseMap<mlir::Value, std::string> instanceResultMap;
   if (!childInstances_.empty()) {
+    llvm::StringMap<circt::hw::InstanceOp> instMap;
     auto *bodyBlock = hwModule_.getBodyBlock();
-    unsigned childIdx = 0;
     for (auto &op : bodyBlock->getOperations()) {
       auto inst = mlir::dyn_cast<circt::hw::InstanceOp>(op);
       if (!inst)
         continue;
-      if (childIdx >= childInstances_.size())
-        break;
-      const auto &info = childInstances_[childIdx];
-      ++childIdx;
+      instMap[inst.getInstanceName()] = inst;
+    }
+    for (const auto &info : childInstances_) {
+      auto it = instMap.find(info.instanceName);
+      if (it == instMap.end())
+        continue;
+      circt::hw::InstanceOp inst = it->second;
       for (unsigned r = 0; r < inst.getNumResults() && r < info.outputPorts.size(); ++r) {
         const auto &portPair = info.outputPorts[r];
         if (portPair.second > 64)

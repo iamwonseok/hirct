@@ -1,9 +1,9 @@
 # hirct-gen v1 Exporter Scope
 
 > **목적**: v1 export 경로(C model + SystemC wrapper)에서 되는 것과 안 되는 것을 과장 없이 고정한다.
-> **기준일**: 2026-04-12
+> **기준일**: 2026-04-13 (M3 closure sync)
 > **HEAD**: `8c60a73` (`test(CModelEmitter): cover aggregate-constant array resets`)
-> **SSOT 관계**: `known-limitations.md` KL-20과 정합. 아래 내용이 KL-20보다 상세하다.
+> **SSOT 관계**: 이 문서가 v1 scope의 **detailed contract**(SSOT)다. `known-limitations.md` KL-20은 요약 포인터로, 상세는 여기를 참조한다.
 
 ---
 
@@ -16,13 +16,13 @@
 | 항목 | 범위 | 테스트 근거 |
 |------|------|-------------|
 | **입력 형식 (positive path)** | Arc MLIR (`.mlir`) 입력으로 C model export가 동작한다 | `test/Tools/hirct-gen/export-cmodel.test` (CombOnly.mlir, CounterArc.mlir) — test-backed |
-| **입력 형식 (`.mlir` only guard)** | `--export-cmodel`은 `.mlir` 입력만 허용한다. `.v` 입력 시 error exit. 이 제약은 `main.cpp` code guard로 강제되지만 dedicated negative lit는 없다 | `main.cpp` L999–1002 code guard — code-guard-backed |
+| **입력 형식 (`.mlir` only guard)** | `--export-cmodel`은 `.mlir` 입력만 허용한다. `.v` 입력 시 error exit. 이 제약은 `main.cpp` code guard로 강제되지만 dedicated negative lit는 없다 | `main.cpp` L1000–1002 (`!is_mlir_input` 거부) — code-guard-backed |
 | **semantic scope (single target export)** | `--export-cmodel`은 단일 모듈을 선택하여 export한다. `--top`으로 지정하거나 마지막 `hw.module`을 선택한다. hierarchy-preserving export는 이 범위 밖이다 | `export-cmodel.test`: happy-path는 single-module `.mlir` 사용 (test-backed). `--top` fallback(마지막 `hw.module` 선택)과 multi-module `.mlir`에서의 단일 선택은 `main.cpp` code path에서 확인 가능하나 dedicated lit 없음 (code-path-backed) |
-| **invalid `--top` rejection** | `--top MissingTop` → 명시적 error exit | `export-cmodel.test` CHECK-BAD-TOP — test-backed |
-| **C model export** | `--export-cmodel` → `<Module>.h` + `<Module>.cpp` (`<Module>_state`, `_initialize`, `_eval_comb`, `_eval_<clock>`) | `export-cmodel.test` CHECK-COMB-H, CHECK-CLK-H; `export-cmodel-aggregate.test` |
+| **invalid `--top` rejection** | 존재하지 않는 모듈 이름 → 명시적 error exit (silent fallback 없음) | `--export-cmodel`와 함께일 때: `export-cmodel.test` CHECK-BAD-TOP — test-backed. `--export-cmodel` 없이 동일 lookup을 타는 경로는 `main.cpp`와 동일 메시지이나 dedicated negative lit 없음 — code-path-backed |
+| **C model export** | `--export-cmodel` → `<Module>.h` + `<Module>.cpp` (`<Module>_state`, `_eval_comb`, `_eval_<clock>`; `_initialize`는 `CModelEmitter.cpp`에서 항상 생성되나 lit CHECK에서 직접 검증 없음 — code-path-backed) | `export-cmodel.test` CHECK-COMB-H, CHECK-COMB-CPP, CHECK-CLK-H, CHECK-CLK-CPP, CHECK-MEM-H, CHECK-MEM-CPP; `export-cmodel-aggregate.test` CHECK-H, CHECK-CPP + `c++ -fsyntax-only` compile proof |
 | **SystemC wrapper export** | `--export-systemc-wrapper` → `<Module>_sc_wrapper.h` + `<Module>_sc_wrapper.cpp` | `export-systemc-wrapper.test` CHECK-WH, CHECK-WI |
 | **single-clock wrapper** | `clock_method()` — 단일 `sc_in_clk` 포트 기준 posedge 트리거 | `export-systemc-wrapper.test` CHECK-WH: `sc_in_clk` |
-| **<=64-bit wrapper I/O** | 1-bit 포트는 `bool`, 그 외 2..64-bit 포트는 `sc_dt::sc_uint<8|16|32|64>` bucket으로 매핑된다 | `SystemCWrapperEmitter.cpp:scPortType()`; `export-systemc-wrapper.test` |
+| **<=64-bit wrapper I/O** | 1-bit 포트는 `bool`, 그 외 2..64-bit 포트는 `sc_dt::sc_uint<8\|16\|32\|64>` bucket으로 매핑된다 | `SystemCWrapperEmitter.cpp:scPortType()`; `export-systemc-wrapper.test` (happy-path 구조만 CHECK, 개별 width 타입 CHECK 없음) |
 | **combinational module** | clock 없는 모듈도 C model export 가능 (eval_comb만 생성) | `export-cmodel.test` CHECK-COMB-H |
 
 ### SemanticModel (`%hirct-semantic`, export 경로와 별개)
@@ -34,16 +34,27 @@
 
 ---
 
+### Export 경로 — Hierarchical (M3, `--export-cmodel`)
+
+| 항목 | 범위 | 테스트 근거 |
+|------|------|-------------|
+| **hierarchical multi-module export** | `--export-cmodel` 경로에서 hierarchy traversal + per-module artifact emission. leaf-first emit, dedup, cycle reject, parent-child integration, topo ordering 지원 | `multi-module.test` (passing); `export-cmodel-hierarchy.test` Batch 1·2·3 — test-backed |
+| **instance topological sort** | Kahn's algorithm 기반 topo sort를 codegen eval_comb/eval_clock 호출 순서에 통합. 직접 def-use 기반 DAG edge만 감지 | `instance-topo-sort.test` (passing); `export-cmodel-hierarchy.test` CHECK-B3-ORD-CPP — test-backed |
+| **instance output cross-reference** | staged binding map으로 child eval_comb 후 출력을 local에 bind하여 cross-module reference 해결 | `instance-crossref.test` (passing); `export-cmodel-hierarchy.test` CHECK-B3-XREF — test-backed |
+| **hierarchy-preserving export** | flatten 없이 parent/child를 개별 artifact로 export하고 계층 구조 유지. parent header가 child header를 include하고 child state를 embed | `export-cmodel-hierarchy.test` Batch 1·2·3; compile-check passing — test-backed |
+
+---
+
 ## v1 Unsupported / Deferred
 
 | 항목 | 현재 상태 | 참조 |
 |------|-----------|------|
-| **hierarchical multi-module export** | 현재 `--export-cmodel`은 선택된 단일 모듈만 export한다. 계층 미지원의 직접 근거는 아직 export-path negative fixture가 아니라 legacy `--only model` XFAIL에 주로 의존한다 | `test/Target/GenModel/multi-module.test` (legacy XFAIL, indirect evidence) |
-| **instance topological sort** | legacy `--only model` 경로에서 XFAIL — 복수 인스턴스 간 평가 순서 결정 미구현. export-path direct negative fixture는 아직 없음 | `test/Target/GenModel/instance-topo-sort.test` (legacy XFAIL, indirect evidence) |
-| **instance output cross-reference** | legacy `--only model` 경로에서 XFAIL — 인스턴스 출력을 후속 조합 로직 입력으로 연결 미구현. export-path direct negative fixture는 아직 없음 | `test/Target/GenModel/instance-crossref.test` (legacy XFAIL, indirect evidence) |
-| **multi-clock wrapper** | `--export-systemc-wrapper`는 multi-clock 모듈에 대해 명시적 error로 거부. `getWrapperV1UnsupportedReason()`이 `clockDomains.size() > 1`이면 reject | KL-20; CLI guard in `main.cpp` |
-| **wide wrapper I/O (>64-bit)** | `--export-systemc-wrapper`는 >64-bit 포트가 있는 모듈에 대해 명시적 error로 거부. `getWrapperV1UnsupportedReason()`이 `port.width > 64`이면 reject. `scPortType()`에는 `sc_biguint<N>` 분기가 있으나 v1 guard가 먼저 차단하므로 현재 범위에서는 검증되지 않은 dead branch다 | KL-20; CLI guard in `main.cpp`; `SystemCWrapperEmitter.cpp:scPortType()` |
-| **arbitrary hierarchy preservation** | flatten 전제. non-flattened hierarchy를 그대로 보존하는 export 경로 없음 | KL-20 |
+| **wide cross-module binding** | hierarchical export에서 scalar port만 지원. wide port(>64-bit)의 cross-module binding은 `_word`/`_words` API variant를 통해야 하며 M3 scope에서 deferred | M3 plan Task 7·10; `renderExpr`의 `/* wide_port */0` fallback 동작과 일관 |
+| **indirect comb-chain dependency** | instance 간 직접 def-use만 topo edge로 형성. parent의 `comb.*` 연산 체인을 경유하는 간접 의존은 감지하지 않으며 순서를 보장하지 않음 | M3 plan Task 4; `IRAnalysis.cpp` edge 판별이 직접 연결만 감지 |
+| **multi-clock hierarchy** | hierarchical export는 single-clock 대상만 지원. multi-clock hierarchy는 deferred | M3 plan Task 9 scope 제한 |
+| **sequential cut** | instance ordering에서 registered output(seq.compreg)을 통한 sequential cut 분석 미지원. IR-level SSA def-use만으로 edge를 판별하며, port-level timing attribute 도입 후 지원 예정 | M3 plan Task 4 Sequential Cut 섹션 |
+| **multi-clock wrapper** | `--export-systemc-wrapper`는 multi-clock 모듈에 대해 명시적 error로 거부. `getWrapperV1UnsupportedReason()`이 `clockDomains.size() > 1`이면 reject | `export-systemc-wrapper.test` CHECK-MC-ERR (test-backed); KL-19·KL-20 |
+| **wide wrapper I/O (>64-bit)** | `--export-systemc-wrapper`는 >64-bit 포트가 있는 모듈에 대해 명시적 error로 거부. `getWrapperV1UnsupportedReason()`이 `port.width > 64`이면 reject. `scPortType()`에는 `sc_biguint<N>` 분기가 있으나 v1 guard가 먼저 차단하므로 현재 범위에서는 검증되지 않은 dead branch다 | `export-systemc-wrapper.test` CHECK-WP-ERR (test-backed); KL-19·KL-20; `SystemCWrapperEmitter.cpp:scPortType()` |
 
 ---
 
@@ -66,6 +77,8 @@ hirct-gen [options] <input>
 
 --top <module>
   존재하지 않는 모듈 이름 시 error exit (silent fallback 없음).
+  `--export-cmodel`와 함께 사용할 때의 invalid `--top`는 `export-cmodel.test`(CHECK-BAD-TOP)로 검증된다.
+  그 외 플래그 조합에서도 `main.cpp`에서 동일하게 거부되나, 그에 대한 dedicated negative lit는 아직 없다 (code-path-backed).
 ```
 
 ---
@@ -75,22 +88,22 @@ hirct-gen [options] <input>
 | 문서 주장 | 근거 | evidence class |
 |-----------|------|----------------|
 | 입력 형식 — `.mlir` positive path | `export-cmodel.test` (CombOnly.mlir, CounterArc.mlir) | test-backed |
-| 입력 형식 — `.mlir` only / `.v` reject | `main.cpp` L999–1002 code guard; dedicated negative lit 없음 | code-guard-backed |
+| 입력 형식 — `.mlir` only / `.v` reject | `main.cpp` L1000–1002 code guard; dedicated negative lit 없음 | code-guard-backed |
 | semantic scope — single-module happy path | `export-cmodel.test` happy-path (single-module `.mlir` 사용) | test-backed |
 | semantic scope — `--top` fallback, multi-module single selection | `main.cpp` target selection code path; dedicated lit 없음 | code-path-backed |
-| invalid `--top` rejection | `export-cmodel.test` CHECK-BAD-TOP | test-backed |
-| C model export | `export-cmodel.test`; `export-cmodel-aggregate.test` | test-backed |
-| `_initialize` in API | `CModelEmitter.cpp` 항상 생성; lit CHECK에서 `_initialize` 직접 검증 없음 | code-guard-backed |
+| invalid `--top` rejection (`--export-cmodel` 경로) | `--export-cmodel` + 존재하지 않는 `--top` → error exit | test-backed |
+| invalid `--top` rejection (기타 경로) | `main.cpp` L1079–1084 동일 거부 로직; dedicated negative lit 없음 | code-path-backed |
+| C model export (`_state`, `_eval_comb`, `_eval_<clock>`) | `export-cmodel.test` CHECK-COMB-H/CPP, CHECK-CLK-H/CPP, CHECK-MEM-H/CPP; `export-cmodel-aggregate.test` CHECK-H/CPP + compile proof | test-backed |
+| `_initialize` in API | `CModelEmitter.cpp` 항상 생성; lit CHECK에서 `_initialize` 직접 검증 없음 | code-path-backed |
 | SystemC wrapper export | `export-systemc-wrapper.test` | test-backed |
 | single-clock wrapper | `export-systemc-wrapper.test` CHECK-WH | test-backed |
-| <=64-bit wrapper I/O | `SystemCWrapperEmitter.cpp:scPortType()`; `export-systemc-wrapper.test` (happy-path, 개별 width CHECK 없음) | code-guard-backed |
+| <=64-bit wrapper I/O | `SystemCWrapperEmitter.cpp:scPortType()`; `export-systemc-wrapper.test` (happy-path 구조만 CHECK, 개별 width 타입 CHECK 없음) | code-guard-backed |
 | combinational module | `export-cmodel.test` CHECK-COMB-H | test-backed |
 | multi-clock SemanticModel | `multi-clock.test` (`%hirct-semantic`, **모델 전용**) | test-backed |
 | wide-port SemanticModel | `wide-port.test` (`%hirct-semantic`, **모델 전용**) | test-backed |
-| hierarchical multi-module export 미지원 | `multi-module.test` (legacy XFAIL) | indirect-legacy-backed |
-| instance topo sort 미지원 | `instance-topo-sort.test` (legacy XFAIL) | indirect-legacy-backed |
-| instance cross-ref 미지원 | `instance-crossref.test` (legacy XFAIL) | indirect-legacy-backed |
+| hierarchical multi-module export | `multi-module.test` (passing); `export-cmodel-hierarchy.test` Batch 1·2·3 | test-backed |
+| instance topological sort | `instance-topo-sort.test` (passing); `export-cmodel-hierarchy.test` CHECK-B3-ORD-CPP | test-backed |
+| instance output cross-reference | `instance-crossref.test` (passing); `export-cmodel-hierarchy.test` CHECK-B3-XREF | test-backed |
 | multi-clock wrapper 거부 | `export-systemc-wrapper.test` CHECK-MC-ERR | test-backed |
 | wide wrapper I/O 거부 | `export-systemc-wrapper.test` CHECK-WP-ERR | test-backed |
-| `.mlir` 입력 강제 | `main.cpp` code guard; dedicated negative lit 없음 | code-guard-backed |
-| wrapper requires cmodel | `main.cpp` code guard; dedicated negative lit 없음 | code-guard-backed |
+| wrapper requires cmodel | `main.cpp` L994–997 code guard; dedicated negative lit 없음 | code-guard-backed |

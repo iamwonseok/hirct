@@ -1145,13 +1145,26 @@ int main(int argc, char *argv[]) {
 
       hirct::CModelEmitter emitter(model, cmodelOpts, mod);
 
-      // Collect child instance info for parent-child integration
+      // Collect child instance info in topological order for correct eval ordering.
+      // Topo sort guarantees that if instance A's output feeds instance B's input,
+      // A appears before B in the resulting list.
       llvm::SmallVector<hirct::ChildInstanceInfo> children;
-      auto *bodyBlock = mod.getBodyBlock();
-      for (auto &op : bodyBlock->getOperations()) {
-        auto inst = mlir::dyn_cast<circt::hw::InstanceOp>(op);
-        if (!inst)
-          continue;
+      auto topoResult = hirct::sort_instances_topologically(mod);
+
+      if (!topoResult.cycle_members.empty()) {
+        std::string modName = mod.getSymName().str();
+        std::cerr << "error: combinational cycle detected among instances in module '"
+                  << modName << "'\n";
+        std::cerr << "  involved instances:";
+        for (auto &cycleInst : topoResult.cycle_members)
+          std::cerr << " " << cycleInst.getInstanceName().str();
+        std::cerr << "\n";
+        std::cerr << "  instance topological sort requires a DAG; "
+                     "combinational cycles are not supported\n";
+        return 1;
+      }
+
+      for (auto inst : topoResult.order) {
         auto childName = inst.getModuleName();
         auto childIt = modelMap.find(childName);
         if (childIt == modelMap.end())

@@ -57,6 +57,63 @@
 // RUN: test ! -f %t_hierwrap/Top_sc_wrapper.cpp
 //
 // ============================================================================
+// M3 Batch 3: topological ordering + acceptance closure
+// ============================================================================
+//
+// --- HierOrdered: Producer eval_comb must appear before Consumer eval_comb ---
+// RUN: rm -rf %t_b3_ordered
+// RUN: %hirct-gen %S/../../fixtures/HierOrdered.mlir -o %t_b3_ordered --export-cmodel --top Pipeline
+// RUN: test -f %t_b3_ordered/Pipeline.cpp
+// RUN: test -f %t_b3_ordered/Producer.h
+// RUN: test -f %t_b3_ordered/Consumer.h
+// RUN: %FileCheck %s --check-prefix=CHECK-B3-ORD-CPP < %t_b3_ordered/Pipeline.cpp
+//
+// Topological order: Producer before Consumer (prod_out feeds cons input)
+// CHECK-B3-ORD-CPP: Producer_eval_comb(&s->prod)
+// CHECK-B3-ORD-CPP: Consumer_eval_comb(&s->cons)
+//
+// --- HierOrdered: staged binding of producer output used by consumer input ---
+// RUN: %FileCheck %s --check-prefix=CHECK-B3-BIND < %t_b3_ordered/Pipeline.cpp
+// CHECK-B3-BIND: prod_out = Producer_get_out(&s->prod)
+// CHECK-B3-BIND: Consumer_set_data(&s->cons
+//
+// --- HierCrossRef Batch3: cross-module expression correctness ---
+// RUN: rm -rf %t_b3_xref
+// RUN: %hirct-gen %S/../../fixtures/HierCrossRef.mlir -o %t_b3_xref --export-cmodel --top Top
+// RUN: %FileCheck %s --check-prefix=CHECK-B3-XREF < %t_b3_xref/Top.cpp
+// Cross-ref: child output used in parent comb expression (add0_sum + 42)
+// CHECK-B3-XREF: add0_sum = Adder8_get_sum(&s->add0)
+// CHECK-B3-XREF: add0_sum
+// CHECK-B3-XREF-NOT: unsupported:hw.instance
+//
+// --- MultiModule via export-cmodel: two ordered children (add1 before add2) ---
+// RUN: rm -rf %t_b3_multi
+// RUN: %hirct-gen %S/../../fixtures/MultiModule.mlir -o %t_b3_multi --export-cmodel --top MultiModule
+// RUN: %FileCheck %s --check-prefix=CHECK-B3-MULTI < %t_b3_multi/MultiModule.cpp
+// Topo order: add1 before add2 (add1_sum feeds add2 input)
+// CHECK-B3-MULTI: Adder8_eval_comb(&s->add1)
+// CHECK-B3-MULTI: Adder8_eval_comb(&s->add2)
+//
+// --- CyclicInstances: instance-level combinational cycle must be rejected ---
+// RUN: rm -rf %t_b3_cycle
+// RUN: not %hirct-gen %S/../../fixtures/CyclicInstances.mlir -o %t_b3_cycle --export-cmodel --top CyclicTop 2>&1 | %FileCheck %s --check-prefix=CHECK-B3-INST-CYCLE
+// CHECK-B3-INST-CYCLE: error: combinational cycle detected among instances
+// CHECK-B3-INST-CYCLE: involved instances:
+// CHECK-B3-INST-CYCLE: instance topological sort requires a DAG
+// No artifacts should be generated for the root module
+// RUN: test ! -f %t_b3_cycle/CyclicTop.h
+// RUN: test ! -f %t_b3_cycle/CyclicTop.cpp
+//
+// --- Compile-check: HierOrdered artifacts ---
+// RUN: c++ -std=c++17 -fsyntax-only -I %t_b3_ordered %t_b3_ordered/Producer.cpp
+// RUN: c++ -std=c++17 -fsyntax-only -I %t_b3_ordered %t_b3_ordered/Consumer.cpp
+// RUN: c++ -std=c++17 -fsyntax-only -I %t_b3_ordered %t_b3_ordered/Pipeline.cpp
+//
+// --- Compile-check: MultiModule hierarchy artifacts ---
+// RUN: c++ -std=c++17 -fsyntax-only -I %t_b3_multi %t_b3_multi/Adder8.cpp
+// RUN: c++ -std=c++17 -fsyntax-only -I %t_b3_multi %t_b3_multi/MultiModule.cpp
+//
+// ============================================================================
 // M3 Batch 2: parent-child integration
 // ============================================================================
 //
