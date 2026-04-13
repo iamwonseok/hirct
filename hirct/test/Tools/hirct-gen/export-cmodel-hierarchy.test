@@ -48,13 +48,22 @@
 // CHECK-SELF: instantiates itself (self-instantiation)
 // RUN: test ! -f %t_self/SelfMod.h
 //
-// --- HierWrapper: --export-systemc-wrapper must be rejected for hierarchical input ---
+// --- HierWrapper (M4): --export-systemc-wrapper on hierarchy root is ALLOWED ---
+// The wrapper targets the root's C model API; child modules stay as backend.
+// HierSimple is comb-only (no clock), so wrapper has no clock_method.
 // RUN: rm -rf %t_hierwrap
-// RUN: not %hirct-gen %S/../../fixtures/HierSimple.mlir -o %t_hierwrap --export-cmodel --export-systemc-wrapper --top Top 2>&1 | %FileCheck %s --check-prefix=CHECK-HIER-WRAP
-// CHECK-HIER-WRAP: error: --export-systemc-wrapper is not supported for hierarchical C model export
-// Wrapper artifacts must not be generated
-// RUN: test ! -f %t_hierwrap/Top_sc_wrapper.h
-// RUN: test ! -f %t_hierwrap/Top_sc_wrapper.cpp
+// RUN: %hirct-gen %S/../../fixtures/HierSimple.mlir -o %t_hierwrap --export-cmodel --export-systemc-wrapper --top Top
+// RUN: test -f %t_hierwrap/Top_sc_wrapper.h
+// RUN: test -f %t_hierwrap/Top_sc_wrapper.cpp
+// RUN: test -f %t_hierwrap/Top.h
+// RUN: test -f %t_hierwrap/Adder8.h
+// RUN: %FileCheck %s --check-prefix=CHECK-HIER-WRAP-H < %t_hierwrap/Top_sc_wrapper.h
+// RUN: %FileCheck %s --check-prefix=CHECK-HIER-WRAP-I < %t_hierwrap/Top_sc_wrapper.cpp
+// CHECK-HIER-WRAP-H: SC_MODULE(Top_sc_wrapper)
+// CHECK-HIER-WRAP-H: Top_state state_
+// CHECK-HIER-WRAP-H: eval_method
+// CHECK-HIER-WRAP-I: Top_initialize(&state_)
+// CHECK-HIER-WRAP-I: Top_eval_comb(&state_)
 //
 // ============================================================================
 // M3 Batch 3: topological ordering + acceptance closure

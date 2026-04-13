@@ -1202,13 +1202,6 @@ int main(int argc, char *argv[]) {
       return 1;
 
     if (opts.export_systemc_wrapper && rootModelBuilt) {
-      if (postOrder.size() > 1) {
-        std::cerr << "error: --export-systemc-wrapper is not supported for "
-                     "hierarchical C model export (multiple reachable modules "
-                     "from root); SystemC wrapper generation is deferred to a "
-                     "future milestone\n";
-        return 1;
-      }
       auto unsupported = hirct::getWrapperV1UnsupportedReason(rootModel);
       if (unsupported) {
         std::cerr << *unsupported << "\n";

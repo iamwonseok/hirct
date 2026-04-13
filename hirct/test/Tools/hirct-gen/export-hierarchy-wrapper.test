@@ -1,0 +1,75 @@
+// Test: M4 — SystemC wrapper on hierarchical root (top-only wrapper policy)
+//
+// The wrapper targets the root module's C model API. Child modules remain as
+// backend C model artifacts (no per-child wrappers). The root wrapper calls
+// {Root}_initialize, {Root}_eval_comb, {Root}_eval_{clock} which internally
+// drive child eval through the hierarchical C model.
+//
+// v1 constraints: single-clock, <=64-bit I/O. Multi-clock and wide I/O remain
+// rejected by getWrapperV1UnsupportedReason().
+//
+// ============================================================================
+// Positive: clocked hierarchical root + comb child
+// ============================================================================
+//
+// RUN: rm -rf %t_m4_clk
+// RUN: %hirct-gen %S/../../fixtures/HierClockedParentCombChild.mlir -o %t_m4_clk --export-cmodel --export-systemc-wrapper --top Top
+// RUN: test -f %t_m4_clk/Top.h
+// RUN: test -f %t_m4_clk/Top.cpp
+// RUN: test -f %t_m4_clk/Adder8.h
+// RUN: test -f %t_m4_clk/Adder8.cpp
+// RUN: test -f %t_m4_clk/Top_sc_wrapper.h
+// RUN: test -f %t_m4_clk/Top_sc_wrapper.cpp
+//
+// Wrapper header structure
+// RUN: %FileCheck %s --check-prefix=CHECK-M4-WH < %t_m4_clk/Top_sc_wrapper.h
+// CHECK-M4-WH: #include "Top.h"
+// CHECK-M4-WH: SC_MODULE(Top_sc_wrapper)
+// CHECK-M4-WH: sc_in_clk clk
+// CHECK-M4-WH: sc_in<
+// CHECK-M4-WH: Top_state state_
+// CHECK-M4-WH: eval_method
+// CHECK-M4-WH: clock_method
+//
+// Wrapper implementation structure
+// RUN: %FileCheck %s --check-prefix=CHECK-M4-WI < %t_m4_clk/Top_sc_wrapper.cpp
+// CHECK-M4-WI: Top_initialize(&state_)
+// CHECK-M4-WI: SC_METHOD(clock_method)
+// CHECK-M4-WI: SC_METHOD(eval_method)
+// CHECK-M4-WI: Top_eval_comb(&state_)
+// CHECK-M4-WI: Top_eval_clk(&state_)
+//
+// Child wrapper must NOT be generated (top-only wrapper policy)
+// RUN: test ! -f %t_m4_clk/Adder8_sc_wrapper.h
+// RUN: test ! -f %t_m4_clk/Adder8_sc_wrapper.cpp
+//
+// Compile-check: wrapper and backend compile together
+// RUN: c++ -std=c++17 -fsyntax-only -I %t_m4_clk %t_m4_clk/Adder8.cpp
+// RUN: c++ -std=c++17 -fsyntax-only -I %t_m4_clk %t_m4_clk/Top.cpp
+//
+// ============================================================================
+// Positive: comb-only hierarchical root (no clock)
+// ============================================================================
+//
+// RUN: rm -rf %t_m4_comb
+// RUN: %hirct-gen %S/../../fixtures/HierSimple.mlir -o %t_m4_comb --export-cmodel --export-systemc-wrapper --top Top
+// RUN: test -f %t_m4_comb/Top_sc_wrapper.h
+// RUN: test -f %t_m4_comb/Top_sc_wrapper.cpp
+// RUN: %FileCheck %s --check-prefix=CHECK-M4-COMB-WH < %t_m4_comb/Top_sc_wrapper.h
+// CHECK-M4-COMB-WH: SC_MODULE(Top_sc_wrapper)
+// CHECK-M4-COMB-WH: Top_state state_
+// CHECK-M4-COMB-WH: eval_method
+//
+// ============================================================================
+// Negative: multi-clock hierarchy root must still be rejected
+// ============================================================================
+//
+// RUN: not %hirct-gen %S/../../fixtures/DualClkArc.mlir -o %t_m4_mc --export-cmodel --export-systemc-wrapper 2>&1 | %FileCheck %s --check-prefix=CHECK-M4-MC-ERR
+// CHECK-M4-MC-ERR: error: SystemC wrapper v1 does not support multi-clock modules
+//
+// ============================================================================
+// Negative: wide I/O hierarchy root must still be rejected
+// ============================================================================
+//
+// RUN: not %hirct-gen %S/../../fixtures/WidePortArc.mlir -o %t_m4_wp --export-cmodel --export-systemc-wrapper 2>&1 | %FileCheck %s --check-prefix=CHECK-M4-WP-ERR
+// CHECK-M4-WP-ERR: error: SystemC wrapper v1 does not support ports wider than 64 bits

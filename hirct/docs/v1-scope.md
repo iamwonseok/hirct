@@ -1,8 +1,8 @@
 # hirct-gen v1 Exporter Scope
 
 > **목적**: v1 export 경로(C model + SystemC wrapper)에서 되는 것과 안 되는 것을 과장 없이 고정한다.
-> **기준일**: 2026-04-13 (M3 closure sync)
-> **HEAD**: `8c60a73` (`test(CModelEmitter): cover aggregate-constant array resets`)
+> **기준일**: 2026-04-13 (M4 closure sync)
+> **Revision Note**: commit-specific `HEAD` 값은 빠르게 stale 될 수 있으므로, 이 문서는 현재 검증된 v1 contract를 기준으로 유지한다.
 > **SSOT 관계**: 이 문서가 v1 scope의 **detailed contract**(SSOT)다. `known-limitations.md` KL-20은 요약 포인터로, 상세는 여기를 참조한다.
 
 ---
@@ -43,6 +43,14 @@
 | **instance output cross-reference** | staged binding map으로 child eval_comb 후 출력을 local에 bind하여 cross-module reference 해결 | `instance-crossref.test` (passing); `export-cmodel-hierarchy.test` CHECK-B3-XREF — test-backed |
 | **hierarchy-preserving export** | flatten 없이 parent/child를 개별 artifact로 export하고 계층 구조 유지. parent header가 child header를 include하고 child state를 embed | `export-cmodel-hierarchy.test` Batch 1·2·3; compile-check passing — test-backed |
 
+### Export 경로 — Top-Level SystemC Wrapper Integration (M4)
+
+| 항목 | 범위 | 테스트 근거 |
+|------|------|-------------|
+| **hierarchical root wrapper** | `--export-systemc-wrapper`는 hierarchical C model export의 root 모듈에 대해서도 wrapper를 생성한다. wrapper는 root의 C model API(`_initialize`, `_eval_comb`, `_eval_{clock}`)를 호출하며, child module은 C model backend artifact로 유지된다 | `export-hierarchy-wrapper.test` CHECK-M4-WH, CHECK-M4-WI — test-backed |
+| **comb-only hierarchical root wrapper** | clock이 없는 hierarchical root에도 wrapper 생성 가능 (eval_method만 존재) | `export-hierarchy-wrapper.test` CHECK-M4-COMB-WH; `export-cmodel-hierarchy.test` CHECK-HIER-WRAP-H — test-backed |
+| **top-only wrapper policy** | wrapper는 root(final integration top)에만 생성된다. child module별 wrapper는 생성하지 않는다 | `export-hierarchy-wrapper.test` `test ! -f Adder8_sc_wrapper.h` — test-backed |
+
 ---
 
 ## v1 Unsupported / Deferred
@@ -72,6 +80,8 @@ hirct-gen [options] <input>
 --export-systemc-wrapper
   --export-cmodel 필수 (없으면 error).
   이 제약은 현재 `main.cpp` code guard로 존재하며 dedicated negative lit는 아직 없다.
+  hierarchical root(top)에 대해서도 wrapper 생성 가능.
+  child module별 wrapper는 생성하지 않고, root wrapper가 root C model API를 호출한다.
   v1 범위: single-clock, <=64-bit I/O.
   출력: <outputDir>/<Module>_sc_wrapper.h, <Module>_sc_wrapper.cpp
 
