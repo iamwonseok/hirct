@@ -15,6 +15,9 @@ target_link_libraries(CModelEmitterTest PRIVATE
     MLIRFuncDialect MLIRControlFlowDialect
     MLIRParser
     GTest::gtest_main)
+target_compile_definitions(CModelEmitterTest PRIVATE
+    "HIRCT_TEST_CC=\"${CMAKE_C_COMPILER}\""
+    "HIRCT_TEST_CXX=\"${CMAKE_CXX_COMPILER}\"")
 add_test(NAME CModelEmitterTest COMMAND CModelEmitterTest)
 
 add_executable(SystemCWrapperEmitterTest SystemCWrapperEmitterTest.cpp)

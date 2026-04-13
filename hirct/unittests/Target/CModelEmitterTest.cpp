@@ -72,6 +72,22 @@ public:
   mlir::MLIRContext ctx_;
 };
 
+static std::string getTestCCompiler() {
+#ifdef HIRCT_TEST_CC
+  return HIRCT_TEST_CC;
+#else
+  return "cc";
+#endif
+}
+
+static std::string getTestCxxCompiler() {
+#ifdef HIRCT_TEST_CXX
+  return HIRCT_TEST_CXX;
+#else
+  return "c++";
+#endif
+}
+
 static std::string getHostCAbiPortableCompileFlags() {
 #if defined(__linux__)
   // Linux toolchains may link executables as PIE by default. Compile the
@@ -332,7 +348,7 @@ TEST_F(CModelEmitterFixture, GeneratedArtifactCompiles) {
     cf << artifact.implContent;
   }
 
-  std::string compileCmd = "c++ -std=c++17 -fsyntax-only -Werror "
+  std::string compileCmd = getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
                            "-I/tmp/hirct_test_compile " +
                            implPath + " 2>&1";
   int result = std::system(compileCmd.c_str());
@@ -419,9 +435,9 @@ TEST_F(CModelEmitterFixture, PreNormalizedArtifactCompiles) {
   }
 
   int result = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_test_naming "
-      "/tmp/hirct_test_naming/my_module_v2.cpp 2>&1");
+      "/tmp/hirct_test_naming/my_module_v2.cpp 2>&1").c_str());
   EXPECT_EQ(result, 0)
       << "pre-normalized artifact must compile without errors";
 
@@ -469,9 +485,9 @@ TEST_F(CModelEmitterFixture, BuilderNormalizedE2ECompile) {
   }
 
   int result = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_test_e2e_norm "
-      "/tmp/hirct_test_e2e_norm/my_mod_v2.cpp 2>&1");
+      "/tmp/hirct_test_e2e_norm/my_mod_v2.cpp 2>&1").c_str());
   EXPECT_EQ(result, 0) << "builder-normalized names must produce compilable C++";
 
   std::system("rm -rf /tmp/hirct_test_e2e_norm");
@@ -548,9 +564,9 @@ TEST_F(CModelEmitterFixture, AggregateArtifactCompiles) {
   }
 
   int result = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_test_agg_compile "
-      "/tmp/hirct_test_agg_compile/AggComp.cpp 2>&1");
+      "/tmp/hirct_test_agg_compile/AggComp.cpp 2>&1").c_str());
   EXPECT_EQ(result, 0) << "aggregate artifact must compile";
   std::system("rm -rf /tmp/hirct_test_agg_compile");
 }
@@ -660,9 +676,9 @@ TEST_F(CModelEmitterFixture, AggregateMultiClockCombined) {
     cf << artifact.implContent;
   }
   int result = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_test_aggclk "
-      "/tmp/hirct_test_aggclk/AggClk.cpp 2>&1");
+      "/tmp/hirct_test_aggclk/AggClk.cpp 2>&1").c_str());
   EXPECT_EQ(result, 0) << "combined aggregate+multiclk artifact must compile";
   std::system("rm -rf /tmp/hirct_test_aggclk");
 }
@@ -709,9 +725,9 @@ TEST_F(CModelEmitterFixture, MultiClockArtifactCompiles) {
   }
 
   int result = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_test_multiclk "
-      "/tmp/hirct_test_multiclk/DualClk.cpp 2>&1");
+      "/tmp/hirct_test_multiclk/DualClk.cpp 2>&1").c_str());
   EXPECT_EQ(result, 0) << "multi-clock artifact must compile";
   std::system("rm -rf /tmp/hirct_test_multiclk");
 }
@@ -851,9 +867,9 @@ TEST_F(CModelEmitterFixture, EvalCombXorCompiles) {
   }
 
   int result = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_test_comb_xor "
-      "/tmp/hirct_test_comb_xor/CombXor.cpp 2>&1");
+      "/tmp/hirct_test_comb_xor/CombXor.cpp 2>&1").c_str());
   EXPECT_EQ(result, 0) << "eval_comb with xor must produce compilable C++";
   std::system("rm -rf /tmp/hirct_test_comb_xor");
 }
@@ -899,9 +915,9 @@ TEST_F(CModelEmitterFixture, EvalCombAddMux) {
   }
 
   int result = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_test_comb_addmux "
-      "/tmp/hirct_test_comb_addmux/CombAddMux.cpp 2>&1");
+      "/tmp/hirct_test_comb_addmux/CombAddMux.cpp 2>&1").c_str());
   EXPECT_EQ(result, 0) << "eval_comb with add+mux must compile";
   std::system("rm -rf /tmp/hirct_test_comb_addmux");
 }
@@ -1100,9 +1116,9 @@ TEST_F(CModelEmitterFixture, EvalClockCounterCompiles) {
   }
 
   int result = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_test_eval_clk "
-      "/tmp/hirct_test_eval_clk/Counter.cpp 2>&1");
+      "/tmp/hirct_test_eval_clk/Counter.cpp 2>&1").c_str());
   EXPECT_EQ(result, 0) << "eval_clk counter artifact must compile";
   std::system("rm -rf /tmp/hirct_test_eval_clk");
 }
@@ -1244,11 +1260,11 @@ int main() {
   }
 
   int compileResult = std::system(
-      "c++ -std=c++17 -O0 -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -O0 -Werror "
       "-I/tmp/hirct_test_runtime "
       "/tmp/hirct_test_runtime/Counter.cpp "
       "/tmp/hirct_test_runtime/driver.cpp "
-      "-o /tmp/hirct_test_runtime/driver 2>&1");
+      "-o /tmp/hirct_test_runtime/driver 2>&1").c_str());
   ASSERT_EQ(compileResult, 0) << "runtime test must compile";
 
   int runResult = std::system("/tmp/hirct_test_runtime/driver");
@@ -1504,11 +1520,11 @@ int main() {
   }
 
   int compileResult = std::system(
-      "c++ -std=c++17 -O0 -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -O0 -Werror "
       "-I/tmp/hirct_test_shared_arc "
       "/tmp/hirct_test_shared_arc/SharedArc.cpp "
       "/tmp/hirct_test_shared_arc/driver.cpp "
-      "-o /tmp/hirct_test_shared_arc/driver 2>&1");
+      "-o /tmp/hirct_test_shared_arc/driver 2>&1").c_str());
   ASSERT_EQ(compileResult, 0)
       << "shared arc fixture must compile";
 
@@ -1605,11 +1621,11 @@ int main() {
   }
 
   int compileResult = std::system(
-      "c++ -std=c++17 -O0 -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -O0 -Werror "
       "-I/tmp/hirct_test_post_edge "
       "/tmp/hirct_test_post_edge/PostEdge.cpp "
       "/tmp/hirct_test_post_edge/driver.cpp "
-      "-o /tmp/hirct_test_post_edge/driver 2>&1");
+      "-o /tmp/hirct_test_post_edge/driver 2>&1").c_str());
   ASSERT_EQ(compileResult, 0)
       << "post_edge_comb fixture must compile";
 
@@ -1685,9 +1701,9 @@ TEST_F(CModelEmitterFixture, MemoryEdgeOutputBoundary) {
   }
 
   int result = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_test_mem_edge "
-      "/tmp/hirct_test_mem_edge/MemEdge.cpp 2>&1");
+      "/tmp/hirct_test_mem_edge/MemEdge.cpp 2>&1").c_str());
   EXPECT_EQ(result, 0)
       << "memory edge output artifact must compile (even if TODO boundary)";
 
@@ -1728,8 +1744,8 @@ TEST_F(CModelEmitterFixture, EvalCombIcmpUle) {
   { std::ofstream f("/tmp/hirct_test_icmp/IcmpMod.cpp");
     f << artifact.implContent; }
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
-      "-I/tmp/hirct_test_icmp /tmp/hirct_test_icmp/IcmpMod.cpp 2>&1");
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_test_icmp /tmp/hirct_test_icmp/IcmpMod.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "icmp artifact must compile";
   std::system("rm -rf /tmp/hirct_test_icmp");
 }
@@ -1762,8 +1778,8 @@ TEST_F(CModelEmitterFixture, EvalCombConcatExpr) {
   { std::ofstream f("/tmp/hirct_test_concat/ConcatMod.cpp");
     f << artifact.implContent; }
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
-      "-I/tmp/hirct_test_concat /tmp/hirct_test_concat/ConcatMod.cpp 2>&1");
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_test_concat /tmp/hirct_test_concat/ConcatMod.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "concat artifact must compile";
   std::system("rm -rf /tmp/hirct_test_concat");
 }
@@ -1796,8 +1812,8 @@ TEST_F(CModelEmitterFixture, VariadicCombAnd3) {
   { std::ofstream f("/tmp/hirct_test_and3/And3Mod.cpp");
     f << artifact.implContent; }
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
-      "-I/tmp/hirct_test_and3 /tmp/hirct_test_and3/And3Mod.cpp 2>&1");
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_test_and3 /tmp/hirct_test_and3/And3Mod.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "variadic and artifact must compile";
   std::system("rm -rf /tmp/hirct_test_and3");
 }
@@ -1873,9 +1889,9 @@ TEST_F(CModelEmitterFixture, RealRtlHpFirstSigGenCompiles) {
   { std::ofstream f("/tmp/hirct_test_hp_first/ncs_hp_first_sig_gen.cpp");
     f << artifact.implContent; }
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_test_hp_first "
-      "/tmp/hirct_test_hp_first/ncs_hp_first_sig_gen.cpp 2>&1");
+      "/tmp/hirct_test_hp_first/ncs_hp_first_sig_gen.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "real RTL artifact must compile";
   std::system("rm -rf /tmp/hirct_test_hp_first");
 }
@@ -1933,9 +1949,9 @@ TEST_F(CModelEmitterFixture, RealRtlFullHpFirstSigGen) {
     f << artifact.implContent;
   }
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_rtl_hp_first_full "
-      "/tmp/hirct_rtl_hp_first_full/ncs_hp_first_sig_gen.cpp 2>&1");
+      "/tmp/hirct_rtl_hp_first_full/ncs_hp_first_sig_gen.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "real RTL full Arc MLIR CModel must compile";
   std::system("rm -rf /tmp/hirct_rtl_hp_first_full");
 }
@@ -1968,8 +1984,8 @@ TEST_F(CModelEmitterFixture, EvalCombExtractExpr) {
   { std::ofstream f("/tmp/hirct_test_extract/ExtractMod.cpp");
     f << artifact.implContent; }
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
-      "-I/tmp/hirct_test_extract /tmp/hirct_test_extract/ExtractMod.cpp 2>&1");
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_test_extract /tmp/hirct_test_extract/ExtractMod.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "extract artifact must compile";
   std::system("rm -rf /tmp/hirct_test_extract");
 }
@@ -2021,9 +2037,9 @@ TEST_F(CModelEmitterFixture, RealRtlHammingDecCompiles) {
     f << artifact.implContent;
   }
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_rtl_hamming "
-      "/tmp/hirct_rtl_hamming/secded_hamming_dec_d64_p8.cpp 2>&1");
+      "/tmp/hirct_rtl_hamming/secded_hamming_dec_d64_p8.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "hamming decoder CModel must compile";
   std::system("rm -rf /tmp/hirct_rtl_hamming");
 }
@@ -2046,9 +2062,9 @@ TEST_F(CModelEmitterFixture, CounterWithShadowsCompiles) {
   }
 
   int result = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_test_counter_shadow "
-      "/tmp/hirct_test_counter_shadow/Counter.cpp 2>&1");
+      "/tmp/hirct_test_counter_shadow/Counter.cpp 2>&1").c_str());
   EXPECT_EQ(result, 0) << "counter with shadow fields must compile";
   std::system("rm -rf /tmp/hirct_test_counter_shadow");
 }
@@ -2107,7 +2123,7 @@ static void runRealRtlRegression(
     f << artifact.implContent;
   }
   int rc = std::system(
-      ("c++ -std=c++17 -fsyntax-only -Werror -I" + outDir + " " +
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror -I" + outDir + " " +
        outDir + "/" + moduleName + ".cpp 2>&1")
           .c_str());
   EXPECT_EQ(rc, 0) << moduleName << " CModel must compile";
@@ -2343,7 +2359,7 @@ TEST_F(CModelEmitterFixture, WidePort_CompileCheck) {
     cpp << artifact.implContent;
   }
 
-  std::string cmd = "c++ -std=c++17 -fsyntax-only -Werror " +
+  std::string cmd = getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror " +
                     cppPath.string() + " -include " + hdrPath.string() +
                     " 2>&1";
   int ret = std::system(cmd.c_str());
@@ -2434,9 +2450,9 @@ TEST_F(CModelEmitterFixture, GenModel_ArcState_MultiResultCall_EvtLogIf) {
 
   // Compile check
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_evtlog/cmodel "
-      "/tmp/hirct_genmodel_evtlog/cmodel/ncs_core_evt_log_if.cpp 2>&1");
+      "/tmp/hirct_genmodel_evtlog/cmodel/ncs_core_evt_log_if.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "generated code must compile";
 }
 
@@ -2479,9 +2495,9 @@ TEST_F(CModelEmitterFixture, GenModel_ArcState_SyncResetRuntime) {
                           std::istreambuf_iterator<char>());
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_syncrst/cmodel "
-      "/tmp/hirct_genmodel_syncrst/cmodel/SyncRst.cpp 2>&1");
+      "/tmp/hirct_genmodel_syncrst/cmodel/SyncRst.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "SyncRst must compile";
 
   // Build a driver to verify reset behavior at runtime
@@ -2521,11 +2537,11 @@ int main() {
   }
 
   int compileRc = std::system(
-      "c++ -std=c++17 -O0 -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -O0 -Werror "
       "-I/tmp/hirct_genmodel_syncrst/cmodel "
       "/tmp/hirct_genmodel_syncrst/cmodel/SyncRst.cpp "
       "/tmp/hirct_genmodel_syncrst/cmodel/driver.cpp "
-      "-o /tmp/hirct_genmodel_syncrst/driver 2>&1");
+      "-o /tmp/hirct_genmodel_syncrst/driver 2>&1").c_str());
   ASSERT_EQ(compileRc, 0) << "SyncRst driver must compile";
 
   int runRc = std::system("/tmp/hirct_genmodel_syncrst/driver");
@@ -2566,9 +2582,9 @@ TEST_F(CModelEmitterFixture, GenModel_ArcState_EnableGatingRuntime) {
   ASSERT_TRUE(ok) << "GenModel::emit failed for EnGate";
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_engate/cmodel "
-      "/tmp/hirct_genmodel_engate/cmodel/EnGate.cpp 2>&1");
+      "/tmp/hirct_genmodel_engate/cmodel/EnGate.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "EnGate must compile";
 
   std::string driverSrc = R"(
@@ -2610,11 +2626,11 @@ int main() {
   }
 
   int compileRc = std::system(
-      "c++ -std=c++17 -O0 -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -O0 -Werror "
       "-I/tmp/hirct_genmodel_engate/cmodel "
       "/tmp/hirct_genmodel_engate/cmodel/EnGate.cpp "
       "/tmp/hirct_genmodel_engate/cmodel/driver.cpp "
-      "-o /tmp/hirct_genmodel_engate/driver 2>&1");
+      "-o /tmp/hirct_genmodel_engate/driver 2>&1").c_str());
   ASSERT_EQ(compileRc, 0) << "EnGate driver must compile";
 
   int runRc = std::system("/tmp/hirct_genmodel_engate/driver");
@@ -2655,9 +2671,9 @@ TEST_F(CModelEmitterFixture, GenModel_ArcState_EnableResetCombined) {
   ASSERT_TRUE(ok) << "GenModel::emit failed for EnRst";
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_enrst/cmodel "
-      "/tmp/hirct_genmodel_enrst/cmodel/EnRst.cpp 2>&1");
+      "/tmp/hirct_genmodel_enrst/cmodel/EnRst.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "EnRst must compile";
 
   std::string driverSrc = R"(
@@ -2706,11 +2722,11 @@ int main() {
   }
 
   int compileRc = std::system(
-      "c++ -std=c++17 -O0 -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -O0 -Werror "
       "-I/tmp/hirct_genmodel_enrst/cmodel "
       "/tmp/hirct_genmodel_enrst/cmodel/EnRst.cpp "
       "/tmp/hirct_genmodel_enrst/cmodel/driver.cpp "
-      "-o /tmp/hirct_genmodel_enrst/driver 2>&1");
+      "-o /tmp/hirct_genmodel_enrst/driver 2>&1").c_str());
   ASSERT_EQ(compileRc, 0) << "EnRst driver must compile";
 
   int runRc = std::system("/tmp/hirct_genmodel_enrst/driver");
@@ -2759,9 +2775,9 @@ TEST_F(CModelEmitterFixture, GenModel_MultiResultArcCall_AllResultsBound) {
       << "output z (result#2) must not be hardcoded 0";
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_multiout/cmodel "
-      "/tmp/hirct_genmodel_multiout/cmodel/MultiOut.cpp 2>&1");
+      "/tmp/hirct_genmodel_multiout/cmodel/MultiOut.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "generated code must compile";
 }
 
@@ -2811,9 +2827,9 @@ TEST_F(CModelEmitterFixture, GenModel_ArcState_NestedCallProvidesClockReset) {
       << "step() must reference arc.state register";
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_nestedclkrst/cmodel "
-      "/tmp/hirct_genmodel_nestedclkrst/cmodel/NestedClkRst.cpp 2>&1");
+      "/tmp/hirct_genmodel_nestedclkrst/cmodel/NestedClkRst.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "NestedClkRst must compile";
 
   std::string driverSrc = R"(
@@ -2852,11 +2868,11 @@ int main() {
   }
 
   int compileRc = std::system(
-      "c++ -std=c++17 -O0 -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -O0 -Werror "
       "-I/tmp/hirct_genmodel_nestedclkrst/cmodel "
       "/tmp/hirct_genmodel_nestedclkrst/cmodel/NestedClkRst.cpp "
       "/tmp/hirct_genmodel_nestedclkrst/cmodel/driver.cpp "
-      "-o /tmp/hirct_genmodel_nestedclkrst/driver 2>&1");
+      "-o /tmp/hirct_genmodel_nestedclkrst/driver 2>&1").c_str());
   ASSERT_EQ(compileRc, 0) << "NestedClkRst driver must compile";
 
   int runRc = std::system("/tmp/hirct_genmodel_nestedclkrst/driver");
@@ -2902,9 +2918,9 @@ TEST_F(CModelEmitterFixture, GenModel_ArcState_EnableResetFromArcCall) {
   ASSERT_TRUE(ok) << "GenModel::emit failed for EnRstFromCall";
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_enrstcall/cmodel "
-      "/tmp/hirct_genmodel_enrstcall/cmodel/EnRstFromCall.cpp 2>&1");
+      "/tmp/hirct_genmodel_enrstcall/cmodel/EnRstFromCall.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "EnRstFromCall must compile";
 
   std::system("rm -rf /tmp/hirct_genmodel_enrstcall");
@@ -2955,9 +2971,9 @@ TEST_F(CModelEmitterFixture, GenModel_ArcState_NonZeroResetBoundary) {
       << "current boundary: reset always goes to 0";
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_nzrst/cmodel "
-      "/tmp/hirct_genmodel_nzrst/cmodel/NonZeroRst.cpp 2>&1");
+      "/tmp/hirct_genmodel_nzrst/cmodel/NonZeroRst.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "NonZeroRst must compile";
 
   std::system("rm -rf /tmp/hirct_genmodel_nzrst");
@@ -2999,9 +3015,9 @@ TEST_F(CModelEmitterFixture, GenModel_RealRtl_EvtLogIf_ResetStateRegression) {
       << "step() must contain conditional reset logic for arc.state with reset";
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_evtlog_rst/cmodel "
-      "/tmp/hirct_genmodel_evtlog_rst/cmodel/ncs_core_evt_log_if.cpp 2>&1");
+      "/tmp/hirct_genmodel_evtlog_rst/cmodel/ncs_core_evt_log_if.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "ncs_core_evt_log_if must compile with reset logic";
 
   std::system("rm -rf /tmp/hirct_genmodel_evtlog_rst");
@@ -3032,9 +3048,9 @@ TEST_F(CModelEmitterFixture, RealRtl_simple_demux_Baseline) {
   ASSERT_TRUE(ok) << "simple_demux GenModel must succeed";
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_baseline_demux/cmodel "
-      "/tmp/hirct_baseline_demux/cmodel/simple_demux.cpp 2>&1");
+      "/tmp/hirct_baseline_demux/cmodel/simple_demux.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "simple_demux must compile";
 
   std::system("rm -rf /tmp/hirct_baseline_demux");
@@ -3060,9 +3076,9 @@ TEST_F(CModelEmitterFixture, RealRtl_simple_mux_Baseline) {
   ASSERT_TRUE(ok) << "simple_mux GenModel must succeed";
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_baseline_mux/cmodel "
-      "/tmp/hirct_baseline_mux/cmodel/simple_mux.cpp 2>&1");
+      "/tmp/hirct_baseline_mux/cmodel/simple_mux.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "simple_mux must compile";
 
   std::system("rm -rf /tmp/hirct_baseline_mux");
@@ -3089,9 +3105,9 @@ TEST_F(CModelEmitterFixture, RealRtl_ncs_core_evt_log_if_Baseline) {
   ASSERT_TRUE(ok) << "ncs_core_evt_log_if GenModel must succeed";
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_baseline_evtlog/cmodel "
-      "/tmp/hirct_baseline_evtlog/cmodel/ncs_core_evt_log_if.cpp 2>&1");
+      "/tmp/hirct_baseline_evtlog/cmodel/ncs_core_evt_log_if.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "ncs_core_evt_log_if must compile";
 
   std::system("rm -rf /tmp/hirct_baseline_evtlog");
@@ -3140,9 +3156,9 @@ TEST_F(CModelEmitterFixture, GenModel_MultiResultCall_PlusState_Runtime) {
       << "xor_out from multi-result arc.call must not be hardcoded 0";
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_callstate/cmodel "
-      "/tmp/hirct_genmodel_callstate/cmodel/CallPlusState.cpp 2>&1");
+      "/tmp/hirct_genmodel_callstate/cmodel/CallPlusState.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "CallPlusState must compile";
 
   std::system("rm -rf /tmp/hirct_genmodel_callstate");
@@ -3211,9 +3227,9 @@ TEST_F(CModelEmitterFixture, GenModel_MultiClock_ArcState_Reset_DomainStep) {
       << "step_clk_b must guard cnt_b with reset; generated:\n" << cpp_content;
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_dualclkrst/cmodel "
-      "/tmp/hirct_genmodel_dualclkrst/cmodel/DualClkRst.cpp 2>&1");
+      "/tmp/hirct_genmodel_dualclkrst/cmodel/DualClkRst.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "DualClkRst must compile";
 
   std::system("rm -rf /tmp/hirct_genmodel_dualclkrst");
@@ -3278,9 +3294,9 @@ TEST_F(CModelEmitterFixture, GenModel_MultiClock_ArcState_Enable_DomainStep) {
       << "step_clk_b must guard cnt_b with enable; generated:\n" << cpp_content;
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_dualclken/cmodel "
-      "/tmp/hirct_genmodel_dualclken/cmodel/DualClkEn.cpp 2>&1");
+      "/tmp/hirct_genmodel_dualclken/cmodel/DualClkEn.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "DualClkEn must compile";
 
   std::system("rm -rf /tmp/hirct_genmodel_dualclken");
@@ -3340,9 +3356,9 @@ TEST_F(CModelEmitterFixture, GenModel_MultiClock_ArcState_EnableReset_DomainStep
       << "step_clk_a must handle reset+enable for cnt_a; generated:\n" << cpp_content;
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_dualclkenrst/cmodel "
-      "/tmp/hirct_genmodel_dualclkenrst/cmodel/DualClkEnRst.cpp 2>&1");
+      "/tmp/hirct_genmodel_dualclkenrst/cmodel/DualClkEnRst.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "DualClkEnRst must compile";
 
   std::system("rm -rf /tmp/hirct_genmodel_dualclkenrst");
@@ -3412,9 +3428,9 @@ TEST_F(CModelEmitterFixture, GenModel_MultiClock_ArcState_ResetFromArcCall_Domai
       << "cnt_b reset from port must appear in domain step; generated:\n" << cpp_content;
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_dualclkcallrst/cmodel "
-      "/tmp/hirct_genmodel_dualclkcallrst/cmodel/DualClkCallRst.cpp 2>&1");
+      "/tmp/hirct_genmodel_dualclkcallrst/cmodel/DualClkCallRst.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "DualClkCallRst must compile";
 
   std::system("rm -rf /tmp/hirct_genmodel_dualclkcallrst");
@@ -3467,9 +3483,9 @@ TEST_F(CModelEmitterFixture, GenModel_NestedArcCallChain_MultiClock_DomainStep) 
       << "nested 2-depth arc.call chain must still produce step_clk_b; got:\n" << cpp_content;
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_nesteddualclk/cmodel "
-      "/tmp/hirct_genmodel_nesteddualclk/cmodel/NestedDualClkGen.cpp 2>&1");
+      "/tmp/hirct_genmodel_nesteddualclk/cmodel/NestedDualClkGen.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "NestedDualClkGen must compile";
 
   std::system("rm -rf /tmp/hirct_genmodel_nesteddualclk");
@@ -3522,9 +3538,9 @@ TEST_F(CModelEmitterFixture, GenModel_NestedMultiResult_ClockChain_Codegen) {
       << "nested multi-result arc.call chain must produce step_clk_b; got:\n" << cpp_content;
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_nestedmultires/cmodel "
-      "/tmp/hirct_genmodel_nestedmultires/cmodel/NestedMultiResGen.cpp 2>&1");
+      "/tmp/hirct_genmodel_nestedmultires/cmodel/NestedMultiResGen.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "NestedMultiResGen must compile";
 
   std::system("rm -rf /tmp/hirct_genmodel_nestedmultires");
@@ -3583,9 +3599,9 @@ TEST_F(CModelEmitterFixture, GenModel_CombMuxClockSelection) {
       << cpp_content;
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_muxclk/cmodel "
-      "/tmp/hirct_genmodel_muxclk/cmodel/MuxClkGen.cpp 2>&1");
+      "/tmp/hirct_genmodel_muxclk/cmodel/MuxClkGen.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "MuxClkGen must compile";
 
   std::system("rm -rf /tmp/hirct_genmodel_muxclk");
@@ -3650,9 +3666,9 @@ TEST_F(CModelEmitterFixture,
       << cpp_content;
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_multires_muxchain/cmodel "
-      "/tmp/hirct_genmodel_multires_muxchain/cmodel/MultiResMuxChainGen.cpp 2>&1");
+      "/tmp/hirct_genmodel_multires_muxchain/cmodel/MultiResMuxChainGen.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "MultiResMuxChainGen must compile";
 
   std::system("rm -rf /tmp/hirct_genmodel_multires_muxchain");
@@ -3720,9 +3736,9 @@ TEST_F(CModelEmitterFixture,
       << cpp_content;
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_badmuxchain/cmodel "
-      "/tmp/hirct_genmodel_badmuxchain/cmodel/BadMuxChainGen.cpp 2>&1");
+      "/tmp/hirct_genmodel_badmuxchain/cmodel/BadMuxChainGen.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "BadMuxChainGen must compile";
 
   std::system("rm -rf /tmp/hirct_genmodel_badmuxchain");
@@ -3776,9 +3792,9 @@ TEST_F(CModelEmitterFixture, GenModel_UnsupportedCombOrClockBoundary) {
       << cpp_content;
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_combor_boundary/cmodel "
-      "/tmp/hirct_genmodel_combor_boundary/cmodel/CombOrRegBoundary.cpp 2>&1");
+      "/tmp/hirct_genmodel_combor_boundary/cmodel/CombOrRegBoundary.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "CombOrRegBoundary must compile";
 
   std::system("rm -rf /tmp/hirct_genmodel_combor_boundary");
@@ -3832,9 +3848,9 @@ TEST_F(CModelEmitterFixture, GenModel_UnsupportedCombAndClockBoundary) {
       << cpp_content;
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_comband_boundary/cmodel "
-      "/tmp/hirct_genmodel_comband_boundary/cmodel/CombAndRegBoundary.cpp 2>&1");
+      "/tmp/hirct_genmodel_comband_boundary/cmodel/CombAndRegBoundary.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "CombAndRegBoundary must compile";
 
   std::system("rm -rf /tmp/hirct_genmodel_comband_boundary");
@@ -3888,9 +3904,9 @@ TEST_F(CModelEmitterFixture, GenModel_UnsupportedCombXorClockBoundary) {
       << cpp_content;
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_combxor_boundary/cmodel "
-      "/tmp/hirct_genmodel_combxor_boundary/cmodel/CombXorRegBoundary.cpp 2>&1");
+      "/tmp/hirct_genmodel_combxor_boundary/cmodel/CombXorRegBoundary.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "CombXorRegBoundary must compile";
 
   std::system("rm -rf /tmp/hirct_genmodel_combxor_boundary");
@@ -3969,10 +3985,10 @@ int main() {
   }
 
   int rc = std::system(
-      "c++ -std=c++17 -o /tmp/hirct_genmodel_dualclkrstrun/test "
+      (getTestCxxCompiler() + " -std=c++17 -o /tmp/hirct_genmodel_dualclkrstrun/test "
       "-I/tmp/hirct_genmodel_dualclkrstrun/cmodel "
       "/tmp/hirct_genmodel_dualclkrstrun/cmodel/DualClkRstRun.cpp "
-      "/tmp/hirct_genmodel_dualclkrstrun/driver.cpp 2>&1");
+      "/tmp/hirct_genmodel_dualclkrstrun/driver.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "DualClkRstRun must compile with driver";
 
   if (rc == 0) {
@@ -4024,9 +4040,9 @@ TEST_F(CModelEmitterFixture, GenModel_NonzeroResetCodegen) {
       << cpp_content;
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_nonzero_rst/cmodel "
-      "/tmp/hirct_genmodel_nonzero_rst/cmodel/NonzeroRstGen.cpp 2>&1");
+      "/tmp/hirct_genmodel_nonzero_rst/cmodel/NonzeroRstGen.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "NonzeroRstGen must compile";
 
   std::system("rm -rf /tmp/hirct_genmodel_nonzero_rst");
@@ -4093,10 +4109,10 @@ int main() {
   }
 
   int rc = std::system(
-      "c++ -std=c++17 -o /tmp/hirct_genmodel_nzrstrun/test "
+      (getTestCxxCompiler() + " -std=c++17 -o /tmp/hirct_genmodel_nzrstrun/test "
       "-I/tmp/hirct_genmodel_nzrstrun/cmodel "
       "/tmp/hirct_genmodel_nzrstrun/cmodel/NzRstRun.cpp "
-      "/tmp/hirct_genmodel_nzrstrun/driver.cpp 2>&1");
+      "/tmp/hirct_genmodel_nzrstrun/driver.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "NzRstRun must compile with driver";
 
   if (rc == 0) {
@@ -4145,9 +4161,9 @@ TEST_F(CModelEmitterFixture, GenModel_AggregateStateResetCodegen) {
       << cpp_content;
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_aggrst/cmodel "
-      "/tmp/hirct_genmodel_aggrst/cmodel/AggRstCodegen.cpp 2>&1");
+      "/tmp/hirct_genmodel_aggrst/cmodel/AggRstCodegen.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "AggRstCodegen must compile";
 
   std::system("rm -rf /tmp/hirct_genmodel_aggrst");
@@ -4187,9 +4203,9 @@ TEST_F(CModelEmitterFixture, GenModel_AggregateStateEnableCodegen) {
                           std::istreambuf_iterator<char>());
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_aggen/cmodel "
-      "/tmp/hirct_genmodel_aggen/cmodel/AggEnCodegen.cpp 2>&1");
+      "/tmp/hirct_genmodel_aggen/cmodel/AggEnCodegen.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "AggEnCodegen must compile";
 
   std::system("rm -rf /tmp/hirct_genmodel_aggen");
@@ -4233,9 +4249,9 @@ TEST_F(CModelEmitterFixture, GenModel_AggregateStateResetEnableCombined) {
       << cpp_content;
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_aggrstencomb/cmodel "
-      "/tmp/hirct_genmodel_aggrstencomb/cmodel/AggRstEnCombined.cpp 2>&1");
+      "/tmp/hirct_genmodel_aggrstencomb/cmodel/AggRstEnCombined.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "AggRstEnCombined must compile";
 
   std::system("rm -rf /tmp/hirct_genmodel_aggrstencomb");
@@ -4327,9 +4343,9 @@ TEST_F(CModelEmitterFixture, GenModel_AggregateOutputDirectFromState) {
       << cpp_content;
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_aggout_state/cmodel "
-      "/tmp/hirct_genmodel_aggout_state/cmodel/AggOutState.cpp 2>&1");
+      "/tmp/hirct_genmodel_aggout_state/cmodel/AggOutState.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "aggregate output from state must compile";
 
   std::system("rm -rf /tmp/hirct_genmodel_aggout_state");
@@ -4374,9 +4390,9 @@ TEST_F(CModelEmitterFixture, GenModel_AggregateOutputDirectFromComb) {
       << cpp_content;
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_aggout_comb/cmodel "
-      "/tmp/hirct_genmodel_aggout_comb/cmodel/AggOutComb.cpp 2>&1");
+      "/tmp/hirct_genmodel_aggout_comb/cmodel/AggOutComb.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "aggregate output from comb must compile";
 
   std::system("rm -rf /tmp/hirct_genmodel_aggout_comb");
@@ -4426,9 +4442,9 @@ TEST_F(CModelEmitterFixture, GenModel_ArrayInputDirectOutput) {
       << cpp_content;
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_arrin_direct/cmodel "
-      "/tmp/hirct_genmodel_arrin_direct/cmodel/ArrInOut.cpp 2>&1");
+      "/tmp/hirct_genmodel_arrin_direct/cmodel/ArrInOut.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0)
       << "array input -> direct output must produce compilable C++";
 
@@ -4472,9 +4488,9 @@ TEST_F(CModelEmitterFixture, GenModel_ArrayInputGetScalarOutput) {
       << "eval_comb must assign scalar output; cpp:\n" << cpp_content;
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_arrget_scalar/cmodel "
-      "/tmp/hirct_genmodel_arrget_scalar/cmodel/ArrGetScalar.cpp 2>&1");
+      "/tmp/hirct_genmodel_arrget_scalar/cmodel/ArrGetScalar.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0)
       << "array_get from array input must produce compilable C++";
 
@@ -4514,9 +4530,9 @@ TEST_F(CModelEmitterFixture, GenModel_ArrayInputViaArcCall) {
       << cpp_content;
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_arrin_arccall/cmodel "
-      "/tmp/hirct_genmodel_arrin_arccall/cmodel/ArrViaArc.cpp 2>&1");
+      "/tmp/hirct_genmodel_arrin_arccall/cmodel/ArrViaArc.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0)
       << "array input via arc.call must produce compilable C++";
 
@@ -4558,9 +4574,9 @@ TEST_F(CModelEmitterFixture, GenModel_ArrayInputArcCallGetScalar) {
       << cpp_content;
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_arrin_arcget/cmodel "
-      "/tmp/hirct_genmodel_arrin_arcget/cmodel/ArrArcGet.cpp 2>&1");
+      "/tmp/hirct_genmodel_arrin_arcget/cmodel/ArrArcGet.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0)
       << "array input -> arc.call(array_get) -> scalar output must compile";
 
@@ -4600,9 +4616,9 @@ TEST_F(CModelEmitterFixture, GenModel_ArrayInputMixedComb) {
       << cpp_content;
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_arrmix/cmodel "
-      "/tmp/hirct_genmodel_arrmix/cmodel/ArrMixComb.cpp 2>&1");
+      "/tmp/hirct_genmodel_arrmix/cmodel/ArrMixComb.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0)
       << "array input + array_create mux must produce compilable C++";
 
@@ -4658,9 +4674,9 @@ TEST_F(CModelEmitterFixture, GenModel_ArrayInputToInstance) {
       << "eval_comb must assign array output; cpp:\n" << cpp_content;
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_arrin_inst/ArrParent/cmodel "
-      "/tmp/hirct_genmodel_arrin_inst/ArrParent/cmodel/ArrParent.cpp 2>&1");
+      "/tmp/hirct_genmodel_arrin_inst/ArrParent/cmodel/ArrParent.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0)
       << "array input forwarded to child instance must produce compilable C++";
 
@@ -4704,9 +4720,9 @@ TEST_F(CModelEmitterFixture, GenModel_AggregateOutputConstant) {
       << "constant array output must be array; header:\n" << h_content;
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_aggout_const/cmodel "
-      "/tmp/hirct_genmodel_aggout_const/cmodel/AggOutConst.cpp 2>&1");
+      "/tmp/hirct_genmodel_aggout_const/cmodel/AggOutConst.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "constant array output must compile";
 
   std::system("rm -rf /tmp/hirct_genmodel_aggout_const");
@@ -4767,8 +4783,8 @@ TEST_F(CModelEmitterFixture, GenModel_IndexedUpdateResetRuntime) {
                       std::istreambuf_iterator<char>());
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
-      "-I/tmp/hirct_idxrst/cmodel /tmp/hirct_idxrst/cmodel/IdxRst.cpp 2>&1");
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
+      "-I/tmp/hirct_idxrst/cmodel /tmp/hirct_idxrst/cmodel/IdxRst.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "IndexedUpdate+reset must compile; src:\n" << cpp_src;
 
   // Write runtime driver
@@ -4809,9 +4825,9 @@ int main() {
 )";
   }
   rc = std::system(
-      "c++ -std=c++17 -o /tmp/hirct_idxrst/driver "
+      (getTestCxxCompiler() + " -std=c++17 -o /tmp/hirct_idxrst/driver "
       "-I/tmp/hirct_idxrst/cmodel "
-      "/tmp/hirct_idxrst/cmodel/IdxRst.cpp /tmp/hirct_idxrst/driver.cpp 2>&1");
+      "/tmp/hirct_idxrst/cmodel/IdxRst.cpp /tmp/hirct_idxrst/driver.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "IndexedUpdate+reset driver must compile";
 
   if (rc == 0) {
@@ -4903,9 +4919,9 @@ int main() {
 )";
   }
   int rc = std::system(
-      "c++ -std=c++17 -o /tmp/hirct_idxen/driver "
+      (getTestCxxCompiler() + " -std=c++17 -o /tmp/hirct_idxen/driver "
       "-I/tmp/hirct_idxen/cmodel "
-      "/tmp/hirct_idxen/cmodel/IdxEn.cpp /tmp/hirct_idxen/driver.cpp 2>&1");
+      "/tmp/hirct_idxen/cmodel/IdxEn.cpp /tmp/hirct_idxen/driver.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "IndexedUpdate+enable driver must compile";
 
   if (rc == 0) {
@@ -5002,10 +5018,10 @@ int main() {
 )";
   }
   int rc = std::system(
-      "c++ -std=c++17 -o /tmp/hirct_idxrsten/driver "
+      (getTestCxxCompiler() + " -std=c++17 -o /tmp/hirct_idxrsten/driver "
       "-I/tmp/hirct_idxrsten/cmodel "
       "/tmp/hirct_idxrsten/cmodel/IdxRstEn.cpp "
-      "/tmp/hirct_idxrsten/driver.cpp 2>&1");
+      "/tmp/hirct_idxrsten/driver.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "IndexedUpdate+reset+enable driver must compile";
 
   if (rc == 0) {
@@ -5097,9 +5113,9 @@ int main() {
 )";
   }
   int rc = std::system(
-      "c++ -std=c++17 -o /tmp/hirct_ewrst/driver "
+      (getTestCxxCompiler() + " -std=c++17 -o /tmp/hirct_ewrst/driver "
       "-I/tmp/hirct_ewrst/cmodel "
-      "/tmp/hirct_ewrst/cmodel/EwRst.cpp /tmp/hirct_ewrst/driver.cpp 2>&1");
+      "/tmp/hirct_ewrst/cmodel/EwRst.cpp /tmp/hirct_ewrst/driver.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "ElementwiseUpdate+reset driver must compile";
 
   if (rc == 0) {
@@ -5188,9 +5204,9 @@ int main() {
 )";
   }
   int rc = std::system(
-      "c++ -std=c++17 -o /tmp/hirct_ewen/driver "
+      (getTestCxxCompiler() + " -std=c++17 -o /tmp/hirct_ewen/driver "
       "-I/tmp/hirct_ewen/cmodel "
-      "/tmp/hirct_ewen/cmodel/EwEn.cpp /tmp/hirct_ewen/driver.cpp 2>&1");
+      "/tmp/hirct_ewen/cmodel/EwEn.cpp /tmp/hirct_ewen/driver.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "ElementwiseUpdate+enable driver must compile";
 
   if (rc == 0) {
@@ -5287,10 +5303,10 @@ int main() {
 )";
   }
   int rc = std::system(
-      "c++ -std=c++17 -o /tmp/hirct_ewrsten/driver "
+      (getTestCxxCompiler() + " -std=c++17 -o /tmp/hirct_ewrsten/driver "
       "-I/tmp/hirct_ewrsten/cmodel "
       "/tmp/hirct_ewrsten/cmodel/EwRstEn.cpp "
-      "/tmp/hirct_ewrsten/driver.cpp 2>&1");
+      "/tmp/hirct_ewrsten/driver.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "ElementwiseUpdate+reset+enable driver must compile";
 
   if (rc == 0) {
@@ -5343,9 +5359,9 @@ TEST_F(CModelEmitterFixture, GenModel_AggregateStateNonzeroResetCodegen) {
       << cpp_content;
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_aggnzrst/cmodel "
-      "/tmp/hirct_genmodel_aggnzrst/cmodel/AggNzRstCodegen.cpp 2>&1");
+      "/tmp/hirct_genmodel_aggnzrst/cmodel/AggNzRstCodegen.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "AggNzRstCodegen must compile";
 
   std::system("rm -rf /tmp/hirct_genmodel_aggnzrst");
@@ -5413,10 +5429,10 @@ int main() {
   }
 
   int rc = std::system(
-      "c++ -std=c++17 -o /tmp/hirct_genmodel_aggnzrstrun/test "
+      (getTestCxxCompiler() + " -std=c++17 -o /tmp/hirct_genmodel_aggnzrstrun/test "
       "-I/tmp/hirct_genmodel_aggnzrstrun/cmodel "
       "/tmp/hirct_genmodel_aggnzrstrun/cmodel/AggNzRstRun.cpp "
-      "/tmp/hirct_genmodel_aggnzrstrun/driver.cpp 2>&1");
+      "/tmp/hirct_genmodel_aggnzrstrun/driver.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "AggNzRstRun must compile with driver";
 
   if (rc == 0) {
@@ -5497,10 +5513,10 @@ int main() {
   }
 
   int rc = std::system(
-      "c++ -std=c++17 -o /tmp/hirct_genmodel_aggnzrsten/test "
+      (getTestCxxCompiler() + " -std=c++17 -o /tmp/hirct_genmodel_aggnzrsten/test "
       "-I/tmp/hirct_genmodel_aggnzrsten/cmodel "
       "/tmp/hirct_genmodel_aggnzrsten/cmodel/AggNzRstEnRun.cpp "
-      "/tmp/hirct_genmodel_aggnzrsten/driver.cpp 2>&1");
+      "/tmp/hirct_genmodel_aggnzrsten/driver.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "AggNzRstEnRun must compile with driver";
 
   if (rc == 0) {
@@ -5556,9 +5572,9 @@ TEST_F(CModelEmitterFixture,
       << cpp_content;
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_genmodel_aggnzrstlg/cmodel "
-      "/tmp/hirct_genmodel_aggnzrstlg/cmodel/AggNzRstLargeCodegen.cpp 2>&1");
+      "/tmp/hirct_genmodel_aggnzrstlg/cmodel/AggNzRstLargeCodegen.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "AggNzRstLargeCodegen must compile";
 
   std::system("rm -rf /tmp/hirct_genmodel_aggnzrstlg");
@@ -5630,10 +5646,10 @@ int main() {
   }
 
   int rc = std::system(
-      "c++ -std=c++17 -o /tmp/hirct_genmodel_aggnzrstlgrun/test "
+      (getTestCxxCompiler() + " -std=c++17 -o /tmp/hirct_genmodel_aggnzrstlgrun/test "
       "-I/tmp/hirct_genmodel_aggnzrstlgrun/cmodel "
       "/tmp/hirct_genmodel_aggnzrstlgrun/cmodel/AggNzRstLargeRun.cpp "
-      "/tmp/hirct_genmodel_aggnzrstlgrun/driver.cpp 2>&1");
+      "/tmp/hirct_genmodel_aggnzrstlgrun/driver.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "AggNzRstLargeRun must compile with driver";
 
   if (rc == 0) {
@@ -5710,10 +5726,10 @@ int main() {
   }
 
   int rc = std::system(
-      "c++ -std=c++17 -o /tmp/hirct_genmodel_aggnzrstlgen/test "
+      (getTestCxxCompiler() + " -std=c++17 -o /tmp/hirct_genmodel_aggnzrstlgen/test "
       "-I/tmp/hirct_genmodel_aggnzrstlgen/cmodel "
       "/tmp/hirct_genmodel_aggnzrstlgen/cmodel/AggNzRstLargeEnRun.cpp "
-      "/tmp/hirct_genmodel_aggnzrstlgen/driver.cpp 2>&1");
+      "/tmp/hirct_genmodel_aggnzrstlgen/driver.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "AggNzRstLargeEnRun must compile with driver";
 
   if (rc == 0) {
@@ -5929,10 +5945,10 @@ int main() {
   }
 
   int rc = std::system(
-      "c++ -std=c++17 -o /tmp/hirct_cm_aggnzrt/test "
+      (getTestCxxCompiler() + " -std=c++17 -o /tmp/hirct_cm_aggnzrt/test "
       "-I/tmp/hirct_cm_aggnzrt "
       "/tmp/hirct_cm_aggnzrt/AggNzRtCM.cpp "
-      "/tmp/hirct_cm_aggnzrt/driver.cpp 2>&1");
+      "/tmp/hirct_cm_aggnzrt/driver.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "AggNzRtCM must compile with driver";
 
   if (rc == 0) {
@@ -6139,9 +6155,9 @@ TEST_F(CModelEmitterFixture, CModelEmitter_AggregateIndirectResetEnableRuntime) 
   }
 
   int syntaxRc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_cm_aggindirre "
-      "/tmp/hirct_cm_aggindirre/AggIndirRE.cpp 2>&1");
+      "/tmp/hirct_cm_aggindirre/AggIndirRE.cpp 2>&1").c_str());
   ASSERT_EQ(syntaxRc, 0)
       << "AggIndirRE must compile; impl:\n" << artifact.implContent;
 
@@ -6205,11 +6221,11 @@ int main() {
   }
 
   int compileRc = std::system(
-      "c++ -std=c++17 -O0 -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -O0 -Werror "
       "-I/tmp/hirct_cm_aggindirre "
       "/tmp/hirct_cm_aggindirre/AggIndirRE.cpp "
       "/tmp/hirct_cm_aggindirre/driver.cpp "
-      "-o /tmp/hirct_cm_aggindirre/test 2>&1");
+      "-o /tmp/hirct_cm_aggindirre/test 2>&1").c_str());
   ASSERT_EQ(compileRc, 0)
       << "AggIndirRE driver must compile; impl:\n" << artifact.implContent;
 
@@ -6518,10 +6534,10 @@ int main() {
   }
 
   int rc = std::system(
-      "c++ -std=c++17 -o /tmp/hirct_cm_aggnzlgrt/test "
+      (getTestCxxCompiler() + " -std=c++17 -o /tmp/hirct_cm_aggnzlgrt/test "
       "-I/tmp/hirct_cm_aggnzlgrt "
       "/tmp/hirct_cm_aggnzlgrt/AggNzLgRtCM.cpp "
-      "/tmp/hirct_cm_aggnzlgrt/driver.cpp 2>&1");
+      "/tmp/hirct_cm_aggnzlgrt/driver.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "AggNzLgRtCM must compile with driver";
 
   if (rc == 0) {
@@ -6628,7 +6644,7 @@ TEST_F(CModelEmitterFixture, CModelEmitter_EmitToLayoutCompiles) {
       << "impl must include header using moduleName-based filename";
 
   std::string compileCmd =
-      "c++ -std=c++17 -fsyntax-only -Werror -I/tmp/hirct_layout_compile " +
+      getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror -I/tmp/hirct_layout_compile " +
       artifact.implPath + " 2>&1";
   int result = std::system(compileCmd.c_str());
   EXPECT_EQ(result, 0) << "artifact written via layout contract must compile";
@@ -6670,7 +6686,7 @@ TEST_F(CModelEmitterFixture, CModelEmitter_WriteArtifactHelper) {
 
   // Written artifact must compile
   std::string compileCmd =
-      "c++ -std=c++17 -fsyntax-only -Werror -I/tmp/hirct_write_helper " +
+      getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror -I/tmp/hirct_write_helper " +
       artifact.implPath + " 2>&1";
   int result = std::system(compileCmd.c_str());
   EXPECT_EQ(result, 0) << "written artifact must compile";
@@ -6767,11 +6783,11 @@ int main() {
   }
 
   int rc = std::system(
-      "c++ -std=c++17 -O0 -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -O0 -Werror "
       "-I/tmp/hirct_rt_combonly "
       "/tmp/hirct_rt_combonly/CombAdd.cpp "
       "/tmp/hirct_rt_combonly/driver.cpp "
-      "-o /tmp/hirct_rt_combonly/test 2>&1");
+      "-o /tmp/hirct_rt_combonly/test 2>&1").c_str());
   ASSERT_EQ(rc, 0) << "CombOnly smoke must compile";
 
   int run_rc = std::system("/tmp/hirct_rt_combonly/test");
@@ -6881,11 +6897,11 @@ int main() {
   }
 
   int rc = std::system(
-      "c++ -std=c++17 -O0 -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -O0 -Werror "
       "-I/tmp/hirct_rt_ctrlike "
       "/tmp/hirct_rt_ctrlike/SmkCtr.cpp "
       "/tmp/hirct_rt_ctrlike/driver.cpp "
-      "-o /tmp/hirct_rt_ctrlike/test 2>&1");
+      "-o /tmp/hirct_rt_ctrlike/test 2>&1").c_str());
   ASSERT_EQ(rc, 0) << "CounterLike smoke must compile";
 
   int run_rc = std::system("/tmp/hirct_rt_ctrlike/test");
@@ -6959,11 +6975,11 @@ int main() {
   }
 
   int rc = std::system(
-      "c++ -std=c++17 -O0 -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -O0 -Werror "
       "-I/tmp/hirct_rt_apichk "
       "/tmp/hirct_rt_apichk/ApiChk.cpp "
       "/tmp/hirct_rt_apichk/driver.cpp "
-      "-o /tmp/hirct_rt_apichk/test 2>&1");
+      "-o /tmp/hirct_rt_apichk/test 2>&1").c_str());
   ASSERT_EQ(rc, 0) << "HostApiContract: artifact bundle must compile standalone";
 
   int run_rc = std::system("/tmp/hirct_rt_apichk/test");
@@ -7022,9 +7038,9 @@ TEST_F(CModelEmitterFixture, CModelEmitter_RuntimeSmoke_AggregateCompileOnly) {
   ASSERT_TRUE(hirct::writeArtifact(artifact));
 
   int rc = std::system(
-      "c++ -std=c++17 -fsyntax-only -Werror "
+      (getTestCxxCompiler() + " -std=c++17 -fsyntax-only -Werror "
       "-I/tmp/hirct_rt_aggsmk "
-      "/tmp/hirct_rt_aggsmk/AggSmoke.cpp 2>&1");
+      "/tmp/hirct_rt_aggsmk/AggSmoke.cpp 2>&1").c_str());
   EXPECT_EQ(rc, 0) << "Aggregate + scalar mixed artifact must compile";
 
   std::system("rm -rf /tmp/hirct_rt_aggsmk");
@@ -7104,10 +7120,10 @@ TEST_F(CModelEmitterFixture, IcmpSignedSltRuntime) {
   }
 
   int rc = std::system(
-      "c++ -std=c++17 -O0 -o /tmp/hirct_test_sltrt/run "
+      (getTestCxxCompiler() + " -std=c++17 -O0 -o /tmp/hirct_test_sltrt/run "
       "-I/tmp/hirct_test_sltrt "
       "/tmp/hirct_test_sltrt/SltRt.cpp "
-      "/tmp/hirct_test_sltrt/main.cpp 2>&1");
+      "/tmp/hirct_test_sltrt/main.cpp 2>&1").c_str());
   ASSERT_EQ(rc, 0) << "slt artifact must compile";
 
   rc = std::system("/tmp/hirct_test_sltrt/run");
@@ -7240,7 +7256,7 @@ int main(void) {
   // Compile generated .cpp as C++ object, then link with C driver
   // The header must be includable from C
   int rc_obj = std::system(
-      ("c++ -std=c++17 -O0 -Werror" + hostCAbiCompileFlags + " -c "
+      (getTestCxxCompiler() + " -std=c++17 -O0 -Werror" + hostCAbiCompileFlags + " -c "
        "-I/tmp/hirct_cabi_cadd "
        "/tmp/hirct_cabi_cadd/CAdd.cpp "
        "-o /tmp/hirct_cabi_cadd/CAdd.o 2>&1")
@@ -7248,7 +7264,7 @@ int main(void) {
   ASSERT_EQ(rc_obj, 0) << "C model must compile as C++ object";
 
   int rc_drv = std::system(
-      ("cc -std=c11 -O0 -Werror" + hostCAbiCompileFlags + " -c "
+      (getTestCCompiler() + " -std=c11 -O0 -Werror" + hostCAbiCompileFlags + " -c "
        "-I/tmp/hirct_cabi_cadd "
        "/tmp/hirct_cabi_cadd/driver.c "
        "-o /tmp/hirct_cabi_cadd/driver.o 2>&1")
@@ -7256,9 +7272,10 @@ int main(void) {
   ASSERT_EQ(rc_drv, 0) << "C driver must compile with C compiler";
 
   int rc_link = std::system(
-      "c++ -o /tmp/hirct_cabi_cadd/test "
-      "/tmp/hirct_cabi_cadd/CAdd.o "
-      "/tmp/hirct_cabi_cadd/driver.o 2>&1");
+      (getTestCxxCompiler() + " -o /tmp/hirct_cabi_cadd/test "
+       "/tmp/hirct_cabi_cadd/CAdd.o "
+       "/tmp/hirct_cabi_cadd/driver.o 2>&1")
+          .c_str());
   ASSERT_EQ(rc_link, 0) << "C driver + C++ model must link";
 
   int run_rc = std::system("/tmp/hirct_cabi_cadd/test");
@@ -7351,7 +7368,7 @@ int main(void) {
   }
 
   int rc_obj = std::system(
-      ("c++ -std=c++17 -O0 -Werror" + hostCAbiCompileFlags + " -c "
+      (getTestCxxCompiler() + " -std=c++17 -O0 -Werror" + hostCAbiCompileFlags + " -c "
        "-I/tmp/hirct_cabi_ctr "
        "/tmp/hirct_cabi_ctr/CAbiCtr.cpp "
        "-o /tmp/hirct_cabi_ctr/CAbiCtr.o 2>&1")
@@ -7359,7 +7376,7 @@ int main(void) {
   ASSERT_EQ(rc_obj, 0) << "C model must compile as C++ object";
 
   int rc_drv = std::system(
-      ("cc -std=c11 -O0 -Werror" + hostCAbiCompileFlags + " -c "
+      (getTestCCompiler() + " -std=c11 -O0 -Werror" + hostCAbiCompileFlags + " -c "
        "-I/tmp/hirct_cabi_ctr "
        "/tmp/hirct_cabi_ctr/driver.c "
        "-o /tmp/hirct_cabi_ctr/driver.o 2>&1")
@@ -7367,9 +7384,10 @@ int main(void) {
   ASSERT_EQ(rc_drv, 0) << "C driver must compile with C compiler";
 
   int rc_link = std::system(
-      "c++ -o /tmp/hirct_cabi_ctr/test "
-      "/tmp/hirct_cabi_ctr/CAbiCtr.o "
-      "/tmp/hirct_cabi_ctr/driver.o 2>&1");
+      (getTestCxxCompiler() + " -o /tmp/hirct_cabi_ctr/test "
+       "/tmp/hirct_cabi_ctr/CAbiCtr.o "
+       "/tmp/hirct_cabi_ctr/driver.o 2>&1")
+          .c_str());
   ASSERT_EQ(rc_link, 0) << "C driver + C++ model must link";
 
   int run_rc = std::system("/tmp/hirct_cabi_ctr/test");
@@ -7443,7 +7461,7 @@ int main(void) {
 
   // Both must compile and link
   int rc_cpp = std::system(
-      ("c++ -std=c++17 -O0 -Werror" + hostCAbiCompileFlags + " "
+      (getTestCxxCompiler() + " -std=c++17 -O0 -Werror" + hostCAbiCompileFlags + " "
        "-I/tmp/hirct_cabi_bridge "
        "/tmp/hirct_cabi_bridge/Bridge.cpp "
        "/tmp/hirct_cabi_bridge/cpp_driver.cpp "
@@ -7455,7 +7473,7 @@ int main(void) {
   EXPECT_EQ(run_cpp, 0) << "C++ bridge runtime must pass";
 
   int rc_c_obj = std::system(
-      ("cc -std=c11 -O0 -Werror" + hostCAbiCompileFlags + " -c "
+      (getTestCCompiler() + " -std=c11 -O0 -Werror" + hostCAbiCompileFlags + " -c "
        "-I/tmp/hirct_cabi_bridge "
        "/tmp/hirct_cabi_bridge/c_driver.c "
        "-o /tmp/hirct_cabi_bridge/c_driver.o 2>&1")
@@ -7463,7 +7481,7 @@ int main(void) {
   ASSERT_EQ(rc_c_obj, 0) << "C bridge compile must work";
 
   int rc_model_obj = std::system(
-      ("c++ -std=c++17 -O0 -Werror" + hostCAbiCompileFlags + " -c "
+      (getTestCxxCompiler() + " -std=c++17 -O0 -Werror" + hostCAbiCompileFlags + " -c "
        "-I/tmp/hirct_cabi_bridge "
        "/tmp/hirct_cabi_bridge/Bridge.cpp "
        "-o /tmp/hirct_cabi_bridge/Bridge.o 2>&1")
@@ -7471,9 +7489,10 @@ int main(void) {
   ASSERT_EQ(rc_model_obj, 0) << "C++ model object compile must work";
 
   int rc_link = std::system(
-      "c++ -o /tmp/hirct_cabi_bridge/test_c "
-      "/tmp/hirct_cabi_bridge/Bridge.o "
-      "/tmp/hirct_cabi_bridge/c_driver.o 2>&1");
+      (getTestCxxCompiler() + " -o /tmp/hirct_cabi_bridge/test_c "
+       "/tmp/hirct_cabi_bridge/Bridge.o "
+       "/tmp/hirct_cabi_bridge/c_driver.o 2>&1")
+          .c_str());
   ASSERT_EQ(rc_link, 0) << "C driver + C++ model must link";
 
   int run_c = std::system("/tmp/hirct_cabi_bridge/test_c");
@@ -7606,10 +7625,10 @@ int main() {
   }
 
   int rc = std::system(
-      "c++ -std=c++17 -O0 -o /tmp/hirct_test_firmem_rbw_rt/test "
+      (getTestCxxCompiler() + " -std=c++17 -O0 -o /tmp/hirct_test_firmem_rbw_rt/test "
       "-I/tmp/hirct_test_firmem_rbw_rt "
       "/tmp/hirct_test_firmem_rbw_rt/driver.cpp "
-      "/tmp/hirct_test_firmem_rbw_rt/FirmemRBWRT.cpp 2>&1");
+      "/tmp/hirct_test_firmem_rbw_rt/FirmemRBWRT.cpp 2>&1").c_str());
   ASSERT_EQ(rc, 0) << "firmem read-before-write test must compile";
 
   int run = std::system("/tmp/hirct_test_firmem_rbw_rt/test");
