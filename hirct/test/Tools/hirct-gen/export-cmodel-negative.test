@@ -1,0 +1,12 @@
+// Negative-path tests for CLI export guards.
+//
+// B-1: .v input with --export-cmodel must be rejected.
+// RUN: rm -f %t.v && touch %t.v
+// RUN: not %hirct-gen %t.v --export-cmodel 2>&1 | %FileCheck %s --check-prefix=CHECK-V-REJECT
+//
+// CHECK-V-REJECT: Error: --export-cmodel requires .mlir input
+//
+// B-2: --export-systemc-wrapper without --export-cmodel must be rejected.
+// RUN: not %hirct-gen %S/../../fixtures/CombOnly.mlir --export-systemc-wrapper 2>&1 | %FileCheck %s --check-prefix=CHECK-WRAP-REQ
+//
+// CHECK-WRAP-REQ: Error: --export-systemc-wrapper requires --export-cmodel

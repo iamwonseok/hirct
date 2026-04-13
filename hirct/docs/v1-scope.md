@@ -16,7 +16,7 @@
 | 항목 | 범위 | 테스트 근거 |
 |------|------|-------------|
 | **입력 형식 (positive path)** | Arc MLIR (`.mlir`) 입력으로 C model export가 동작한다 | `test/Tools/hirct-gen/export-cmodel.test` (CombOnly.mlir, CounterArc.mlir) — test-backed |
-| **입력 형식 (`.mlir` only guard)** | `--export-cmodel`은 `.mlir` 입력만 허용한다. `.v` 입력 시 error exit. 이 제약은 `main.cpp` code guard로 강제되지만 dedicated negative lit는 없다 | `main.cpp` L1000–1002 (`!is_mlir_input` 거부) — code-guard-backed |
+| **입력 형식 (`.mlir` only guard)** | `--export-cmodel`은 `.mlir` 입력만 허용한다. `.v` 입력 시 error exit | `export-cmodel-negative.test` CHECK-V-REJECT — test-backed |
 | **semantic scope (single target export)** | `--export-cmodel`은 단일 모듈을 선택하여 export한다. `--top`으로 지정하거나 마지막 `hw.module`을 선택한다. hierarchy-preserving export는 이 범위 밖이다 | `export-cmodel.test`: happy-path는 single-module `.mlir` 사용 (test-backed). `--top` fallback(마지막 `hw.module` 선택)과 multi-module `.mlir`에서의 단일 선택은 `main.cpp` code path에서 확인 가능하나 dedicated lit 없음 (code-path-backed) |
 | **invalid `--top` rejection** | 존재하지 않는 모듈 이름 → 명시적 error exit (silent fallback 없음) | `--export-cmodel`와 함께일 때: `export-cmodel.test` CHECK-BAD-TOP — test-backed. `--export-cmodel` 없이 동일 lookup을 타는 경로는 `main.cpp`와 동일 메시지이나 dedicated negative lit 없음 — code-path-backed |
 | **C model export** | `--export-cmodel` → `<Module>.h` + `<Module>.cpp` (`<Module>_state`, `_eval_comb`, `_eval_<clock>`; `_initialize`는 `CModelEmitter.cpp`에서 항상 생성되나 lit CHECK에서 직접 검증 없음 — code-path-backed) | `export-cmodel.test` CHECK-COMB-H, CHECK-COMB-CPP, CHECK-CLK-H, CHECK-CLK-CPP, CHECK-MEM-H, CHECK-MEM-CPP; `export-cmodel-aggregate.test` CHECK-H, CHECK-CPP + `c++ -fsyntax-only` compile proof |
@@ -73,13 +73,13 @@ hirct-gen [options] <input>
 
 --export-cmodel
   `.mlir` 입력 필수. `.v` 입력 시 error.
-  이 제약은 현재 `main.cpp` code guard로 존재하며 dedicated negative lit는 아직 없다.
+  `export-cmodel-negative.test` CHECK-V-REJECT로 검증 (test-backed).
   single-top export: --top <M> 또는 마지막 hw.module.
   출력: <outputDir>/<Module>.h, <Module>.cpp
 
 --export-systemc-wrapper
   --export-cmodel 필수 (없으면 error).
-  이 제약은 현재 `main.cpp` code guard로 존재하며 dedicated negative lit는 아직 없다.
+  `export-cmodel-negative.test` CHECK-WRAP-REQ로 검증 (test-backed).
   hierarchical root(top)에 대해서도 wrapper 생성 가능.
   child module별 wrapper는 생성하지 않고, root wrapper가 root C model API를 호출한다.
   v1 범위: single-clock, <=64-bit I/O.
@@ -98,7 +98,7 @@ hirct-gen [options] <input>
 | 문서 주장 | 근거 | evidence class |
 |-----------|------|----------------|
 | 입력 형식 — `.mlir` positive path | `export-cmodel.test` (CombOnly.mlir, CounterArc.mlir) | test-backed |
-| 입력 형식 — `.mlir` only / `.v` reject | `main.cpp` L1000–1002 code guard; dedicated negative lit 없음 | code-guard-backed |
+| 입력 형식 — `.mlir` only / `.v` reject | `export-cmodel-negative.test` CHECK-V-REJECT | test-backed |
 | semantic scope — single-module happy path | `export-cmodel.test` happy-path (single-module `.mlir` 사용) | test-backed |
 | semantic scope — `--top` fallback, multi-module single selection | `main.cpp` target selection code path; dedicated lit 없음 | code-path-backed |
 | invalid `--top` rejection (`--export-cmodel` 경로) | `--export-cmodel` + 존재하지 않는 `--top` → error exit | test-backed |
@@ -116,4 +116,4 @@ hirct-gen [options] <input>
 | instance output cross-reference | `instance-crossref.test` (passing); `export-cmodel-hierarchy.test` CHECK-B3-XREF | test-backed |
 | multi-clock wrapper 거부 | `export-systemc-wrapper.test` CHECK-MC-ERR | test-backed |
 | wide wrapper I/O 거부 | `export-systemc-wrapper.test` CHECK-WP-ERR | test-backed |
-| wrapper requires cmodel | `main.cpp` L994–997 code guard; dedicated negative lit 없음 | code-guard-backed |
+| wrapper requires cmodel | `export-cmodel-negative.test` CHECK-WRAP-REQ | test-backed |
