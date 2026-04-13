@@ -72,6 +72,17 @@ public:
   mlir::MLIRContext ctx_;
 };
 
+static std::string getHostCAbiPortableCompileFlags() {
+#if defined(__linux__)
+  // Linux toolchains may link executables as PIE by default. Compile the
+  // temporary Host C ABI test sources accordingly so the link step stays
+  // portable without changing the emitted C ABI surface under test.
+  return " -fPIE";
+#else
+  return "";
+#endif
+}
+
 // ---------------------------------------------------------------------------
 // Task 3A: Exporter surface tests
 // ---------------------------------------------------------------------------
@@ -7133,6 +7144,14 @@ TEST_F(CModelEmitterFixture, IcmpSignedSgeCodegen) {
 // Host C ABI Seam Tests
 // ---------------------------------------------------------------------------
 
+TEST_F(CModelEmitterFixture, HostCAbi_PortableCompileFlagsMatchPlatformPolicy) {
+#if defined(__linux__)
+  EXPECT_EQ(getHostCAbiPortableCompileFlags(), " -fPIE");
+#else
+  EXPECT_TRUE(getHostCAbiPortableCompileFlags().empty());
+#endif
+}
+
 TEST_F(CModelEmitterFixture, HostCAbi_HeaderIsCCompatible) {
   auto module = parseInline(R"mlir(
     module {
@@ -7193,6 +7212,7 @@ TEST_F(CModelEmitterFixture, HostCAbi_CombOnly_CompileAsC) {
 
   std::system("mkdir -p /tmp/hirct_cabi_cadd");
   ASSERT_TRUE(hirct::writeArtifact(artifact));
+  const std::string hostCAbiCompileFlags = getHostCAbiPortableCompileFlags();
 
   // Write a pure C driver
   {
@@ -7220,17 +7240,19 @@ int main(void) {
   // Compile generated .cpp as C++ object, then link with C driver
   // The header must be includable from C
   int rc_obj = std::system(
-      "c++ -std=c++17 -O0 -Werror -c "
-      "-I/tmp/hirct_cabi_cadd "
-      "/tmp/hirct_cabi_cadd/CAdd.cpp "
-      "-o /tmp/hirct_cabi_cadd/CAdd.o 2>&1");
+      ("c++ -std=c++17 -O0 -Werror" + hostCAbiCompileFlags + " -c "
+       "-I/tmp/hirct_cabi_cadd "
+       "/tmp/hirct_cabi_cadd/CAdd.cpp "
+       "-o /tmp/hirct_cabi_cadd/CAdd.o 2>&1")
+          .c_str());
   ASSERT_EQ(rc_obj, 0) << "C model must compile as C++ object";
 
   int rc_drv = std::system(
-      "cc -std=c11 -O0 -Werror -c "
-      "-I/tmp/hirct_cabi_cadd "
-      "/tmp/hirct_cabi_cadd/driver.c "
-      "-o /tmp/hirct_cabi_cadd/driver.o 2>&1");
+      ("cc -std=c11 -O0 -Werror" + hostCAbiCompileFlags + " -c "
+       "-I/tmp/hirct_cabi_cadd "
+       "/tmp/hirct_cabi_cadd/driver.c "
+       "-o /tmp/hirct_cabi_cadd/driver.o 2>&1")
+          .c_str());
   ASSERT_EQ(rc_drv, 0) << "C driver must compile with C compiler";
 
   int rc_link = std::system(
@@ -7282,6 +7304,7 @@ TEST_F(CModelEmitterFixture, HostCAbi_SingleClock_CompileAsC) {
 
   std::system("mkdir -p /tmp/hirct_cabi_ctr");
   ASSERT_TRUE(hirct::writeArtifact(artifact));
+  const std::string hostCAbiCompileFlags = getHostCAbiPortableCompileFlags();
 
   // Pure C driver exercising init/set/eval_comb/eval_clk/get
   {
@@ -7328,17 +7351,19 @@ int main(void) {
   }
 
   int rc_obj = std::system(
-      "c++ -std=c++17 -O0 -Werror -c "
-      "-I/tmp/hirct_cabi_ctr "
-      "/tmp/hirct_cabi_ctr/CAbiCtr.cpp "
-      "-o /tmp/hirct_cabi_ctr/CAbiCtr.o 2>&1");
+      ("c++ -std=c++17 -O0 -Werror" + hostCAbiCompileFlags + " -c "
+       "-I/tmp/hirct_cabi_ctr "
+       "/tmp/hirct_cabi_ctr/CAbiCtr.cpp "
+       "-o /tmp/hirct_cabi_ctr/CAbiCtr.o 2>&1")
+          .c_str());
   ASSERT_EQ(rc_obj, 0) << "C model must compile as C++ object";
 
   int rc_drv = std::system(
-      "cc -std=c11 -O0 -Werror -c "
-      "-I/tmp/hirct_cabi_ctr "
-      "/tmp/hirct_cabi_ctr/driver.c "
-      "-o /tmp/hirct_cabi_ctr/driver.o 2>&1");
+      ("cc -std=c11 -O0 -Werror" + hostCAbiCompileFlags + " -c "
+       "-I/tmp/hirct_cabi_ctr "
+       "/tmp/hirct_cabi_ctr/driver.c "
+       "-o /tmp/hirct_cabi_ctr/driver.o 2>&1")
+          .c_str());
   ASSERT_EQ(rc_drv, 0) << "C driver must compile with C compiler";
 
   int rc_link = std::system(
@@ -7376,6 +7401,7 @@ TEST_F(CModelEmitterFixture, HostCAbi_ArtifactCompile_CppBridge) {
 
   std::system("mkdir -p /tmp/hirct_cabi_bridge");
   ASSERT_TRUE(hirct::writeArtifact(artifact));
+  const std::string hostCAbiCompileFlags = getHostCAbiPortableCompileFlags();
 
   // C++ driver including the same header
   {
@@ -7417,28 +7443,31 @@ int main(void) {
 
   // Both must compile and link
   int rc_cpp = std::system(
-      "c++ -std=c++17 -O0 -Werror "
-      "-I/tmp/hirct_cabi_bridge "
-      "/tmp/hirct_cabi_bridge/Bridge.cpp "
-      "/tmp/hirct_cabi_bridge/cpp_driver.cpp "
-      "-o /tmp/hirct_cabi_bridge/test_cpp 2>&1");
+      ("c++ -std=c++17 -O0 -Werror" + hostCAbiCompileFlags + " "
+       "-I/tmp/hirct_cabi_bridge "
+       "/tmp/hirct_cabi_bridge/Bridge.cpp "
+       "/tmp/hirct_cabi_bridge/cpp_driver.cpp "
+       "-o /tmp/hirct_cabi_bridge/test_cpp 2>&1")
+          .c_str());
   ASSERT_EQ(rc_cpp, 0) << "C++ bridge compile must work";
 
   int run_cpp = std::system("/tmp/hirct_cabi_bridge/test_cpp");
   EXPECT_EQ(run_cpp, 0) << "C++ bridge runtime must pass";
 
   int rc_c_obj = std::system(
-      "cc -std=c11 -O0 -Werror -c "
-      "-I/tmp/hirct_cabi_bridge "
-      "/tmp/hirct_cabi_bridge/c_driver.c "
-      "-o /tmp/hirct_cabi_bridge/c_driver.o 2>&1");
+      ("cc -std=c11 -O0 -Werror" + hostCAbiCompileFlags + " -c "
+       "-I/tmp/hirct_cabi_bridge "
+       "/tmp/hirct_cabi_bridge/c_driver.c "
+       "-o /tmp/hirct_cabi_bridge/c_driver.o 2>&1")
+          .c_str());
   ASSERT_EQ(rc_c_obj, 0) << "C bridge compile must work";
 
   int rc_model_obj = std::system(
-      "c++ -std=c++17 -O0 -Werror -c "
-      "-I/tmp/hirct_cabi_bridge "
-      "/tmp/hirct_cabi_bridge/Bridge.cpp "
-      "-o /tmp/hirct_cabi_bridge/Bridge.o 2>&1");
+      ("c++ -std=c++17 -O0 -Werror" + hostCAbiCompileFlags + " -c "
+       "-I/tmp/hirct_cabi_bridge "
+       "/tmp/hirct_cabi_bridge/Bridge.cpp "
+       "-o /tmp/hirct_cabi_bridge/Bridge.o 2>&1")
+          .c_str());
   ASSERT_EQ(rc_model_obj, 0) << "C++ model object compile must work";
 
   int rc_link = std::system(
