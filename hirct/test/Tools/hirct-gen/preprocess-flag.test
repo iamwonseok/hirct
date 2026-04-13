@@ -4,5 +4,6 @@
 // RUN: not %hirct-gen --preprocess invalid dummy.mlir -o %t 2>&1 | %FileCheck %s --check-prefix=CHECK-INVALID
 //
 // CHECK-HELP: --preprocess <mode>
-// CHECK-HELP: Preprocessing mode: none, verilator
+// CHECK-HELP: debug preprocessor output
+// CHECK-HELP: does not affect import
 // CHECK-INVALID: error: unknown preprocess mode 'invalid' (expected: none, verilator)

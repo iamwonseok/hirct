@@ -39,9 +39,15 @@ VerilogLoadResult load_verilog(mlir::MLIRContext &ctx,
   }
 
   circt::ImportVerilogOptions import_opts;
-  import_opts.libDirs = opts.lib_dirs;
   import_opts.includeDirs = opts.include_dirs;
+  import_opts.libDirs = opts.lib_dirs;
   import_opts.libraryFiles = opts.lib_files;
+  import_opts.defines = opts.defines;
+  import_opts.libExts = opts.lib_exts;
+  if (!opts.timescale.empty())
+    import_opts.timeScale = opts.timescale;
+  if (opts.ignore_unknown_modules)
+    import_opts.ignoreUnknownModules = true;
   if (!opts.top_module.empty())
     import_opts.topModules.push_back(opts.top_module);
 

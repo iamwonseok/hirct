@@ -1,0 +1,13 @@
+// Regression: +define+ macros from filelist must propagate to Slang
+// via direct import path.  Without this, conditional compilation
+// blocks (`ifdef) resolve incorrectly.
+//
+// Build a filelist with absolute paths so it works regardless of cwd.
+// RUN: echo "+define+USE_AND" > %t.f
+// RUN: echo "%S/Inputs/define_mod.v" >> %t.f
+// RUN: %hirct-gen --no-auto-lib --dump-ir \
+// RUN:   -f %t.f -o %t 2>&1 | %FileCheck %s
+//
+// The module must be imported; define propagation is required for
+// the `ifdef USE_AND branch to be selected.
+// CHECK: hw.module @define_mod

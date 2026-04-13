@@ -1,0 +1,12 @@
+// Regression: -y library directories must resolve sub-modules in direct
+// import path (Slang).  Prior verilator -E path silently dropped -y dirs
+// when feeding _preprocessed.v to importVerilog.
+//
+// RUN: %hirct-gen --no-auto-lib --dump-ir \
+// RUN:   --lib-dir %S/Inputs/lib_resolve/libdir \
+// RUN:   %S/Inputs/lib_resolve/top_with_sub.v -o %t 2>&1 \
+// RUN:   | %FileCheck %s
+//
+// Both top and sub module must appear in the output IR.
+// CHECK-DAG: hw.module @top_with_sub
+// CHECK-DAG: hw.module {{.*}}@sub_mod

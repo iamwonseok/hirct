@@ -93,10 +93,12 @@ void print_usage(const char *prog) {
                "(repeatable)\n"
                "  --no-auto-lib     Disable automatic library directory "
                "detection\n"
-               "  --preprocess <mode>  Preprocessing mode: none, verilator "
+               "  --preprocess <mode>  Write debug preprocessor output: none, verilator "
                "(default: none)\n"
-               "  --verilator-path <p> Path to verilator binary (default: PATH "
-               "lookup)\n"
+               "                       Note: does not affect import; Verilog import "
+               "always uses direct Slang path\n"
+               "  --verilator-path <p> Path to verilator binary for --preprocess "
+               "(default: PATH lookup)\n"
                "  --timescale <ts>  Default timescale (default: 1ns/10ps)\n"
                "  --pipeline <passes>        Pass chain (comma-separated, default: full lowering)\n"
                "                             Passes: sim-cleanup, unroll-process-loops, remove-control-flow,\n"
@@ -936,8 +938,9 @@ int main(int argc, char *argv[]) {
       }
     }
   } else {
-    hirct::VerilogLoadOptions load_opts;
-
+    // --preprocess verilator: debug/inspection output only, NOT part of
+    // the canonical import path.  The preprocessed file is written to
+    // <output_dir>/_preprocessed.v but is never fed into load_verilog().
     if (opts.preprocess == "verilator") {
       hirct::PreprocessOptions pp_opts;
       pp_opts.input_files = inputs;
@@ -953,23 +956,21 @@ int main(int argc, char *argv[]) {
 
       auto pp_result = hirct::run_verilator_preprocess(pp_opts);
       if (!pp_result.success) {
-        std::cerr << "error: verilator preprocessing failed: "
+        std::cerr << "warning: verilator preprocessing failed (debug only): "
                   << pp_result.error_message << "\n";
-        return 1;
+      } else if (opts.verbose) {
+        std::cout << "Preprocessed output (debug): " << pp_result.output_file
+                  << "\n";
       }
-
-      if (opts.verbose) {
-        std::cout << "Preprocessed output: " << pp_result.output_file << "\n";
-      }
-
-      load_opts.input_files = {pp_result.output_file};
-    } else {
-      load_opts.input_files = inputs;
-      load_opts.include_dirs = filelist_inc_dirs;
-      load_opts.lib_dirs = lib_dirs;
-      load_opts.lib_files = filelist_lib_files;
     }
 
+    hirct::VerilogLoadOptions load_opts;
+    load_opts.input_files = inputs;
+    load_opts.include_dirs = filelist_inc_dirs;
+    load_opts.lib_dirs = lib_dirs;
+    load_opts.lib_files = filelist_lib_files;
+    load_opts.defines = filelist_defines;
+    load_opts.timescale = opts.timescale;
     if (!opts.top_module.empty())
       load_opts.top_module = opts.top_module;
     load_opts.enable_timing = opts.timing;

@@ -1,0 +1,13 @@
+// Contract: --preprocess verilator is debug/inspection only.
+// The canonical import path must still use direct Slang import,
+// not the _preprocessed.v file.
+//
+// This test verifies that even with --preprocess verilator, the
+// tool uses the direct import path and produces correct IR.
+//
+// REQUIRES: verilator
+// RUN: %hirct-gen --preprocess verilator --no-auto-lib --dump-ir \
+// RUN:   %S/Inputs/timescale_mod.v -o %t 2>&1 | %FileCheck %s
+//
+// The import must succeed via direct path regardless of preprocess mode.
+// CHECK: hw.module @timescale_mod

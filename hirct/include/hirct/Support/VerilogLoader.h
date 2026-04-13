@@ -14,7 +14,11 @@ struct VerilogLoadOptions {
   std::vector<std::string> lib_dirs;
   std::vector<std::string> include_dirs;
   std::vector<std::string> lib_files;
+  std::vector<std::string> defines;
+  std::vector<std::string> lib_exts;
   std::string top_module;
+  std::string timescale;
+  bool ignore_unknown_modules = false;
   bool canonicalize = false;
   bool enable_timing = false;
 };

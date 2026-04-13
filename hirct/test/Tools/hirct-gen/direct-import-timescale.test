@@ -1,0 +1,9 @@
+// Regression: --timescale must propagate to Slang via direct import path.
+// Without this, modules lacking explicit `timescale will fail elaboration
+// or use wrong defaults.
+//
+// RUN: %hirct-gen --timescale 1ns/1ps --no-auto-lib --dump-ir \
+// RUN:   %S/Inputs/timescale_mod.v -o %t 2>&1 | %FileCheck %s
+//
+// Verify that the import succeeds and produces hw.module IR.
+// CHECK: hw.module @timescale_mod
