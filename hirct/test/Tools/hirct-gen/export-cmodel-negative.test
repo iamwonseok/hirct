@@ -10,3 +10,8 @@
 // RUN: not %hirct-gen %S/../../fixtures/CombOnly.mlir --export-systemc-wrapper 2>&1 | %FileCheck %s --check-prefix=CHECK-WRAP-REQ
 //
 // CHECK-WRAP-REQ: Error: --export-systemc-wrapper requires --export-cmodel
+//
+// D-1: invalid --top without --export-cmodel must still fail (non-export lookup path).
+// RUN: not %hirct-gen %S/../../fixtures/CombOnly.mlir --top NonExistent 2>&1 | %FileCheck %s --check-prefix=CHECK-BAD-TOP-NOEXPORT
+//
+// CHECK-BAD-TOP-NOEXPORT: Error: top module not found: NonExistent

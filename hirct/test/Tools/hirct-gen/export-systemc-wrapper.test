@@ -19,6 +19,20 @@
 // CHECK-WI: eval_method
 // CHECK-WI: clock_method
 //
+// --- Width-bucket type mapping: <=64-bit I/O (comb-only, no clock) ---
+// WideSignal has i1 (sel), i2 (mode), i8 (ch0), i16 (en), i32 (cfg_a), i64 (data_a) ports.
+// RUN: %hirct-gen %S/../../fixtures/WideSignal.mlir -o %t_wb --export-cmodel --export-systemc-wrapper
+// RUN: %FileCheck %s --check-prefix=CHECK-WB-H < %t_wb/WideSignal_sc_wrapper.h
+//
+// CHECK-WB-H: sc_in<sc_dt::sc_uint<64>> data_a
+// CHECK-WB-H: sc_in<bool> sel
+// CHECK-WB-H: sc_in<sc_dt::sc_uint<8>> mode
+// CHECK-WB-H: sc_in<sc_dt::sc_uint<8>> ch0
+// CHECK-WB-H: sc_in<sc_dt::sc_uint<16>> en
+// CHECK-WB-H: sc_in<sc_dt::sc_uint<32>> cfg_a
+// CHECK-WB-H: sc_out<sc_dt::sc_uint<64>> data_out
+// CHECK-WB-H: sc_out<bool> valid
+//
 // --- Negative: multi-clock module must be rejected ---
 // RUN: not %hirct-gen %S/../../fixtures/DualClkArc.mlir -o %t/mc --export-cmodel --export-systemc-wrapper 2>&1 | %FileCheck %s --check-prefix=CHECK-MC-ERR
 // CHECK-MC-ERR: error: SystemC wrapper v1 does not support multi-clock modules (found 2 clock domains); only single-clock modules are supported

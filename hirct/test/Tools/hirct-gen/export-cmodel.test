@@ -8,8 +8,10 @@
 // RUN: %FileCheck %s --check-prefix=CHECK-COMB-CPP < %t/CombOnly.cpp
 //
 // CHECK-COMB-H: CombOnly_state
+// CHECK-COMB-H: CombOnly_initialize
 // CHECK-COMB-H: eval_comb
 //
+// CHECK-COMB-CPP: CombOnly_initialize
 // CHECK-COMB-CPP: CombOnly_eval_comb
 //
 // Clocked module — should produce header + impl with clock eval
@@ -23,8 +25,10 @@
 // RUN: not %hirct-gen %S/../../fixtures/CounterArc.mlir -o %t_bad --top MissingTop --export-cmodel 2>&1 | %FileCheck %s --check-prefix=CHECK-BAD-TOP
 //
 // CHECK-CLK-H: CounterArc_state
+// CHECK-CLK-H: CounterArc_initialize
 // CHECK-CLK-H: eval_comb
 //
+// CHECK-CLK-CPP: CounterArc_initialize
 // CHECK-CLK-CPP: CounterArc_eval_comb
 //
 // CHECK-BAD-TOP: Error: top module not found: MissingTop

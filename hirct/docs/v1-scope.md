@@ -18,11 +18,11 @@
 | **입력 형식 (positive path)** | Arc MLIR (`.mlir`) 입력으로 C model export가 동작한다 | `test/Tools/hirct-gen/export-cmodel.test` (CombOnly.mlir, CounterArc.mlir) — test-backed |
 | **입력 형식 (`.mlir` only guard)** | `--export-cmodel`은 `.mlir` 입력만 허용한다. `.v` 입력 시 error exit | `export-cmodel-negative.test` CHECK-V-REJECT — test-backed |
 | **semantic scope (single target export)** | `--export-cmodel`은 단일 모듈을 선택하여 export한다. `--top`으로 지정하거나 마지막 `hw.module`을 선택한다. hierarchy-preserving export는 이 범위 밖이다 | `export-cmodel.test`: happy-path는 single-module `.mlir` 사용 (test-backed). `--top` fallback(마지막 `hw.module` 선택)과 multi-module `.mlir`에서의 단일 선택은 `main.cpp` code path에서 확인 가능하나 dedicated lit 없음 (code-path-backed) |
-| **invalid `--top` rejection** | 존재하지 않는 모듈 이름 → 명시적 error exit (silent fallback 없음) | `--export-cmodel`와 함께일 때: `export-cmodel.test` CHECK-BAD-TOP — test-backed. `--export-cmodel` 없이 동일 lookup을 타는 경로는 `main.cpp`와 동일 메시지이나 dedicated negative lit 없음 — code-path-backed |
-| **C model export** | `--export-cmodel` → `<Module>.h` + `<Module>.cpp` (`<Module>_state`, `_eval_comb`, `_eval_<clock>`; `_initialize`는 `CModelEmitter.cpp`에서 항상 생성되나 lit CHECK에서 직접 검증 없음 — code-path-backed) | `export-cmodel.test` CHECK-COMB-H, CHECK-COMB-CPP, CHECK-CLK-H, CHECK-CLK-CPP, CHECK-MEM-H, CHECK-MEM-CPP; `export-cmodel-aggregate.test` CHECK-H, CHECK-CPP + `c++ -fsyntax-only` compile proof |
+| **invalid `--top` rejection** | 존재하지 않는 모듈 이름 → 명시적 error exit (silent fallback 없음) | `--export-cmodel`와 함께일 때: `export-cmodel.test` CHECK-BAD-TOP — test-backed. `--export-cmodel` 없이(비-export 경로): `export-cmodel-negative.test` CHECK-BAD-TOP-NOEXPORT — test-backed |
+| **C model export** | `--export-cmodel` → `<Module>.h` + `<Module>.cpp` (`<Module>_state`, `_eval_comb`, `_eval_<clock>`, `_initialize`) | `export-cmodel.test` CHECK-COMB-H, CHECK-COMB-CPP, CHECK-CLK-H, CHECK-CLK-CPP, CHECK-MEM-H, CHECK-MEM-CPP (`_initialize` CHECK 포함); `export-cmodel-aggregate.test` CHECK-H, CHECK-CPP + `c++ -fsyntax-only` compile proof — test-backed |
 | **SystemC wrapper export** | `--export-systemc-wrapper` → `<Module>_sc_wrapper.h` + `<Module>_sc_wrapper.cpp` | `export-systemc-wrapper.test` CHECK-WH, CHECK-WI |
 | **single-clock wrapper** | `clock_method()` — 단일 `sc_in_clk` 포트 기준 posedge 트리거 | `export-systemc-wrapper.test` CHECK-WH: `sc_in_clk` |
-| **<=64-bit wrapper I/O** | 1-bit 포트는 `bool`, 그 외 2..64-bit 포트는 `sc_dt::sc_uint<8\|16\|32\|64>` bucket으로 매핑된다 | `SystemCWrapperEmitter.cpp:scPortType()`; `export-systemc-wrapper.test` (happy-path 구조만 CHECK, 개별 width 타입 CHECK 없음) |
+| **<=64-bit wrapper I/O** | 1-bit 포트는 `bool`, 그 외 2..64-bit 포트는 `sc_dt::sc_uint<8\|16\|32\|64>` bucket으로 매핑된다 | `export-systemc-wrapper.test` CHECK-WB-H (WideSignal fixture: i1→bool, i2→sc_uint<8>, i8→sc_uint<8>, i16→sc_uint<16>, i32→sc_uint<32>, i64→sc_uint<64>) — test-backed |
 | **combinational module** | clock 없는 모듈도 C model export 가능 (eval_comb만 생성) | `export-cmodel.test` CHECK-COMB-H |
 
 ### SemanticModel (`%hirct-semantic`, export 경로와 별개)
@@ -87,8 +87,8 @@ hirct-gen [options] <input>
 
 --top <module>
   존재하지 않는 모듈 이름 시 error exit (silent fallback 없음).
-  `--export-cmodel`와 함께 사용할 때의 invalid `--top`는 `export-cmodel.test`(CHECK-BAD-TOP)로 검증된다.
-  그 외 플래그 조합에서도 `main.cpp`에서 동일하게 거부되나, 그에 대한 dedicated negative lit는 아직 없다 (code-path-backed).
+  `--export-cmodel`와 함께: `export-cmodel.test` CHECK-BAD-TOP (test-backed).
+  비-export 경로: `export-cmodel-negative.test` CHECK-BAD-TOP-NOEXPORT (test-backed).
 ```
 
 ---
@@ -102,12 +102,12 @@ hirct-gen [options] <input>
 | semantic scope — single-module happy path | `export-cmodel.test` happy-path (single-module `.mlir` 사용) | test-backed |
 | semantic scope — `--top` fallback, multi-module single selection | `main.cpp` target selection code path; dedicated lit 없음 | code-path-backed |
 | invalid `--top` rejection (`--export-cmodel` 경로) | `--export-cmodel` + 존재하지 않는 `--top` → error exit | test-backed |
-| invalid `--top` rejection (기타 경로) | `main.cpp` L1079–1084 동일 거부 로직; dedicated negative lit 없음 | code-path-backed |
+| invalid `--top` rejection (비-export 경로) | `export-cmodel-negative.test` CHECK-BAD-TOP-NOEXPORT | test-backed |
 | C model export (`_state`, `_eval_comb`, `_eval_<clock>`) | `export-cmodel.test` CHECK-COMB-H/CPP, CHECK-CLK-H/CPP, CHECK-MEM-H/CPP; `export-cmodel-aggregate.test` CHECK-H/CPP + compile proof | test-backed |
-| `_initialize` in API | `CModelEmitter.cpp` 항상 생성; lit CHECK에서 `_initialize` 직접 검증 없음 | code-path-backed |
+| `_initialize` in API | `export-cmodel.test` CHECK-COMB-H/CPP, CHECK-CLK-H/CPP에서 `_initialize` 직접 CHECK | test-backed |
 | SystemC wrapper export | `export-systemc-wrapper.test` | test-backed |
 | single-clock wrapper | `export-systemc-wrapper.test` CHECK-WH | test-backed |
-| <=64-bit wrapper I/O | `SystemCWrapperEmitter.cpp:scPortType()`; `export-systemc-wrapper.test` (happy-path 구조만 CHECK, 개별 width 타입 CHECK 없음) | code-guard-backed |
+| <=64-bit wrapper I/O | `export-systemc-wrapper.test` CHECK-WB-H (WideSignal: i1→bool, i2→sc_uint<8>, i16→sc_uint<16>, i32→sc_uint<32>, i64→sc_uint<64>) | test-backed |
 | combinational module | `export-cmodel.test` CHECK-COMB-H | test-backed |
 | multi-clock SemanticModel | `multi-clock.test` (`%hirct-semantic`, **모델 전용**) | test-backed |
 | wide-port SemanticModel | `wide-port.test` (`%hirct-semantic`, **모델 전용**) | test-backed |
