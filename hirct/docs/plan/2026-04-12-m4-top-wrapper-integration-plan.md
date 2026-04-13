@@ -231,3 +231,55 @@ Expected: optional next-scope items remain bounded.
 - multi-clock / wide-I/O decision timing is explicit
 - end-to-end fixtures and verification commands exist
 - baseline promotion gate is written down
+
+---
+
+## M4 Closure Record
+
+> **Verdict: M4 closed**
+> **Date:** 2026-04-13
+> **Closed by:** docs-only closure worker
+
+### Resolved Blockers (시간순)
+
+| # | Commit | Blocker | 해결 내용 |
+|---|--------|---------|-----------|
+| 1 | `10a22a8` | SmallVector clean-build break | SmallVector 관련 빌드 실패가 export 경로 전체를 block. 해당 커밋에서 수정 반영되어 clean build 복원 |
+| 2 | `066c5d6` | Host C ABI Linux compile path portability | Linux PIE / mixed-toolchain 환경에서 HostCAbi 테스트 하네스가 실패하는 portability 문제. 해당 커밋에서 hardening 반영 |
+
+### Verification Evidence
+
+#### 로컬 검증 (pre-server)
+
+M4 구현 단계에서 로컬 빌드 및 테스트 통과 확인. 상세 로그는 개발 세션 기록 참조.
+
+#### 서버 재검증 (final)
+
+| 검증 항목 | 명령 | 결과 |
+|-----------|------|------|
+| CModel emitter build | `ninja -C build CModelEmitterTest` | PASS |
+| HostCAbi focused tests | focused HostCAbi 4건 | 4/4 PASS |
+| CModelEmitterTest full suite | `./build/bin/CModelEmitterTest` | 144/144 PASS |
+| lit test suite | `llvm-lit -sv build/test` | 91/91 PASS |
+
+**최종 판정:** server validation passed
+
+### Functional Scope at Closure
+
+- **top-only wrapper policy 유지:** wrapper는 hierarchical root (final integration top)에만 생성된다.
+- **child wrapper 생성 없음:** child module은 C model backend artifact로만 존재한다.
+- **comb-only hierarchical root wrapper 지원:** clock이 없는 root에도 wrapper 생성 가능.
+
+### Still Deferred After M4
+
+| 항목 | 상태 | 참조 |
+|------|------|------|
+| **multi-clock wrapper** | deferred — `getWrapperV1UnsupportedReason()` reject 유지 | `export-systemc-wrapper.test` CHECK-MC-ERR |
+| **wide wrapper I/O (>64-bit)** | deferred — `getWrapperV1UnsupportedReason()` reject 유지 | `export-systemc-wrapper.test` CHECK-WP-ERR |
+| **per-module child wrapper** | not planned — top-only policy는 v1 최종 결정 | M4 Working Rules |
+| **wide cross-module binding** | deferred (M3에서 이월) | M3 plan Task 7·10 |
+| **indirect comb-chain dependency** | deferred (M3에서 이월) | M3 plan Task 4 |
+| **multi-clock hierarchy** | deferred (M3에서 이월) | M3 plan Task 9 |
+| **sequential cut** | deferred (M3에서 이월) | M3 plan Task 4 |
+
+이 항목들은 scope 확장 없이 현재 reject 동작을 유지한다. 향후 별도 milestone으로 승격 여부를 결정한다.

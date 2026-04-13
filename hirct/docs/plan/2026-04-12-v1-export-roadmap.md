@@ -16,13 +16,13 @@
 
 ## 현재 상태
 
-현재 브랜치는 대략 `M1 후반 ~ M2 초입`에 와 있다.
+> **Updated:** 2026-04-13 (M4 closure)
 
-- `M0` truthful baseline: 거의 도달
-- `M1` flatten-first exporter 안정화: reset semantics, wide/narrow/array/non-port hardening이 상당 부분 완료
-- `M2` flatten-capable composition contract: 아직 설계 단계
-- `M3` hierarchical C model export: 미착수
-- `M4` final integration top + top-level SystemC wrapper: 미착수
+- `M0` truthful baseline: **closed**
+- `M1` flatten-first exporter 안정화: **closed**
+- `M2` flatten-capable composition contract: **closed**
+- `M3` hierarchical C model export: **closed**
+- `M4` final integration top + top-level SystemC wrapper: **closed** — 서버 검증 완료 (144/144 unit, 91/91 lit)
 
 즉, 지금까지의 작업은 헛돈 것이 아니라 `small flattened export top`을 안정적으로 export하는 기반을 단단히 만든 단계로 본다.
 
@@ -129,16 +129,18 @@
 - top-level wrapper는 orchestration 계층이며, C model backend를 직접 재사용한다.
 
 **체크리스트**
-- [ ] wrapper 생성 대상을 `final integration top`으로 한정한다.
-- [ ] 하위 모듈 artifact와 top wrapper 사이 interface contract를 고정한다.
-- [ ] `M3` 완료 후 multi-clock / wide I/O wrapper 정책을 명시적으로 결정한다.
-- [ ] `M4` 범위에서 계속 reject할지, 지원으로 승격할지, next-scope로 미룰지 문서에 고정한다.
-- [ ] end-to-end integration fixture와 acceptance test를 만든다.
-- [ ] M4 완료 조건과 baseline 승격 조건을 문서화한다.
+- [x] wrapper 생성 대상을 `final integration top`으로 한정한다.
+- [x] 하위 모듈 artifact와 top wrapper 사이 interface contract를 고정한다.
+- [x] `M3` 완료 후 multi-clock / wide I/O wrapper 정책을 명시적으로 결정한다. → **deferred 유지로 결정**
+- [x] `M4` 범위에서 계속 reject할지, 지원으로 승격할지, next-scope로 미룰지 문서에 고정한다. → **reject 유지, next-scope deferred**
+- [x] end-to-end integration fixture와 acceptance test를 만든다.
+- [x] M4 완료 조건과 baseline 승격 조건을 문서화한다.
 
 **기대 결과**
 - hierarchy-preserving C model export + top-level wrapper 제공이라는 최종 목표가 달성된다.
 - 이 시점 이후 현재 작업선을 baseline으로 승격할 수 있다.
+
+**Closure:** M4 closed (2026-04-13). 상세는 `2026-04-12-m4-top-wrapper-integration-plan.md` § M4 Closure Record 참조.
 
 ## 운영 규칙
 
