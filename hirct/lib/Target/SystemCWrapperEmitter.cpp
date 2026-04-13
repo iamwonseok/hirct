@@ -21,6 +21,7 @@
 
 #include "hirct/Target/SystemCWrapperEmitter.h"
 
+#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <optional>
@@ -236,12 +237,17 @@ bool writeArtifact(const SystemCWrapperArtifact &artifact) {
     return false;
 
   llvm::raw_fd_ostream implOS(artifact.wrapperImplPath, ec);
-  if (ec)
+  if (ec) {
+    llvm::sys::fs::remove(artifact.wrapperHeaderPath);
     return false;
+  }
   implOS << artifact.wrapperImplContent;
   implOS.close();
-  if (implOS.has_error())
+  if (implOS.has_error()) {
+    llvm::sys::fs::remove(artifact.wrapperHeaderPath);
+    llvm::sys::fs::remove(artifact.wrapperImplPath);
     return false;
+  }
 
   return true;
 }

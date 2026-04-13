@@ -1034,6 +1034,10 @@ int main(int argc, char *argv[]) {
     // Phase 1: Collect reachable module graph from root via DFS.
     //          Detect module-level cycles (3-color DFS) and self-instantiation.
     //          Produce post-order (leaf-first) list of unique modules to emit.
+
+    // C2a: track artifact paths written during this run for failure-time cleanup.
+    std::vector<std::string> writtenArtifactPaths;
+
     enum Color { White, Gray, Black };
     llvm::DenseMap<circt::hw::HWModuleOp, Color> colorMap;
     std::vector<circt::hw::HWModuleOp> postOrder;
@@ -1115,11 +1119,19 @@ int main(int argc, char *argv[]) {
       return true;
     };
 
+    // C2a: cleanup lambda — removes only artifacts written during this run.
+    auto cleanupWrittenArtifacts = [&]() {
+      for (const auto &p : writtenArtifactPaths)
+        std::remove(p.c_str());
+    };
+
     std::vector<std::string> path;
     dfsVisit(target_hw, path);
 
-    if (hasCycle)
+    if (hasCycle) {
+      cleanupWrittenArtifacts();
       return 1;
+    }
 
     // Phase 2: Emit artifacts in post-order (leaf-first).
     bool anyFailed = false;
@@ -1161,6 +1173,7 @@ int main(int argc, char *argv[]) {
         std::cerr << "\n";
         std::cerr << "  instance topological sort requires a DAG; "
                      "combinational cycles are not supported\n";
+        cleanupWrittenArtifacts();
         return 1;
       }
 
@@ -1191,6 +1204,8 @@ int main(int argc, char *argv[]) {
         anyFailed = true;
         break;
       }
+      writtenArtifactPaths.push_back(artifact.headerPath);
+      writtenArtifactPaths.push_back(artifact.implPath);
 
       if (mod == target_hw) {
         rootModel = model;
@@ -1198,21 +1213,27 @@ int main(int argc, char *argv[]) {
       }
     }
 
-    if (anyFailed)
+    if (anyFailed) {
+      cleanupWrittenArtifacts();
       return 1;
+    }
 
     if (opts.export_systemc_wrapper && rootModelBuilt) {
       auto unsupported = hirct::getWrapperV1UnsupportedReason(rootModel);
       if (unsupported) {
         std::cerr << *unsupported << "\n";
+        cleanupWrittenArtifacts();
         return 1;
       }
       hirct::SystemCWrapperEmitter wrapperEmitter(rootModel, cmodelOpts);
       auto wrapperArtifact = wrapperEmitter.emit();
       if (!hirct::writeArtifact(wrapperArtifact)) {
         std::cerr << "Error: failed to write SystemC wrapper artifact\n";
+        cleanupWrittenArtifacts();
         return 1;
       }
+      writtenArtifactPaths.push_back(wrapperArtifact.wrapperHeaderPath);
+      writtenArtifactPaths.push_back(wrapperArtifact.wrapperImplPath);
     }
 
     std::cout << "Exported C model for "

@@ -10,6 +10,7 @@
 #include "hirct/SemanticModel/Validation.h"
 
 #include "circt/Dialect/Arc/ArcOps.h"
+#include "llvm/Support/FileSystem.h"
 #include "circt/Dialect/Comb/CombDialect.h"
 #include "circt/Dialect/HW/HWOps.h"
 #include "circt/Dialect/Seq/SeqOps.h"
@@ -1626,12 +1627,17 @@ bool writeArtifact(const CModelArtifact &artifact) {
     return false;
 
   llvm::raw_fd_ostream implOS(artifact.implPath, ec);
-  if (ec)
+  if (ec) {
+    llvm::sys::fs::remove(artifact.headerPath);
     return false;
+  }
   implOS << artifact.implContent;
   implOS.close();
-  if (implOS.has_error())
+  if (implOS.has_error()) {
+    llvm::sys::fs::remove(artifact.headerPath);
+    llvm::sys::fs::remove(artifact.implPath);
     return false;
+  }
 
   return true;
 }
